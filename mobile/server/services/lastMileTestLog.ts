@@ -7,6 +7,37 @@ import {
   memoryLastMileTests,
   pushMemoryLastMileTest,
 } from "../database/usageStore";
+import {
+  imageStatsOf,
+  LAST_MILE_TEST_IMAGE_FIELDS,
+  type LastMileTestImageField,
+  type LastMileTestImageStats,
+} from "../utils/lastMileTestRow";
+
+export type LastMileTestSummary = Omit<lastMileTestLogInterface, LastMileTestImageField> &
+  LastMileTestImageStats;
+
+/**
+ * Image lengths and data-URL checks computed inside MongoDB. Each trial carries
+ * about 1 MB of base64 images, and pulling them for a whole list exhausts the
+ * Render free instance's memory and CPU.
+ */
+const IMAGE_STATS_STAGE = {
+  $addFields: {
+    imageStats: Object.fromEntries(
+      LAST_MILE_TEST_IMAGE_FIELDS.map((field) => {
+        const value = { $ifNull: [`$${field}`, ""] };
+        return [
+          field,
+          {
+            length: { $strLenCP: value },
+            stored: { $eq: [{ $substrCP: [value, 0, 5] }, "data:"] },
+          },
+        ] as const;
+      })
+    ),
+  },
+};
 
 export async function compressUserPhoto(dataUrl: string): Promise<string> {
   try {
@@ -97,16 +128,56 @@ export class LastMileTestLogService {
     return { source: "memory", data: rows.slice(0, limit) };
   }
 
-  async getById(id: string): Promise<lastMileTestLogInterface | null> {
+  /** Like getData, but without the base64 images. */
+  async getSummaries(
+    limit: number,
+    dateFilter?: Record<string, unknown>
+  ): Promise<{ source: string; data: LastMileTestSummary[] }> {
     if (isMongoConnected()) {
-      const data = await lastMileTestLogModel.findById(id).lean();
+      const data = await lastMileTestLogModel
+        .aggregate<LastMileTestSummary>([
+          { $match: dateFilter ?? {} },
+          { $sort: { serverTs: -1 } },
+          { $limit: Math.max(1, Math.floor(limit)) },
+          IMAGE_STATS_STAGE,
+          { $project: Object.fromEntries(LAST_MILE_TEST_IMAGE_FIELDS.map((field) => [field, 0] as const)) },
+        ])
+        .allowDiskUse(true);
+      return { source: "mongo", data };
+    }
+
+    const { source, data } = await this.getData(limit, dateFilter);
+    return {
+      source,
+      data: data.map((row) => {
+        const { userPhoto, panoramaPhoto, destinationPhoto, ...rest } = row;
+        return { ...rest, imageStats: imageStatsOf({ userPhoto, panoramaPhoto, destinationPhoto }) };
+      }),
+    };
+  }
+
+  async getById(
+    id: string,
+    options?: { includeStreetView?: boolean }
+  ): Promise<lastMileTestLogInterface | null> {
+    if (isMongoConnected()) {
+      let query = lastMileTestLogModel.findById(id);
+      if (!options?.includeStreetView) {
+        query = query.select("-panoramaPhoto -destinationPhoto");
+      }
+      const data = await query.lean();
       return data ?? null;
     }
     const row = memoryLastMileTests.find((entry) => {
       const maybeId = (entry as lastMileTestLogInterface & { _id?: unknown })._id;
       return String(maybeId ?? "") === id;
     });
-    return row ?? null;
+    if (!row) return null;
+    if (options?.includeStreetView) return row;
+    const rest = { ...row };
+    delete rest.panoramaPhoto;
+    delete rest.destinationPhoto;
+    return rest;
   }
 
   async updateReview(

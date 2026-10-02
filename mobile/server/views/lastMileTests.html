@@ -81,6 +81,7 @@
     thead { background: #1b1f25; }
     th, td { padding: 12px 16px; border-bottom: 1px solid var(--line); text-align: left; font-size: 0.9rem; }
     th { color: var(--muted); font-weight: 700; white-space: nowrap; }
+    tbody tr.test-row { cursor: pointer; }
     tbody tr:hover { background: #1b1f25; }
     tbody tr.trial-row { cursor: pointer; }
     
@@ -596,15 +597,14 @@
       if (!summary) return;
 
       var testId = idOf(summary);
-      if (!testId) {
-        showError('This test row has no id — cannot load images.');
-        return;
-      }
-
-      document.getElementById('lmDetailTitle').textContent = summary.destinationPlaceName || summary.destination || 'Loading…';
-      document.getElementById('lmDetailSubtitle').textContent = 'Loading images…';
-      document.getElementById('lmDetailBody').innerHTML = '<div class="empty">Loading panorama and photos…</div>';
+      document.getElementById('lmDetailTitle').textContent = summary.destinationPlaceName || summary.destination || 'Test detail';
+      document.getElementById('lmDetailSubtitle').textContent = fmtDate(summary.serverTs || summary.createdAt);
       document.getElementById('lmDetailOverlay').style.display = 'block';
+      // Show every logged field immediately so a slow or failed image fetch
+      // cannot blank out the trial the way the old "loading panorama" screen did.
+      renderDetail(summary, index);
+
+      if (!testId) return;
 
       var baseUrl = window.location.origin;
       fetch(baseUrl + '/api/last-mile-tests/' + encodeURIComponent(testId) + qs(true), { headers: authHeaders() })
@@ -613,11 +613,14 @@
           return res.json();
         })
         .then(function (payload) {
-          renderDetail(payload.data || summary);
+          var next = Object.assign({}, summary, payload.data || {});
+          // getOne omits Street View blobs, so keep the list-row image flags.
+          next.hasPanorama = summary.hasPanorama;
+          next.hasDestinationPhoto = summary.hasDestinationPhoto;
+          renderDetail(next, index);
         })
         .catch(function (error) {
-          document.getElementById('lmDetailBody').innerHTML = '<div class="empty">Could not load this test (' + esc(error.message) + '). ' +
-            '<button class="secondary view-btn" data-idx="' + index + '">Try again</button></div>';
+          showError('Could not load the user photo for this test. ' + error.message);
         });
     }
 
@@ -668,7 +671,7 @@
       if (test.destinationBusinessStatus && test.destinationBusinessStatus !== 'OPERATIONAL') openNow += ' (' + test.destinationBusinessStatus + ')';
       return '<div class="module-block"><div class="module-head"><span>Data sources</span></div>' +
         '<div class="module-metric"><b>Used for this answer:</b> ' + esc(used.join(', ') || 'Not recorded (trial predates source logging)') + '</div>' +
-        (pano.length ? '<div class="module-metric"><b>Street View panorama:</b> ' + esc(pano.join(' · ')) + '</div>' : '') +
+        (pano.length ? '<div class="module-metric"><b>Logged imagery:</b> ' + esc(pano.join(' · ')) + '</div>' : '') +
         '<div class="module-metric"><b>Destination target:</b> ' + esc(target) + '</div>' +
         '<div class="module-metric"><b>GPS allowance on the 250 m gate:</b> ' + esc(allowance) + '</div>' +
         '<div class="module-metric"><b>Google Maps open now:</b> ' + esc(openNow) + '</div>' +
@@ -695,25 +698,22 @@
         '<tbody>' + rowsHtml + '</tbody></table></details>';
     }
 
-    function renderDetail(test) {
+    function renderDetail(test, index) {
       var modules = buildModules(test);
       var coords = [test.lat, test.lng].filter(function(v) { return v !== undefined; }).join(', ');
       
       document.getElementById('lmDetailTitle').textContent = test.destinationPlaceName || test.destination || 'Unknown Destination';
       document.getElementById('lmDetailSubtitle').textContent = fmtDate(test.serverTs || test.createdAt) + ' | ' + coords;
       
-      // Injecting the rotate button directly into the User Photo label
+      var hasUserPhoto = test.userPhoto && test.userPhoto.startsWith('data:');
       var imagesHtml = '<div class="images-grid">' +
-        '<div class="image-wrap"><div class="image-label">I1. User Photo</div>' +
-        (test.userPhoto && test.userPhoto.startsWith('data:') ? '<img src="' + imgSrc(test.userPhoto) + '" alt="User photo" />' : '<div class="empty">No photo</div>') +
+        '<div class="image-wrap"><div class="image-label"><span>User photo</span>' +
+          (hasUserPhoto ? '<button type="button" class="rotate-btn">Rotate</button>' : '') +
         '</div>' +
-        '<div class="image-wrap"><div class="image-label">I3. Panorama (' + esc(test.panoramaDate || 'N/A') + (test.panoramaSource === 'background' ? ', review only' : '') + ')</div>' +
-        (test.panoramaPhoto && test.panoramaPhoto.startsWith('data:') ? '<img src="' + imgSrc(test.panoramaPhoto) + '" alt="Panorama" />' : '<div class="empty">' + esc(noPanoramaReason(test)) + '</div>') +
-        '</div>' +
-        (test.destinationPhoto && test.destinationPhoto.startsWith('data:') ? 
-          '<div class="image-wrap"><div class="image-label">Google Street View Ref (' + esc(test.destinationPhotoDate || 'N/A') + ')</div>' +
-          '<img src="' + imgSrc(test.destinationPhoto) + '" alt="Reference" /></div>' : '') +
-        '</div>';
+        (hasUserPhoto
+          ? '<div class="img-container"><img class="rotatable-img" data-angle="0" src="' + imgSrc(test.userPhoto) + '" alt="User photo" /></div>'
+          : '<div class="empty">' + (test.hasUserPhoto ? 'Loading photo…' : 'No photo') + '</div>') +
+        '</div></div>';
 
       var reviewHtml = '<div class="review-section" data-id="' + esc(idOf(test)) + '">' +
         '<div>' +

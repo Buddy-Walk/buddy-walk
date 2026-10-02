@@ -3,11 +3,12 @@ import { lastMileTestLogService } from "../services/lastMileTestLog";
 import { toCsv } from "../utils/csv";
 import { buildDateFilter, isAdminAuthorized, parseLimit } from "../utils/adminAuth";
 import { isMongoConnected } from "../database/usageStore";
-import { imagePlaceholder, toLastMileTestResponse } from "../utils/lastMileTestRow";
+import { toLastMileTestResponse, toLastMileTestSummaryResponse } from "../utils/lastMileTestRow";
 import {
   ENTRANCE_CORRECTNESS,
   REVIEW_OUTCOMES,
   TURN_CORRECTNESS,
+  type lastMileTestLogInterface,
 } from "../database/models/lastMileTestLog";
 import type { PlaceCandidateLog } from "../utils/nearbyPlaces";
 
@@ -106,18 +107,19 @@ export class LastMileTestLogController {
     }
 
     const limit = parseLimit(req, 25, 500);
-    const includeImages = req.query.includeImages === "true";
-    const { source, data } = await lastMileTestLogService.getData(limit, buildDateFilter(req));
-    const rows = data.map((row) => {
-      if (includeImages) return toLastMileTestResponse(row, true);
-      // The candidate list is only needed in the detail view.
-      const { placeCandidates, ...summary } = row;
-      return {
-        ...toLastMileTestResponse(summary, false),
-        placeCandidateCount: placeCandidates?.length ?? 0,
-      };
-    });
+    const dateFilter = buildDateFilter(req);
+    if (req.query.includeImages === "true") {
+      const { source, data } = await lastMileTestLogService.getData(limit, dateFilter);
+      res.status(200).json({ source, data: data.map((row) => toLastMileTestResponse(row, true)) });
+      return;
+    }
 
+    const { source, data } = await lastMileTestLogService.getSummaries(limit, dateFilter);
+    const rows = data.map(({ placeCandidates, ...row }) => ({
+      ...toLastMileTestSummaryResponse(row),
+      // The candidate list is only needed in the detail view.
+      placeCandidateCount: placeCandidates?.length ?? 0,
+    }));
     res.status(200).json({ source, data: rows });
   }
 
@@ -127,7 +129,10 @@ export class LastMileTestLogController {
       return;
     }
 
-    const data = await lastMileTestLogService.getById(req.params.id);
+    const includeStreetView = req.query.includeStreetView === "true";
+    const data = await lastMileTestLogService.getById(req.params.id, {
+      includeStreetView,
+    });
     if (!data) {
       res.status(404).json({ error: "Last Meters test log not found" });
       return;
@@ -147,8 +152,13 @@ export class LastMileTestLogController {
     }
 
     const limit = parseLimit(req, 500, 5000);
-    const includeImages = req.query.includeImages === "true";
-    const { data } = await lastMileTestLogService.getData(limit, buildDateFilter(req));
+    const dateFilter = buildDateFilter(req);
+    const data: lastMileTestLogInterface[] =
+      req.query.includeImages === "true"
+        ? (await lastMileTestLogService.getData(limit, dateFilter)).data
+        : (await lastMileTestLogService.getSummaries(limit, dateFilter)).data.map(
+            toLastMileTestSummaryResponse
+          );
     const csv = toCsv(
       data.map((row) => ({
         ...row,
@@ -161,11 +171,6 @@ export class LastMileTestLogController {
         placeCandidates: describeCandidatesForCsv(row.placeCandidates),
         dataSources: (row.dataSources || []).join("|"),
         steps: JSON.stringify(row.steps),
-        userPhoto: includeImages ? row.userPhoto : imagePlaceholder(row.userPhoto),
-        panoramaPhoto: includeImages ? row.panoramaPhoto : imagePlaceholder(row.panoramaPhoto),
-        destinationPhoto: includeImages
-          ? row.destinationPhoto
-          : imagePlaceholder(row.destinationPhoto),
       })) as Record<string, unknown>[],
       LAST_MILE_TEST_CSV_COLUMNS
     );
