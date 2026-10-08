@@ -2945,9 +2945,8 @@ async function saveBackgroundPanorama(
 }
 
 /**
- * Outdoor panoramas only: an indoor or user-uploaded sphere cannot match an
- * outdoor photo. Within a radius, a Google-captured panorama is preferred over
- * a user-contributed one.
+ * Accept only outdoor panoramas whose metadata identifies Google as the provider.
+ * Do not fall back to user-contributed imagery.
  */
 async function processEightDirectionTiles(
   lat: number,
@@ -2983,16 +2982,21 @@ async function processEightDirectionTiles(
       );
       continue;
     }
-    if (!metadata) metadata = candidate;
-    if (/google/i.test(candidate.copyright ?? "")) {
-      metadata = candidate;
-      break;
+        if (!/google/i.test(candidate.copyright ?? "")) {
+      lastStatus = "NON_GOOGLE_PANORAMA";
+      console.warn(
+        `Rejected non-Google Street View panorama (radius=${radius}, copyright=${candidate.copyright ?? "unknown"})`,
+      );
+      continue;
     }
+
+    metadata = candidate;
+    break;
   }
 
   if (!metadata) {
     const metadataError = new Error(
-      `No outdoor Street View panorama: metadata returned ${lastStatus}.`,
+      `No Google-captured outdoor Street View panorama: ${lastStatus}.`,
     );
     Object.assign(metadataError, { code: `STREET_VIEW_${lastStatus}` });
     throw metadataError;
