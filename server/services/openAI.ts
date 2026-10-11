@@ -11,7 +11,6 @@ import { getNearbyFeatures } from "./features";
 import { treeInterface, sidewalkMaterialInterface, pedestrianRampInterface } from "../database/models/features";
 import fs from "fs";
 import path from "path";
-import sharp from "sharp";
 import { json } from "stream/consumers";
 
 dotenv.config();
@@ -37,107 +36,6 @@ function writeFile(data: any) {
     }
   });
 }
-
-// streetview-heading.ts
-
-// --- 1. Type Definitions ---
-
-interface LatLng {
-  lat: number;
-  lng: number;
-}
-
-interface GeocodeResponse {
-  status: string;
-  results: {
-    geometry: {
-      location: LatLng;
-    };
-  }[];
-}
-
-interface StreetViewMetadataResponse {
-  status: string;
-  location?: LatLng; // 'location' is the car's position
-}
-
-
-// --- 3. The Math Helper ---
-function calculateHeading(from: LatLng, to: LatLng): number {
-  const toRad = (deg: number): number => (deg * Math.PI) / 180;
-  const toDeg = (rad: number): number => (rad * 180) / Math.PI;
-
-  const phi1 = toRad(from.lat);
-  const phi2 = toRad(to.lat);
-  const deltaLambda = toRad(to.lng - from.lng);
-
-  const y = Math.sin(deltaLambda) * Math.cos(phi2);
-  const x =
-    Math.cos(phi1) * Math.sin(phi2) -
-    Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
-
-  const theta = Math.atan2(y, x);
-  const heading = toDeg(theta);
-
-  // Normalize to 0-360
-  return (heading + 360) % 360;
-}
-
-// --- 4. Main Logic ---
-async function getStreetViewWithHeading(address: string): Promise<string | null> {
-  try {
-    console.log(`\n1. Geocoding address: "${address}"...`);
-
-    // Step A: Geocode Address (Find the House)
-    const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
-      address
-    )}&key=${process.env.GOOGLE_API_KEY}`;
-    
-    const geoRes = await fetch(geoUrl);
-    const geoData = (await geoRes.json()) as GeocodeResponse;
-
-    if (geoData.status !== 'OK' || !geoData.results.length) {
-      throw new Error(`Geocoding failed: ${geoData.status}`);
-    }
-
-    const houseLoc: LatLng = geoData.results[0].geometry.location;
-    console.log(`   House found at: ${houseLoc.lat}, ${houseLoc.lng}`);
-
-    // Step B: Find Nearest Panorama (Find the Car)
-    // The Metadata API returns the specific lat/lng where the car was standing
-    const metaUrl = `https://maps.googleapis.com/maps/api/streetview/metadata?location=${houseLoc.lat},${houseLoc.lng}&key=${process.env.GOOGLE_API_KEY}`;
-    
-    const metaRes = await fetch(metaUrl);
-    const metaData = (await metaRes.json()) as StreetViewMetadataResponse;
-
-    if (metaData.status !== 'OK' || !metaData.location) {
-      throw new Error(`No Street View found nearby: ${metaData.status}`);
-    }
-
-    const carLoc: LatLng = metaData.location;
-    console.log(`   Car found at:   ${carLoc.lat}, ${carLoc.lng}`);
-
-    // Step C: Calculate Heading
-    const heading = calculateHeading(carLoc, houseLoc);
-    console.log(`   Calculated Heading: ${heading.toFixed(2)}°`);
-
-    // Step D: Construct Final URL
-    const finalUrl = `https://maps.googleapis.com/maps/api/streetview?size=640x480&location=${houseLoc.lat},${houseLoc.lng}&heading=${heading.toFixed(2)}&fov=80&pitch=0&key=${process.env.GOOGLE_API_KEY}`;
-    
-    console.log(`\n✅ Final Image URL:\n${finalUrl}`);
-    return finalUrl;
-
-  } catch (error) {
-    if (error instanceof Error) {
-      console.error('Error:', error.message);
-    } else {
-      console.error('An unknown error occurred');
-    }
-    return null;
-  }
-}
-
-
 
 async function getTrainInfo(url: string) {
   try {
@@ -238,75 +136,23 @@ export class OpenAIService {
     }
 
     try {
-      const tiles = await processEightDirectionTiles(lat, lng);
-      const panoramaImagesMsg: any[] = [];
-      tiles.forEach((tile) => {
-        panoramaImagesMsg.push({ type: "text", text: `--- PANORAMA IMAGE AT ${tile.heading}° ---` });
-        panoramaImagesMsg.push({ type: "image_url", image_url: { url: tile.base64 } });
-      });
-
-      console.log(`\n🤖 Running 3-Step Architecture for target: [${destination}]...`);
-
-      console.log("   ➤ Step 1: Locating User's Current View...");
-      const step1Response = await this.client.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: "You will receive 8 panorama images explicitly labeled with their degrees (0°, 45°, etc.), followed by a user's photo. Identify which panorama segment visually matches the user's photo. Reply ONLY with the integer number of the degrees (e.g., 315)." },
-          { role: "user", content: [...panoramaImagesMsg, { type: "text", text: "--- USER'S CURRENT PHOTO ---" }, { type: "image_url", image_url: { url: image } }] }
-        ],
-        temperature: 0.0
-      });
-      const currentHeading = parseInt(step1Response.choices[0].message.content?.trim() || "0");
-
-      console.log("   ➤ Step 2: Locating Target Store...");
-      const step2Response = await this.client.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: `You will receive 8 panorama images explicitly labeled with their degrees. Find the storefront or sign for "${destination}". Reply ONLY with the integer number of the degrees where it is located (e.g., 45).` },
-          { role: "user", content: panoramaImagesMsg }
-        ],
-        temperature: 0.0
-      });
-      const targetHeading = parseInt(step2Response.choices[0].message.content?.trim() || "0");
-
-      let turnInstruction = "";
-      if (currentHeading === targetHeading) {
-        turnInstruction = "No turn needed. Move straight forward.";
-      } else {
-        let diff = targetHeading - currentHeading;
-        if (diff < -180) diff += 360;
-        if (diff > 180) diff -= 360;
-
-        const direction = diff > 0 ? "RIGHT" : "LEFT";
-        const degrees = Math.abs(diff);
-        turnInstruction = `Turn ${degrees}° to your ${direction}.`;
-      }
-
-      console.log("   ➤ Step 3: Generating Accessible Guidance...");
+      console.log(`\n🤖 Last Meters landmarks from the user photo for: [${destination}]...`);
       const step3Response = await this.client.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
           { role: "system", content: `You are an orientation assistant for the blind.
-          The system has mathematically calculated the required action: "${turnInstruction}".
-          Your job is to look at the user's current photo and provide physical, tactile landmarks to help them execute this instruction safely.
+          Look at the user's current photo and describe physical, tactile landmarks near "${destination}".
           Rule 1: Double-check Left vs Right in the photo.
           Rule 2: Mention physical objects like trash cans, steps, or building corners. Do NOT mention elevated text signs.
-          Rule 3: Keep it conversational but concise.` },
+          Rule 3: Keep it conversational but concise.
+          Do not invent entrance details that are not visible in the photo.` },
           { role: "user", content: [{ type: "image_url", image_url: { url: image } }] }
         ],
         temperature: 0.1
       });
 
       const landmarksGuidance = step3Response.choices[0].message.content;
-
-      console.log("\n💬 AI 3-Step Navigation Output:");
-      console.log(`- 1st Match (Current View): The user is facing ${currentHeading}°.`);
-      console.log(`- 2nd Match (Target Store): The target '${destination}' is located at ${targetHeading}°.`);
-      console.log(`- 3rd Step (Guidance): ${turnInstruction} Landmarks: ${landmarksGuidance}`);
-      console.log("=========================================\n");
-
-      const finalOutput = `${turnInstruction} Landmarks: ${landmarksGuidance}`;
-      res.status(200).json({ output: finalOutput });
+      res.status(200).json({ output: landmarksGuidance });
 
     } catch (error: any) {
       console.error("❌ OpenAI Request failed:", error.message);
@@ -507,19 +353,7 @@ export class OpenAIService {
             }
           } else {
             console.error('No panorama data found for this address.');
-            const streetViewURL = await getStreetViewWithHeading(location.data.candidates[0].formatted_address);
-            console.log("getting sv with proper heading... ", streetViewURL);
-            if (streetViewURL) userContent.push({
-                type: 'image_url',
-                image_url: {
-                  url: streetViewURL,
-                  detail: 'high',
-                }
-              });
-            // relevantData = 'Data on this address has not been collected yet. Let the user know if they want detailed information on this address, they can visit doorfront.org and request it be added.';
-            relevantData = `Data on this address has not been collected yet by volunteers. Use the street view image to describe the entrance features visible from street view. Let the user know this data is not validated by real users and may not be correct.
-             When describing this image, provide a confidence level (1 to 5) for your description of the entrance based on how clear the image is.`;
-
+            relevantData = `Data on this address has not been collected yet by volunteers. Tell the user entrance details from doorfront.org are unavailable. Do not invent an entrance description from imagery.`;
           }
           systemContent += `\n${relevantData}`;
         }
@@ -621,7 +455,6 @@ export class OpenAIService {
               }
             } else {
               console.log('No panorama data found for this address.');
-              console.log("getting sv with proper heading... ", getStreetViewWithHeading(formattedAddress));
             }
             // step 3: get route from starting location to destination (doorfront location if it exists)
             if (!doorLocation) {
@@ -790,48 +623,4 @@ export class OpenAIService {
     }
   }
 
-}
-
-function createOverlaySvg(heading: number, segmentIndex: number): Buffer {
-  const svg = `
-    <svg width="640" height="640">
-      <rect x="0" y="0" width="10" height="640" fill="#000000" />
-      <rect x="20" y="20" width="220" height="45" rx="8" fill="rgba(0, 0, 0, 0.75)" />
-      <text x="30" y="50" font-family="Arial" font-size="22" font-weight="bold" fill="#00FFCC">
-        SEG ${segmentIndex}: ${heading}°
-      </text>
-    </svg>
-  `;
-  return Buffer.from(svg);
-}
-
-async function processEightDirectionTiles(lat: number, lng: number): Promise<{ heading: number; base64: string }[]> {
-  console.log("🎬 FETCHING 8 INDIVIDUAL DIRECTION TILES...");
-  const headings = [0, 45, 90, 135, 180, 225, 270, 315];
-  const tilesData: { heading: number; base64: string }[] = [];
-  const rawBuffers: Buffer[] = [];
-  const apiKey = process.env.GOOGLE_API_KEY;
-
-  for (const hd of headings) {
-    const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${lat},${lng}&heading=${hd}&fov=45&pitch=0&source=outdoor&key=${apiKey}`;
-    const response = await axios.get(url, { responseType: "arraybuffer" });
-    const buffer = Buffer.from(response.data);
-    rawBuffers.push(buffer);
-    tilesData.push({ heading: hd, base64: `data:image/jpeg;base64,${buffer.toString("base64")}` });
-  }
-
-  const compositeLayers: sharp.OverlayOptions[] = [];
-  rawBuffers.forEach((buffer, index) => {
-    const leftOffset = index * 640;
-    compositeLayers.push({ input: buffer, left: leftOffset, top: 0 });
-    compositeLayers.push({ input: createOverlaySvg(headings[index], index + 1), left: leftOffset, top: 0 });
-  });
-
-  const outputPath = path.resolve(__dirname, "../../debug-panorama-360.jpg");
-  await sharp({ create: { width: 5120, height: 640, channels: 3, background: { r: 0, g: 0, b: 0 } } })
-    .composite(compositeLayers)
-    .toFile(outputPath);
-  console.log(`✅ Debug panorama saved to: ${outputPath}`);
-
-  return tilesData;
 }

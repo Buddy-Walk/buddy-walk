@@ -113,7 +113,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   }
 
   const lastMileController = new OpenAIController();
-  // Street View must run here when keys exist — do not rely on the text proxy.
+  // Last Meters must run here when keys exist — do not rely on the text proxy.
   if (canRunLocalLastMile()) {
     app.post('/api/last-mile', (req, res) => {
       void lastMileController.lastMileRequest(req, res);

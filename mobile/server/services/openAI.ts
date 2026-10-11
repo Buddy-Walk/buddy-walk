@@ -41,28 +41,18 @@ import {
   buildBesideBuildingInstruction,
   buildClosedNowNotice,
   buildCloseRangeNoTurnInstruction,
-  buildHeadingConflictInstruction,
   buildLastMileApproachInstruction,
   buildLastMileDistanceSentence,
-  buildLastMileRetakeInstruction,
   buildLastMileSourceNote,
   buildLastMileTurnInstruction,
   calculateLastMileConfidence,
-  compareCompassAndPanoramaHeadings,
   formatLastMileDistance,
   isDestinationBearingReliable,
   isLastMileHeadingAligned,
   lastMileHeadingDifference,
-  LAST_MILE_HEADINGS,
-  LAST_MILE_PANORAMA_FOV_DEGREES,
   LAST_METERS_EXACT_RADIUS_METERS,
-  parseDestinationVisibility,
-  parseLastMileHeading,
   resolveExactModeGate,
-  resolveVerifiedTargetHeading,
-  shouldUseDestinationReference,
   snapLastMileHeading,
-  streetViewImageryAgeYears,
 } from "../utils/lastMileNavigation";
 import type { LastMileTestScenario } from "../utils/lastMileNavigation";
 import {
@@ -75,7 +65,6 @@ import {
   normalizeNearbyPlaceQuery,
   selectNearbyPlaceCandidate,
   selectNearbyPlaceCandidates,
-  signTextMatchesPlaceName,
   summarizePlaceCandidates,
 } from "../utils/nearbyPlaces";
 import type {
@@ -116,30 +105,11 @@ async function geocodeCoordinates(latitude: number, longitude: number) {
   }
 }
 
-// streetview-heading.ts
-
-// --- 1. Type Definitions ---
-
 interface LatLng {
   lat: number;
   lng: number;
 }
 
-interface GeocodeResponse {
-  status: string;
-  results: {
-    geometry: {
-      location: LatLng;
-    };
-  }[];
-}
-
-interface StreetViewMetadataResponse {
-  status: string;
-  location?: LatLng; // 'location' is the car's position
-}
-
-// --- 3. The Math Helper ---
 function calculateHeading(from: LatLng, to: LatLng): number {
   const toRad = (deg: number): number => (deg * Math.PI) / 180;
   const toDeg = (rad: number): number => (rad * 180) / Math.PI;
@@ -158,15 +128,6 @@ function calculateHeading(from: LatLng, to: LatLng): number {
 
   // Normalize to 0-360
   return (heading + 360) % 360;
-}
-
-interface DestinationStreetViewReference {
-  photo: string;
-  date?: string;
-  status: string;
-  placeName: string;
-  placeAddress: string;
-  targetHeading: number;
 }
 
 interface VerifiedNearbyDestination {
@@ -377,84 +338,6 @@ async function getBuildingGeometry(
   }
 }
 
-async function getDestinationStreetViewReference(
-  lat: number,
-  lng: number,
-  destination: string,
-  resolvedDestination?: VerifiedNearbyDestination,
-): Promise<DestinationStreetViewReference> {
-  const nearbyQuery = normalizeNearbyPlaceQuery(destination);
-  if (!nearbyQuery) {
-    throw new Error("Destination name was empty after normalization.");
-  }
-  const nearbyPlace =
-    resolvedDestination ??
-    (await getVerifiedNearbyDestination(lat, lng, nearbyQuery, 2_000));
-  const placeLocation = nearbyPlace.location;
-  if (nearbyPlace.distanceMeters < 3) {
-    throw new Error(
-      "Destination coordinates are too close to determine an entrance direction.",
-    );
-  }
-
-  const metadataResponse = await axios.get<StreetViewMetadata>(
-    "https://maps.googleapis.com/maps/api/streetview/metadata",
-    {
-      params: {
-        location: `${placeLocation.lat},${placeLocation.lng}`,
-        radius: 100,
-        source: "outdoor",
-        key: getGoogleMapsApiKey(),
-      },
-      timeout: 20_000,
-    },
-  );
-  const metadata = metadataResponse.data;
-  if (metadata.status !== "OK" || !metadata.location) {
-    throw new Error(
-      `Destination Street View metadata returned ${metadata.status}.`,
-    );
-  }
-
-  const cameraHeading = calculateHeading(metadata.location, {
-    lat: placeLocation.lat,
-    lng: placeLocation.lng,
-  });
-  const imageResponse = await axios.get(
-    "https://maps.googleapis.com/maps/api/streetview",
-    {
-      params: {
-        size: "640x640",
-        ...(metadata.pano_id
-          ? { pano: metadata.pano_id }
-          : { location: `${placeLocation.lat},${placeLocation.lng}` }),
-        heading: cameraHeading.toFixed(1),
-        fov: 80,
-        pitch: 0,
-        source: "outdoor",
-        return_error_code: true,
-        key: getGoogleMapsApiKey(),
-      },
-      responseType: "arraybuffer",
-      timeout: 20_000,
-    },
-  );
-
-  return {
-    photo: `data:image/jpeg;base64,${Buffer.from(imageResponse.data).toString("base64")}`,
-    date: metadata.date,
-    status: metadata.status,
-    placeName: nearbyPlace.placeName,
-    placeAddress: nearbyPlace.placeAddress,
-    targetHeading: snapLastMileHeading(
-      calculateHeading(
-        { lat, lng },
-        { lat: placeLocation.lat, lng: placeLocation.lng },
-      ),
-    ),
-  };
-}
-
 interface VerifiedWalkingDirections {
   placeName: string;
   placeAddress: string;
@@ -572,57 +455,26 @@ async function getVerifiedNearbyWalkingDirections(
 }
 
 // --- 4. Main Logic ---
-async function getStreetViewWithHeading(
-  address: string,
-): Promise<string | null> {
+
+async function resizeDataUrlImage(
+  dataUrl: string,
+  maxWidth: number,
+  quality: number,
+): Promise<string> {
   try {
-    console.log(`\n1. Geocoding address: "${address}"...`);
-
-    // Step A: Geocode Address (Find the House)
-    const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
-      address,
-    )}&key=${getGoogleMapsApiKey()}`;
-    
-    const geoRes = await fetch(geoUrl);
-    const geoData = (await geoRes.json()) as GeocodeResponse;
-
-    if (geoData.status !== "OK" || !geoData.results.length) {
-      throw new Error(`Geocoding failed: ${geoData.status}`);
-    }
-
-    const houseLoc: LatLng = geoData.results[0].geometry.location;
-    console.log(`   House found at: ${houseLoc.lat}, ${houseLoc.lng}`);
-
-    // Step B: Find Nearest Panorama (Find the Car)
-    // The Metadata API returns the specific lat/lng where the car was standing
-    const metaUrl = `https://maps.googleapis.com/maps/api/streetview/metadata?location=${houseLoc.lat},${houseLoc.lng}&key=${getGoogleMapsApiKey()}`;
-    
-    const metaRes = await fetch(metaUrl);
-    const metaData = (await metaRes.json()) as StreetViewMetadataResponse;
-
-    if (metaData.status !== "OK" || !metaData.location) {
-      throw new Error(`No Street View found nearby: ${metaData.status}`);
-    }
-
-    const carLoc: LatLng = metaData.location;
-    console.log(`   Car found at:   ${carLoc.lat}, ${carLoc.lng}`);
-
-    // Step C: Calculate Heading
-    const heading = calculateHeading(carLoc, houseLoc);
-    console.log(`   Calculated Heading: ${heading.toFixed(2)}°`);
-
-    // Step D: Construct Final URL
-    const finalUrl = `https://maps.googleapis.com/maps/api/streetview?size=640x480&location=${houseLoc.lat},${houseLoc.lng}&heading=${heading.toFixed(2)}&fov=80&pitch=0&key=${getGoogleMapsApiKey()}`;
-    
-    console.log(`\n✅ Final Image URL:\n${finalUrl}`);
-    return finalUrl;
+    const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, "");
+    const outputBuffer = await sharp(Buffer.from(base64Data, "base64"))
+      .rotate()
+      .resize({ width: maxWidth, withoutEnlargement: true })
+      .jpeg({ quality })
+      .toBuffer();
+    return `data:image/jpeg;base64,${outputBuffer.toString("base64")}`;
   } catch (error) {
-    if (error instanceof Error) {
-      console.error("Error:", error.message);
-    } else {
-      console.error("An unknown error occurred");
-    }
-    return null;
+    console.error(
+      "[LastMileTestLog] failed to compress user photo for storage:",
+      error,
+    );
+    return dataUrl;
   }
 }
 
@@ -897,8 +749,8 @@ export class OpenAIService {
 
     try {
       const proximityPrompt =
-        `Resolve "${destinationQuery}" near the user's coordinates and use exact ` +
-        `panorama matching only within ${LAST_METERS_EXACT_RADIUS_METERS} meters ` +
+        `Resolve "${destinationQuery}" near the user's coordinates and use close-range ` +
+        `compass guidance only within ${LAST_METERS_EXACT_RADIUS_METERS} meters ` +
         "plus the phone's reported GPS error.";
       try {
         verifiedDestination = await getVerifiedNearbyDestination(
@@ -957,12 +809,6 @@ export class OpenAIService {
         });
         return;
       }
-
-      // The panorama is taken at the user's position, so it can download
-      // while the entrance lookup runs. Approach and aligned trials save it
-      // for review after they have already answered.
-      const panoramaDownload = processEightDirectionTiles(lat, lng);
-      panoramaDownload.catch(() => undefined);
 
       let targetLocation: LatLng = verifiedDestination.location;
       entranceSource = "places_pin";
@@ -1042,6 +888,14 @@ export class OpenAIService {
       dataSources.add("phone_gps");
       if (typeof deviceHeading === "number") dataSources.add("phone_compass");
 
+      if (
+        !verifiedDestination ||
+        destinationDistanceMeters === undefined ||
+        destinationBearing === undefined
+      ) {
+        throw new Error("Destination verification did not produce a location.");
+      }
+
       // Constants so the fallback closure below keeps the narrowed types.
       const place = verifiedDestination;
       const distanceMeters = destinationDistanceMeters;
@@ -1076,7 +930,6 @@ export class OpenAIService {
           testScenario,
           warning: "heading_already_aligned",
         });
-        void saveBackgroundPanorama(testLogId, panoramaDownload);
         return;
       }
 
@@ -1109,7 +962,6 @@ export class OpenAIService {
           testScenario,
           warning: "destination_too_far",
         });
-        void saveBackgroundPanorama(testLogId, panoramaDownload);
         return;
       }
 
@@ -1127,227 +979,7 @@ export class OpenAIService {
         success: true,
       });
 
-      /**
-       * Places-only answer for when Street View cannot confirm the entrance:
-       * a compass-to-map turn when the bearing is meaningful, never a guess
-       * when the user is closer than the GPS error.
-       */
-      const respondWithPlacesFallback = async (fallback: {
-        imageryNote: string;
-        error: string;
-        reason: string;
-      }) => {
-        const bearingReliable = isDestinationBearingReliable(
-          distanceMeters,
-          gpsAccuracyMeters,
-        );
-        let turnFallback = "";
-        let bearingTarget: number | undefined;
-        if (
-          bearingReliable &&
-          typeof deviceHeading === "number" &&
-          Number.isFinite(deviceHeading)
-        ) {
-          bearingTarget = snapLastMileHeading(bearing);
-          turnFallback =
-            ` ${buildLastMileTurnInstruction(deviceHeading, bearing)}` +
-            " That turn is based on your phone compass and the map location," +
-            " not a visually confirmed entrance — use caution.";
-        }
-        const guidance = !bearingReliable
-          ? buildCloseRangeNoTurnInstruction(place.placeName, distanceMeters)
-          : besideBuilding
-            ? buildBesideBuildingInstruction(
-                place.placeName,
-                distanceMeters,
-                bearing,
-              ) + turnFallback
-            : `You are about ${formatLastMileDistance(distanceMeters)} from ${place.placeName}. ` +
-              "Google Maps confirms the destination is near you, but I could not verify" +
-              " the exact entrance in Street View." +
-              fallback.imageryNote +
-              (turnFallback ||
-                " I cannot provide a turn direction without a compass heading.");
-        const finalOutput =
-          guidance +
-          closedNotice +
-          buildLastMileSourceNote(panoramaPhoto ? panoramaDate : null);
-        testSteps.push({
-          name: "places_proximity_fallback",
-          prompt:
-            "Use the already verified Google Places destination when Street View cannot visually confirm the entrance.",
-          response:
-            `DESTINATION_CONFIRMED: ${place.placeName}, ` +
-            `${Math.round(distanceMeters)} meters away. ${fallback.reason}.` +
-            (bearingReliable && besideBuilding ? " USER_BESIDE_BUILDING." : "") +
-            (turnFallback ? " COMPASS_BEARING_TURN_PROVIDED." : "") +
-            (bearingReliable
-              ? ""
-              : " CLOSER_THAN_GPS_ACCURACY_NO_TURN_PROVIDED."),
-          model: "google-places",
-          success: true,
-        });
-        // Destination verification succeeded; only entrance localization failed.
-        const testLogId = await recordTrial({
-          finalOutput,
-          success: true,
-          error: fallback.error,
-          targetHeading: bearingTarget,
-          turnInstruction: turnFallback.trim() || undefined,
-        });
-        res.status(200).json({
-          output: finalOutput,
-          testLogId,
-          mode: navigationMode,
-          testScenario,
-          currentHeading,
-          targetHeading: bearingTarget ?? null,
-          warning: fallback.error,
-        });
-      };
-
-      activeStage = "panorama download";
-      let panorama: Awaited<typeof panoramaDownload>;
-      try {
-        panorama = await panoramaDownload;
-      } catch (panoramaError: any) {
-        testScenario = "no_panorama";
-        panoramaStatus =
-          typeof panoramaError?.code === "string"
-            ? panoramaError.code
-            : "STREET_VIEW_UNAVAILABLE";
-        testSteps.push({
-          name: "panorama_download",
-          prompt:
-            "Fetch an outdoor Google Street View panorama at the user's position.",
-          response: panoramaStatus,
-          model: "google-street-view",
-          success: false,
-          error:
-            panoramaError instanceof Error
-              ? panoramaError.message
-              : "Street View was unavailable.",
-        });
-        await respondWithPlacesFallback({
-          imageryNote: " Street View has no outdoor imagery at your position.",
-          error: "no_outdoor_panorama",
-          reason: "NO_OUTDOOR_PANORAMA",
-        });
-        return;
-      }
-      dataSources.add("street_view_panorama");
-      const { tiles } = panorama;
-      panoramaDate = panorama.metadata.date;
-      panoramaStatus = panorama.metadata.status;
-      panoId = panorama.metadata.pano_id;
-      panoramaCopyright = panorama.metadata.copyright;
-      panoramaAgeYears = streetViewImageryAgeYears(panoramaDate);
-      panoramaHeadings = tiles.map((tile) => tile.heading);
-      const panoramaOrigin = panorama.metadata.location ?? { lat, lng };
-      const panoramaTargetBearing = calculateHeading(
-        panoramaOrigin,
-        targetLocation,
-      );
-      const expectedTargetHeading = snapLastMileHeading(panoramaTargetBearing);
-      activeStage = "panorama assembly";
-      panoramaPhoto = await buildPanoramaDebugImage(tiles);
-      const panoramaOverviewMsg: any[] = [];
-      tiles.forEach((tile) => {
-        const label = {
-          type: "text",
-          text: `--- PANORAMA IMAGE AT ${tile.heading}° ---`,
-        };
-        panoramaOverviewMsg.push(label);
-        panoramaOverviewMsg.push({
-          type: "image_url",
-          image_url: { url: tile.base64, detail: "low" },
-        });
-      });
-
-      console.log(
-        `\n🤖 Running 3-Step Architecture for target: [${destination}]...`,
-      );
-
-      // ==========================================
-      // STEP 1: FIND USER HEADING (User Photo + Panorama)
-      // ==========================================
-      activeStage = "current-view matching";
-      console.log("   ➤ Step 1: Locating User's Current View...");
-      const step1Prompt = `You will receive 8 distinct, non-overlapping panorama images labeled VIEW 1 through VIEW 8 with their center headings (000 DEG, 045 DEG, etc.), followed by a user's photo. Identify which single panorama segment confidently matches the user's photo.
-Reply with exactly one heading token: 0, 45, 90, 135, 180, 225, 270, 315, or NOT_VISIBLE. Do not reply with the VIEW number.
-Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confidently matched. Do not return business names or explanations.`;
-      const step1Response = await this.client.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: step1Prompt },
-          {
-            role: "user",
-            content: [
-              ...panoramaOverviewMsg,
-              { type: "text", text: "--- USER'S CURRENT PHOTO ---" },
-              { type: "image_url", image_url: { url: image, detail: "low" } },
-            ],
-          },
-        ],
-        temperature: 0.0,
-        max_tokens: 12,
-      });
-      const step1Text = step1Response.choices[0].message.content?.trim() || "";
-      const comparison = compareCompassAndPanoramaHeadings(
-        deviceHeading,
-        parseLastMileHeading(step1Text),
-      );
-      compassHeading = comparison.compassHeading ?? undefined;
-      panoramaMatchedHeading = comparison.panoramaMatchedHeading ?? undefined;
-      headingComparisonDifference = comparison.differenceDegrees;
-      headingComparisonAgrees = comparison.agrees;
-      currentHeading = comparison.authoritativeHeading ?? undefined;
-      testSteps.push({
-        name: "panorama_current_view_match",
-        prompt: step1Prompt,
-        response: step1Text,
-        parsedHeading: panoramaMatchedHeading,
-        model: "gpt-4o-mini",
-        success: panoramaMatchedHeading !== undefined,
-        error:
-          panoramaMatchedHeading === undefined
-            ? "Panorama could not independently match the current view."
-            : undefined,
-        tokenCount: step1Response.usage?.total_tokens,
-      });
-      testSteps.push({
-        name: "compass_current_heading",
-        prompt:
-          "Record the phone compass heading independently. This is the only source permitted to control turn direction.",
-        response:
-          compassHeading === undefined
-            ? "COMPASS_UNAVAILABLE"
-            : `${compassHeading} DEG`,
-        parsedHeading: compassHeading,
-        model: "device-compass",
-        success: compassHeading !== undefined,
-        error:
-          compassHeading === undefined
-            ? "Phone compass heading was unavailable."
-            : undefined,
-      });
-      testSteps.push({
-        name: "heading_source_comparison",
-        prompt:
-          "Compare the independent compass and panorama headings without changing navigation guidance.",
-        response:
-          headingComparisonDifference === undefined
-            ? "NOT_COMPARABLE"
-            : `${headingComparisonAgrees ? "AGREE" : "DISAGREE"}: ` +
-              `${headingComparisonDifference} DEG DIFFERENCE`,
-        model: "deterministic-comparison",
-        success: headingComparisonDifference !== undefined,
-        error:
-          headingComparisonDifference === undefined
-            ? "Both heading sources were not available."
-            : undefined,
-      });
-      if (currentHeading === undefined) {
+      if (typeof deviceHeading !== "number" || !Number.isFinite(deviceHeading)) {
         const finalOutput =
           "Your phone compass was unavailable or not calibrated, so I will not calculate a turn. " +
           "Stay where you are, move the phone in a slow figure eight to recalibrate the compass, then take a new photo.";
@@ -1366,302 +998,42 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
         return;
       }
 
-      if (headingComparisonAgrees === false) {
-        testScenario = "heading_conflict";
-        confidenceLevel = "low";
-        const finalOutput =
-          buildHeadingConflictInstruction(place.placeName, distanceMeters) +
-          closedNotice +
-          buildLastMileSourceNote(panoramaDate);
-        const testLogId = await recordTrial({
-          finalOutput,
-          success: true,
-          error: "heading_sources_disagree",
-        });
-        res.status(200).json({
-          output: finalOutput,
-          testLogId,
-          mode: navigationMode,
-          testScenario,
-          currentHeading,
-          confidenceLevel: "low",
-          warning: "heading_sources_disagree",
-        });
-        return;
-      }
-
-      // ==========================================
-      // STEP 2: FIND TARGET HEADING (Text Name + Panorama ONLY - NO USER PHOTO)
-      // ==========================================
-      activeStage = "destination matching";
-      console.log("   ➤ Step 2: Locating Target Store...");
-      const panoramaDateContext = panoramaDate
-        ? `Street View reports that this panorama was captured in ${panoramaDate}.`
-        : "Street View did not provide a capture date for this panorama.";
-      const destinationLabel =
-        place.placeName.toLowerCase() === destinationQuery.toLowerCase()
-          ? `"${place.placeName}"`
-          : `"${place.placeName}" (requested as "${destinationQuery}")`;
-      const step2Prompt = `You will receive one panorama grid containing 8 distinct, non-overlapping views labeled VIEW 1 through VIEW 8 with their center headings. Find the storefront, sign, or entrance for ${destinationLabel}. ${panoramaDateContext}
-      Google Maps places the verified destination near ${expectedTargetHeading} degrees from the panorama camera. Inspect that view and both neighboring views carefully, but use the map bearing only to focus the search, never as proof that the storefront is visible.
-      If the primary name text is partially obscured by a canopy, tree, or awning, look carefully at side banners, architectural markers, or window logos before deciding it is NOT_VISIBLE.
-      Reply with exactly one heading token: 0, 45, 90, 135, 180, 225, 270, 315, or NOT_VISIBLE. Do not reply with the VIEW number.
-      Use NOT_VISIBLE unless the requested destination is clearly identifiable in the panorama. A different nearby business is not a match. Do not infer a current business from nearby stores, an old sign, or the destination name alone.`;
-      const step2Response = await this.client.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: step2Prompt },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "--- LABELED PANORAMA GRID ---" },
-              {
-                type: "image_url",
-                image_url: { url: panoramaPhoto, detail: "high" },
-              },
-            ],
-          },
-        ],
-        temperature: 0.0,
-        max_tokens: 12,
-      });
-      const step2Text = step2Response.choices[0].message.content?.trim() || "";
-      const visuallyMatchedTargetHeading = parseLastMileHeading(step2Text);
-      let targetHeading = resolveVerifiedTargetHeading(
-        visuallyMatchedTargetHeading,
-        expectedTargetHeading,
-      );
-      const visualMatchAgreesWithMap = targetHeading !== null;
-      let targetBearing: number | undefined;
-      if (visualMatchAgreesWithMap) {
-        testScenario = "test_a_visible";
-        targetBearing = panoramaTargetBearing;
-      }
+      compassHeading = snapLastMileHeading(deviceHeading);
+      currentHeading = deviceHeading;
       testSteps.push({
-        name: "target_store_match",
-        prompt: step2Prompt,
-        response: step2Text,
-        parsedHeading: targetHeading ?? undefined,
-        model: "gpt-4o-mini",
-        success: visualMatchAgreesWithMap,
-        error:
-          visuallyMatchedTargetHeading === null
-            ? "Destination was not visible in the panorama."
-            : visualMatchAgreesWithMap
-              ? undefined
-              : "Visual destination heading disagreed with the verified map bearing.",
-        tokenCount: step2Response.usage?.total_tokens,
+        name: "compass_current_heading",
+        prompt:
+          "Record the phone compass heading. This is the only source used for turn direction.",
+        response: `${compassHeading} DEG`,
+        parsedHeading: compassHeading,
+        model: "device-compass",
+        success: true,
       });
-      if (targetHeading === null) {
-        if (!shouldUseDestinationReference(distanceMeters)) {
-          // Beside a large building the door in front of the user may be
-          // real; "not visible from this block" would send them away from it.
-          if (besideBuilding) {
-            await respondWithPlacesFallback({
-              imageryNote: "",
-              error: "entrance_not_visually_confirmed",
-              reason: "ENTRANCE_NOT_VISUALLY_CONFIRMED",
-            });
-            return;
-          }
-          navigationMode = "approach";
-          testScenario = "test_b_approach";
-          const finalOutput =
-            buildLastMileRetakeInstruction(
+
+      const bearingReliable = isDestinationBearingReliable(
+        distanceMeters,
+        gpsAccuracyMeters,
+      );
+      let targetHeading: number | undefined;
+      let turnInstruction: string;
+      if (!bearingReliable) {
+        testScenario = "test_b_approach";
+        turnInstruction = besideBuilding
+          ? buildBesideBuildingInstruction(
               place.placeName,
               distanceMeters,
               bearing,
-            ) +
-            closedNotice +
-            buildLastMileSourceNote(panoramaDate);
-          const testLogId = await recordTrial({ finalOutput, success: true });
-          res.status(200).json({
-            output: finalOutput,
-            testLogId,
-            mode: navigationMode,
-            testScenario,
-            currentHeading,
-            targetHeading,
-            warning: "destination_not_visible_move_closer",
-          });
-          return;
-        }
-
-        testScenario = "test_a_reference";
-        activeStage = "destination reference lookup";
-        console.log(
-          "   Step 2B: Fetching a destination-focused Street View reference...",
-        );
-        const referencePrompt =
-          `Fetch a Street View image aimed at the verified nearby location for ${destinationLabel}, ` +
-          "then confirm the destination in that image.";
-        try {
-          const reference = await getDestinationStreetViewReference(
-            lat,
-            lng,
-            destinationQuery,
-            { ...place, location: targetLocation, distanceMeters },
-          );
-          dataSources.add("street_view_reference");
-          destinationPhoto = reference.photo;
-          destinationPhotoDate = reference.date;
-          destinationPhotoStatus = reference.status;
-          destinationPlaceName = reference.placeName;
-          destinationPlaceAddress = reference.placeAddress;
-
-          activeStage = "destination reference verification";
-          const destinationDateContext = reference.date
-            ? `Street View reports that this image was captured in ${reference.date}.`
-            : "Street View did not provide a capture date for this image.";
-          const step2bPrompt = `You will receive a destination-focused Street View image for the verified nearby place "${reference.placeName}" at "${reference.placeAddress}". ${destinationDateContext}
-Reply with exactly one token: VISIBLE or NOT_VISIBLE.
-Use VISIBLE only when the storefront, sign, or entrance clearly corresponds to the named destination. Do not infer identity from the prompt, nearby businesses, or a generic building entrance.`;
-          const step2bResponse = await this.client.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-              { role: "system", content: step2bPrompt },
-              {
-                role: "user",
-                content: [
-                  {
-                    type: "text",
-                    text: "--- DESTINATION-FOCUSED STREET VIEW ---",
-                  },
-                  {
-                    type: "image_url",
-                    image_url: { url: reference.photo, detail: "high" },
-                  },
-                ],
-              },
-            ],
-            temperature: 0.0,
-            max_tokens: 8,
-          });
-          const step2bText =
-            step2bResponse.choices[0].message.content?.trim() || "";
-          destinationReferenceUsed = parseDestinationVisibility(step2bText);
-          if (destinationReferenceUsed) {
-            targetHeading = reference.targetHeading;
-            targetBearing = destinationBearing;
-          }
-          testSteps.push({
-            name: "destination_reference_match",
-            prompt: step2bPrompt,
-            response: step2bText,
-            parsedHeading: destinationReferenceUsed
-              ? reference.targetHeading
-              : undefined,
-            model: "gpt-4o-mini",
-            success: destinationReferenceUsed,
-            error: destinationReferenceUsed
-              ? undefined
-              : "Destination was not confirmed in the focused Street View image.",
-            tokenCount: step2bResponse.usage?.total_tokens,
-          });
-        } catch (referenceError) {
-          const message =
-            referenceError instanceof Error
-              ? referenceError.message
-              : "Destination reference lookup failed.";
-          console.error("Destination Street View fallback failed:", message);
-          testSteps.push({
-            name: "destination_reference_match",
-            prompt: referencePrompt,
-            model: "google-street-view",
-            success: false,
-            error: message,
-          });
-        }
-
-        if (targetHeading === null) {
-          // Step 2C: read the signs in zoomed views toward the map bearing.
-          // The model is not told the destination name, so it cannot be led
-          // into "reading" it; the name comparison happens in code.
-          activeStage = "sign text close-up";
-          const signPrompt = `You will receive two zoomed Street View images of storefronts.
-Transcribe the business names and sign text you can actually read, one per line.
-Do not guess letters you cannot read and do not add names that are not clearly visible.
-If no sign text is readable, reply exactly: NO_TEXT.`;
-          try {
-            const closeUps = await fetchSignCloseUps(
-              panorama.metadata,
-              lat,
-              lng,
-              panoramaTargetBearing,
-            );
-            dataSources.add("street_view_sign_closeup");
-            const signResponse = await this.client.chat.completions.create({
-              model: "gpt-4o-mini",
-              messages: [
-                { role: "system", content: signPrompt },
-                {
-                  role: "user",
-                  content: closeUps.flatMap((url, index) => [
-                    { type: "text" as const, text: `--- CLOSE-UP ${index + 1} ---` },
-                    {
-                      type: "image_url" as const,
-                      image_url: { url, detail: "high" as const },
-                    },
-                  ]),
-                },
-              ],
-              temperature: 0.0,
-              max_tokens: 80,
-            });
-            signText = signResponse.choices[0].message.content?.trim() || "";
-            signTextMatched =
-              !/^NO_TEXT$/i.test(signText) &&
-              signTextMatchesPlaceName(signText, place.placeName);
-            if (signTextMatched) {
-              testScenario = "test_a_sign_text";
-              targetHeading = expectedTargetHeading;
-              targetBearing = panoramaTargetBearing;
-            }
-            testSteps.push({
-              name: "sign_text_match",
-              prompt: signPrompt,
-              response: signText,
-              parsedHeading: signTextMatched ? expectedTargetHeading : undefined,
-              model: "gpt-4o-mini",
-              success: signTextMatched,
-              error: signTextMatched
-                ? undefined
-                : `No readable sign named ${place.placeName}.`,
-              tokenCount: signResponse.usage?.total_tokens,
-            });
-          } catch (signError) {
-            testSteps.push({
-              name: "sign_text_match",
-              prompt: signPrompt,
-              model: "google-street-view",
-              success: false,
-              error:
-                signError instanceof Error
-                  ? signError.message
-                  : "Sign close-up lookup failed.",
-            });
-          }
-        }
-      }
-      if (targetHeading === null) {
-        await respondWithPlacesFallback({
-          imageryNote: panoramaDate
-            ? ` The available Street View panorama is dated ${panoramaDate} and may be outdated.`
-            : " The available Street View imagery may be outdated.",
-          error: "entrance_not_visually_confirmed",
-          reason: "ENTRANCE_NOT_VISUALLY_CONFIRMED",
-        });
-        return;
+            )
+          : buildCloseRangeNoTurnInstruction(place.placeName, distanceMeters);
+      } else {
+        testScenario = "test_a_visible";
+        targetHeading = snapLastMileHeading(bearing);
+        turnInstruction = buildLastMileTurnInstruction(deviceHeading, bearing);
       }
 
       const confidence = calculateLastMileConfidence({
         gpsAccuracyMeters,
         compassAccuracyLevel,
-        panoramaCurrentViewMatched: panoramaMatchedHeading !== undefined,
-        compassPanoramaAgrees: headingComparisonAgrees,
-        destinationVisuallyMatched: visualMatchAgreesWithMap || signTextMatched === true,
-        destinationReferenceVerified: destinationReferenceUsed,
-        panoramaAgeYears,
       });
       confidenceScore = confidence.score;
       confidenceLevel = confidence.level;
@@ -1669,7 +1041,7 @@ If no sign text is readable, reply exactly: NO_TEXT.`;
       testSteps.push({
         name: "confidence_fusion",
         prompt:
-          "Combine GPS accuracy, compass/panorama agreement, user-image localization, and destination verification without changing the compass guidance heading.",
+          "Combine GPS accuracy and compass calibration after Google Places verified the destination.",
         response: `${confidence.level.toUpperCase()}: ${Math.round(confidence.score * 100)}%`,
         model: "deterministic-confidence",
         success: confidence.level !== "low",
@@ -1677,57 +1049,35 @@ If no sign text is readable, reply exactly: NO_TEXT.`;
           confidence.level === "low" ? confidence.reasons.join(" ") : undefined,
       });
 
-      // ==========================================
-      // TYPESCRIPT MATH CALCULATION (Bulletproof Turn Logic)
-      // ==========================================
-      const turnInstruction = buildLastMileTurnInstruction(
-        deviceHeading ?? currentHeading,
-        targetBearing ?? targetHeading,
-      );
-      const distanceSentence = buildLastMileDistanceSentence(
-        place.placeName,
-        distanceMeters,
-        !turnInstruction.startsWith("No turn"),
-      );
+      const distanceSentence = bearingReliable
+        ? buildLastMileDistanceSentence(
+            place.placeName,
+            distanceMeters,
+            !turnInstruction.startsWith("No turn"),
+          )
+        : "";
 
-      // ==========================================
-      // STEP 3: ACCESSIBLE GUIDANCE & LANDMARKS
-      // ==========================================
       activeStage = "accessible guidance";
-      console.log("   ➤ Step 3: Generating Accessible Guidance...");
-      const destinationReferenceContext = destinationReferenceUsed
-        ? `A separate Street View image for "${destinationPlaceName}" is also provided. It was captured ${destinationPhotoDate || "on an unknown date"} and may be outdated. Use it only as historical entrance context, never as proof of current conditions.`
-        : "No separate destination reference image is provided.";
+      console.log("   ➤ Generating landmarks from the user photo...");
       const step3Prompt = `You are an orientation assistant for a blind pedestrian.
-The validated turn instruction is: "${turnInstruction}"
-${destinationReferenceContext}
-Describe at most two stable physical landmarks. Use the user's current photo for a landmark useful while turning in place. If a destination reference is provided, you may also describe one clearly visible entrance feature and must prefix it with "Street View reference:".
+The validated instruction is: "${turnInstruction}"
+Describe at most two stable physical landmarks from the user's current photo that help while turning in place.
 Only mention stable, cane-detectable or tactile features such as a wall edge, curb, doorway recess, railing, or steps.
-Do not name, describe, or direct the user toward any business other than "${destinationPlaceName || destination}". If the requested destination's entrance is not verified, omit entrance guidance rather than substituting a neighboring storefront.
-Never claim that a reference-image feature is currently present or visible from the user's position. Never invent an object. Never say "look", "see", "watch", "keep an eye out", or promise that a path is clear.
+Do not name, describe, or direct the user toward any business other than "${destinationPlaceName || destination}".
+Never invent an object. Never say "look", "see", "watch", "keep an eye out", or promise that a path is clear.
 Do not instruct the user to walk forward or cross a street. If no reliable landmark is visible, reply exactly: NO_RELIABLE_LANDMARKS.
 Keep the response to two short sentences and do not repeat the turn instruction.`;
-      const step3UserContent: any[] = [
-        { type: "text", text: "--- USER'S CURRENT PHOTO ---" },
-        { type: "image_url", image_url: { url: image, detail: "high" } },
-      ];
-      if (destinationReferenceUsed && destinationPhoto) {
-        step3UserContent.push(
-          {
-            type: "text",
-            text: "--- DESTINATION-FOCUSED STREET VIEW REFERENCE ---",
-          },
-          {
-            type: "image_url",
-            image_url: { url: destinationPhoto, detail: "high" },
-          },
-        );
-      }
       const step3Response = await this.client.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
           { role: "system", content: step3Prompt },
-          { role: "user", content: step3UserContent },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "--- USER'S CURRENT PHOTO ---" },
+              { type: "image_url", image_url: { url: image, detail: "high" } },
+            ],
+          },
         ],
         temperature: 0.1,
         max_tokens: 100,
@@ -1751,17 +1101,10 @@ Keep the response to two short sentences and do not repeat the turn instruction.
         tokenCount: step3Response.usage?.total_tokens,
       });
 
-      // --- FINAL OUTPUT FOR TERMINAL ---
-      console.log("\n💬 AI 3-Step Navigation Output:");
-      console.log(
-        `- 1st Match (Current View): The user is facing ${currentHeading}°.`,
-      );
-      console.log(
-        `- 2nd Match (Target Store): The target '${destination}' is located at ${targetHeading}°.`,
-      );
-      console.log(
-        `- 3rd Step (Guidance): ${turnInstruction} Landmarks: ${landmarksGuidance}`,
-      );
+      console.log("\n💬 Last Meters output (Places + compass):");
+      console.log(`- Compass heading: ${currentHeading}°.`);
+      console.log(`- Map bearing: ${bearing.toFixed(1)}°.`);
+      console.log(`- Guidance: ${turnInstruction} ${landmarksGuidance}`);
       console.log("=========================================\n");
 
       const confidenceNotice =
@@ -1771,7 +1114,7 @@ Keep the response to two short sentences and do not repeat the turn instruction.
       const finalOutput =
         `${turnInstruction} ${distanceSentence} Landmarks: ${landmarksGuidance}${confidenceNotice}` +
         closedNotice +
-        buildLastMileSourceNote(panoramaDate);
+        buildLastMileSourceNote();
       const testLogId = await recordTrial({
         finalOutput,
         success: true,
@@ -2282,21 +1625,7 @@ Keep the response to two short sentences and do not repeat the turn instruction.
             }
           } else {
               console.error("No panorama data found for this address.");
-              const streetViewURL = await getStreetViewWithHeading(
-                location.data.candidates[0].formatted_address,
-              );
-            console.log("getting sv with proper heading... ", streetViewURL);
-              if (streetViewURL)
-                userContent.push({
-                  type: "image_url",
-                image_url: {
-                  url: streetViewURL,
-                    detail: "high",
-                  },
-              });
-            // relevantData = 'Data on this address has not been collected yet. Let the user know if they want detailed information on this address, they can visit doorfront.org and request it be added.';
-            relevantData = `Data on this address has not been collected yet by volunteers. Use the street view image to describe the entrance features visible from street view. Let the user know this data is not validated by real users and may not be correct.
-             When describing this image, provide a confidence level (1 to 5) for your description of the entrance based on how clear the image is.`;
+            relevantData = `Data on this address has not been collected yet by volunteers. Tell the user entrance details from doorfront.org are unavailable. Do not invent an entrance description from imagery.`;
           }
           systemContent += `\n${relevantData}`;
           } else if (
@@ -2491,10 +1820,6 @@ Keep the response to two short sentences and do not repeat the turn instruction.
               }
             } else {
                 console.log("No panorama data found for this address.");
-                console.log(
-                  "getting sv with proper heading... ",
-                  getStreetViewWithHeading(formattedAddress),
-                );
             }
             // step 3: get route from starting location to destination (doorfront location if it exists)
             if (!doorLocation) {
@@ -2755,282 +2080,4 @@ Keep the response to two short sentences and do not repeat the turn instruction.
       console.error(e);
     }
   }
-}
-
-const PANORAMA_LABEL_GLYPHS: Record<string, string[]> = {
-  "0": ["11111", "10001", "10011", "10101", "11001", "10001", "11111"],
-  "1": ["00100", "01100", "00100", "00100", "00100", "00100", "01110"],
-  "2": ["11110", "00001", "00001", "11110", "10000", "10000", "11111"],
-  "3": ["11110", "00001", "00001", "01110", "00001", "00001", "11110"],
-  "4": ["10010", "10010", "10010", "11111", "00010", "00010", "00010"],
-  "5": ["11111", "10000", "10000", "11110", "00001", "00001", "11110"],
-  "6": ["01111", "10000", "10000", "11110", "10001", "10001", "01110"],
-  "7": ["11111", "00001", "00010", "00100", "01000", "01000", "01000"],
-  "8": ["01110", "10001", "10001", "01110", "10001", "10001", "01110"],
-  "9": ["01110", "10001", "10001", "01111", "00001", "00001", "11110"],
-  D: ["11110", "10001", "10001", "10001", "10001", "10001", "11110"],
-  E: ["11111", "10000", "10000", "11110", "10000", "10000", "11111"],
-  G: ["01110", "10001", "10000", "10111", "10001", "10001", "01110"],
-  I: ["11111", "00100", "00100", "00100", "00100", "00100", "11111"],
-  V: ["10001", "10001", "10001", "10001", "10001", "01010", "00100"],
-  W: ["10001", "10001", "10001", "10101", "10101", "10101", "01010"],
-  "|": ["00100", "00100", "00100", "00100", "00100", "00100", "00100"],
-  " ": ["00000", "00000", "00000", "00000", "00000", "00000", "00000"],
-};
-
-export function createPanoramaOverlaySvg(
-  heading: number,
-  segmentIndex: number,
-): Buffer {
-  const paddedHeading = String(heading).padStart(3, "0");
-  const label = `VIEW ${segmentIndex} | ${paddedHeading} DEG`;
-  const pixelSize = 5;
-  const glyphAdvance = 30;
-  const startX = 24;
-  const startY = 20;
-  const pixels: string[] = [];
-  for (const [glyphIndex, character] of [...label].entries()) {
-    const glyph = PANORAMA_LABEL_GLYPHS[character];
-    if (!glyph) continue;
-    glyph.forEach((row, rowIndex) => {
-      [...row].forEach((pixel, columnIndex) => {
-        if (pixel !== "1") return;
-        pixels.push(
-          `<rect x="${startX + glyphIndex * glyphAdvance + columnIndex * pixelSize}" ` +
-            `y="${startY + rowIndex * pixelSize}" width="${pixelSize}" height="${pixelSize}" fill="#ffffff" />`,
-        );
-      });
-    });
-  }
-  const svg = `
-    <svg width="640" height="640">
-      <rect x="0" y="0" width="640" height="76" fill="rgba(0, 0, 0, 0.9)" />
-      <rect x="0" y="0" width="8" height="640" fill="#00e0b8" />
-      ${pixels.join("")}
-    </svg>
-  `;
-  return Buffer.from(svg);
-}
-
-async function buildPanoramaDebugImage(
-  tiles: { heading: number; base64: string }[],
-): Promise<string> {
-  const compositeLayers: sharp.OverlayOptions[] = [];
-  tiles.forEach((tile, index) => {
-    const leftOffset = (index % 4) * 640;
-    const topOffset = Math.floor(index / 4) * 640;
-    const imageBuffer = Buffer.from(
-      tile.base64.replace(/^data:image\/\w+;base64,/, ""),
-      "base64",
-    );
-    compositeLayers.push({
-      input: imageBuffer,
-      left: leftOffset,
-      top: topOffset,
-    });
-    compositeLayers.push({
-      input: createPanoramaOverlaySvg(tile.heading, index + 1),
-      left: leftOffset,
-      top: topOffset,
-    });
-  });
-
-  const outputBuffer = await sharp({
-    create: {
-      width: 2560,
-      height: 1280,
-      channels: 3,
-      background: { r: 0, g: 0, b: 0 },
-    },
-  })
-    .composite(compositeLayers)
-    .jpeg({ quality: 72 })
-    .toBuffer();
-
-  return `data:image/jpeg;base64,${outputBuffer.toString("base64")}`;
-}
-
-async function resizeDataUrlImage(
-  dataUrl: string,
-  maxWidth: number,
-  quality: number,
-): Promise<string> {
-  try {
-    const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, "");
-    const outputBuffer = await sharp(Buffer.from(base64Data, "base64"))
-      .rotate()
-      .resize({ width: maxWidth, withoutEnlargement: true })
-      .jpeg({ quality })
-      .toBuffer();
-    return `data:image/jpeg;base64,${outputBuffer.toString("base64")}`;
-  } catch (error) {
-    console.error(
-      "[LastMileTestLog] failed to compress user photo for storage:",
-      error,
-    );
-    return dataUrl;
-  }
-}
-
-interface StreetViewMetadata {
-  status: string;
-  date?: string;
-  pano_id?: string;
-  copyright?: string;
-  location?: { lat: number; lng: number };
-}
-
-/**
- * Two narrow, slightly raised views either side of the map bearing, so sign
- * lettering that is a few pixels tall in a 45 degree tile becomes readable.
- */
-async function fetchSignCloseUps(
-  metadata: StreetViewMetadata,
-  lat: number,
-  lng: number,
-  bearing: number,
-): Promise<string[]> {
-  return Promise.all(
-    [-15, 15].map(async (offset) => {
-      const response = await axios.get(
-        "https://maps.googleapis.com/maps/api/streetview",
-        {
-          params: {
-            size: "640x640",
-            ...(metadata.pano_id
-              ? { pano: metadata.pano_id }
-              : { location: `${lat},${lng}` }),
-            heading: (((bearing + offset) % 360) + 360) % 360,
-            fov: 30,
-            pitch: 8,
-            source: "outdoor",
-            return_error_code: true,
-            key: getGoogleMapsApiKey(),
-          },
-          responseType: "arraybuffer",
-          timeout: 20_000,
-        },
-      );
-      return `data:image/jpeg;base64,${Buffer.from(response.data).toString("base64")}`;
-    }),
-  );
-}
-
-/**
- * Approach and aligned trials answer before any panorama is needed; this
- * saves one afterwards so reviewers can still judge the scene.
- */
-async function saveBackgroundPanorama(
-  testLogId: string | undefined,
-  download: ReturnType<typeof processEightDirectionTiles>,
-): Promise<void> {
-  if (!testLogId) return;
-  try {
-    const { tiles, metadata } = await download;
-    await lastMileTestLogService.attachPanorama(testLogId, {
-      panoramaPhoto: await buildPanoramaDebugImage(tiles),
-      panoramaDate: metadata.date,
-      panoramaStatus: metadata.status,
-      panoramaHeadings: tiles.map((tile) => tile.heading),
-      panoId: metadata.pano_id,
-      panoramaCopyright: metadata.copyright,
-      panoramaAgeYears: streetViewImageryAgeYears(metadata.date),
-    });
-  } catch (error: any) {
-    await lastMileTestLogService.attachPanorama(testLogId, {
-      panoramaStatus:
-        typeof error?.code === "string" ? error.code : "BACKGROUND_PANORAMA_FAILED",
-    });
-  }
-}
-
-/**
- * Accept only outdoor panoramas whose metadata identifies Google as the provider.
- * Do not fall back to user-contributed imagery.
- */
-async function processEightDirectionTiles(
-  lat: number,
-  lng: number,
-): Promise<{
-  tiles: { heading: number; base64: string }[];
-  metadata: StreetViewMetadata;
-}> {
-  console.log("🎬 FETCHING 8 INDIVIDUAL DIRECTION TILES...");
-  const headings = [...LAST_MILE_HEADINGS];
-  const apiKey = getGoogleMapsApiKey();
-
-  let metadata: StreetViewMetadata | null = null;
-  let lastStatus = "NO_PANORAMA";
-  for (const radius of [50, 100]) {
-    const metadataResponse = await axios.get<StreetViewMetadata>(
-      "https://maps.googleapis.com/maps/api/streetview/metadata",
-      {
-        params: {
-          location: `${lat},${lng}`,
-          radius,
-          source: "outdoor",
-          key: apiKey,
-        },
-        timeout: 20_000,
-      },
-    );
-    const candidate = metadataResponse.data;
-    if (candidate.status !== "OK") {
-      lastStatus = candidate.status;
-      console.warn(
-        `Street View metadata ${candidate.status} (source=outdoor, radius=${radius})`,
-      );
-      continue;
-    }
-        if (!/google/i.test(candidate.copyright ?? "")) {
-      lastStatus = "NON_GOOGLE_PANORAMA";
-      console.warn(
-        `Rejected non-Google Street View panorama (radius=${radius}, copyright=${candidate.copyright ?? "unknown"})`,
-      );
-      continue;
-    }
-
-    metadata = candidate;
-    break;
-  }
-
-  if (!metadata) {
-    const metadataError = new Error(
-      `No Google-captured outdoor Street View panorama: ${lastStatus}.`,
-    );
-    Object.assign(metadataError, { code: `STREET_VIEW_${lastStatus}` });
-    throw metadataError;
-  }
-
-  const panoramaSelector = metadata.pano_id
-    ? `pano=${encodeURIComponent(metadata.pano_id)}`
-    : `location=${lat},${lng}`;
-
-  const tilesData = await Promise.all(
-    headings.map(async (heading) => {
-      const url =
-        `https://maps.googleapis.com/maps/api/streetview?size=640x640&${panoramaSelector}` +
-        `&heading=${heading}&fov=${LAST_MILE_PANORAMA_FOV_DEGREES}` +
-        `&pitch=0&source=outdoor&return_error_code=true&key=${apiKey}`;
-      const response = await axios.get(url, {
-        responseType: "arraybuffer",
-        timeout: 20_000,
-        validateStatus: () => true,
-      });
-      const buffer = Buffer.from(response.data);
-      if (response.status !== 200 || buffer.byteLength < 10_000) {
-        const tileError = new Error(
-          `Street View tile at ${heading}° was unusable (HTTP ${response.status}, ${buffer.byteLength} bytes).`,
-        );
-        Object.assign(tileError, { code: "STREET_VIEW_TILE_UNUSABLE" });
-        throw tileError;
-      }
-      return {
-        heading,
-        base64: `data:image/jpeg;base64,${buffer.toString("base64")}`,
-      };
-    }),
-  );
-
-  return { tiles: tilesData, metadata };
 }

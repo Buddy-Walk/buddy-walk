@@ -48,104 +48,6 @@ function writeFile(data: any) {
   });
 }
 
-// streetview-heading.ts
-
-// --- 1. Type Definitions ---
-
-interface LatLng {
-  lat: number;
-  lng: number;
-}
-
-interface GeocodeResponse {
-  status: string;
-  results: {
-    geometry: {
-      location: LatLng;
-    };
-  }[];
-}
-
-interface StreetViewMetadataResponse {
-  status: string;
-  location?: LatLng; // 'location' is the car's position
-}
-
-
-// --- 3. The Math Helper ---
-function calculateHeading(from: LatLng, to: LatLng): number {
-  const toRad = (deg: number): number => (deg * Math.PI) / 180;
-  const toDeg = (rad: number): number => (rad * 180) / Math.PI;
-
-  const phi1 = toRad(from.lat);
-  const phi2 = toRad(to.lat);
-  const deltaLambda = toRad(to.lng - from.lng);
-
-  const y = Math.sin(deltaLambda) * Math.cos(phi2);
-  const x =
-    Math.cos(phi1) * Math.sin(phi2) -
-    Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
-
-  const theta = Math.atan2(y, x);
-  const heading = toDeg(theta);
-
-  // Normalize to 0-360
-  return (heading + 360) % 360;
-}
-
-// --- 4. Main Logic ---
-async function getStreetViewWithHeading(address: string): Promise<string | null> {
-  try {
-    console.log(`\n1. Geocoding address: "${address}"...`);
-
-    // Step A: Geocode Address (Find the House)
-    const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
-      address
-    )}&key=${process.env.GOOGLE_API_KEY}`;
-    
-    const geoRes = await fetch(geoUrl);
-    const geoData = (await geoRes.json()) as GeocodeResponse;
-
-    if (geoData.status !== 'OK' || !geoData.results.length) {
-      throw new Error(`Geocoding failed: ${geoData.status}`);
-    }
-
-    const houseLoc: LatLng = geoData.results[0].geometry.location;
-    console.log(`   House found at: ${houseLoc.lat}, ${houseLoc.lng}`);
-
-    // Step B: Find Nearest Panorama (Find the Car)
-    // The Metadata API returns the specific lat/lng where the car was standing
-    const metaUrl = `https://maps.googleapis.com/maps/api/streetview/metadata?location=${houseLoc.lat},${houseLoc.lng}&key=${process.env.GOOGLE_API_KEY}`;
-    
-    const metaRes = await fetch(metaUrl);
-    const metaData = (await metaRes.json()) as StreetViewMetadataResponse;
-
-    if (metaData.status !== 'OK' || !metaData.location) {
-      throw new Error(`No Street View found nearby: ${metaData.status}`);
-    }
-
-    const carLoc: LatLng = metaData.location;
-    console.log(`   Car found at:   ${carLoc.lat}, ${carLoc.lng}`);
-
-    // Step C: Calculate Heading
-    const heading = calculateHeading(carLoc, houseLoc);
-    console.log(`   Calculated Heading: ${heading.toFixed(2)}°`);
-
-    // Step D: Construct Final URL
-    const finalUrl = `https://maps.googleapis.com/maps/api/streetview?size=640x480&location=${houseLoc.lat},${houseLoc.lng}&heading=${heading.toFixed(2)}&fov=80&pitch=0&key=${process.env.GOOGLE_API_KEY}`;
-    
-    console.log(`\n✅ Final Image URL:\n${finalUrl}`);
-    return finalUrl;
-
-  } catch (error) {
-    if (error instanceof Error) {
-      console.error('Error:', error.message);
-    } else {
-      console.error('An unknown error occurred');
-    }
-    return null;
-  }
-}
 
 
 
@@ -361,14 +263,7 @@ export class GeminiService {
             systemContent += `\n${relevantData}`;
           } else {
             console.error('No panorama data found for this address.');
-            const streetViewURL = await getStreetViewWithHeading(location.data.candidates[0].formatted_address);
-            console.log("getting sv with proper heading... ", streetViewURL);
-            if (streetViewURL) {
-                try {
-                    userParts.push(await urlToGenerativePart(streetViewURL));
-                } catch(e) { console.error("Error fetching streetview image", e); }
-            }
-            relevantData = 'Data on this address has not been collected yet by volunteers. Use the street view image to describe the entrance features visible from street view. Let the user know this data is not validated by real users and may not be correct.';
+            relevantData = 'Data on this address has not been collected yet by volunteers. Tell the user entrance details from doorfront.org are unavailable. Do not invent an entrance description from imagery.';
           }
         }
         else if (functionCall.name === "getNearbyFeatures") {

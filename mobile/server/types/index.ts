@@ -56,7 +56,7 @@ Rules:
 - Heading: 0=north, 90=east, 180=south, 270=west.
 
 Source and confidence:
-- Name the source for each claim (Google Maps, Street View, phone GPS/compass, AI image comparison, AI storefront recognition).
+- Name the source for each claim (Google Maps, phone GPS/compass, AI image comparison, AI storefront recognition).
 - Include a 0-100% confidence for AI judgments. Below 70% is uncertain — say so and ask for another photo or confirmation.
 `;
 

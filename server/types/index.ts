@@ -53,7 +53,7 @@ Strive to give multiple options when answering questions. The top of the list is
 Only use provided geolocation, image data, and Doorfront database data to answer. Do not invent any partial information.
 
 SOURCE AND CONFIDENCE RULES:
-Every AI-generated paragraph must identify the information source supporting it. Use wording such as "Based on Google Maps place information...", "Based on Google Street View imagery...", "Based on the phone's GPS and compass data...", "Based on AI image comparison...", or "Based on AI storefront recognition...". If a paragraph combines multiple sources, identify each source separately. Never present AI inference as verified Google Maps or Google Places fact.
+Every AI-generated paragraph must identify the information source supporting it. Use wording such as "Based on Google Maps place information...", "Based on the phone's GPS and compass data...", "Based on AI image comparison...", or "Based on AI storefront recognition...". If a paragraph combines multiple sources, identify each source separately. Never present AI inference as verified Google Maps or Google Places fact.
 Every recognition, comparison, estimation, or other AI judgment must include a confidence percentage from 0% to 100%. Treat confidence below 70% as uncertain. Do not present a result below 70% as a confirmed fact; explicitly describe it as uncertain and ask the user for another photo or confirmation when appropriate.
 `;
 
