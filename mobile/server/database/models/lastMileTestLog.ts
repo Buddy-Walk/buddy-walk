@@ -2,6 +2,7 @@ import mongoose, { Schema } from "mongoose";
 import { LAST_MILE_TEST_SCENARIOS } from "../../utils/lastMileNavigation";
 import type { LastMileTestScenario } from "../../utils/lastMileNavigation";
 import type { PlaceCandidateLog } from "../../utils/nearbyPlaces";
+import type { PanoramaAttempt } from "../../services/outdoorPanoramaSelection";
 
 export const REVIEW_OUTCOMES = ["got_there", "needed_retake", "would_not_get_there"] as const;
 export const TURN_CORRECTNESS = ["correct", "wrong", "no_turn_given"] as const;
@@ -19,6 +20,8 @@ export interface lastMileTestStepInterface {
   success: boolean;
   error?: string;
   tokenCount?: number;
+  durationMs?: number;
+  panoId?: string;
 }
 
 export interface lastMileTestLogInterface {
@@ -31,6 +34,7 @@ export interface lastMileTestLogInterface {
   panoramaPhoto?: string;
   panoramaDate?: string;
   panoramaStatus?: string;
+  panoramaValidation?: PanoramaAttempt[];
   /** "pipeline" when matched, "background" when saved only for review. */
   panoramaSource?: "pipeline" | "background";
   panoId?: string;
@@ -100,6 +104,8 @@ const LastMileTestStepSchema = new Schema<lastMileTestStepInterface>(
     success: { type: Boolean, required: true },
     error: { type: String },
     tokenCount: { type: Number },
+    durationMs: { type: Number },
+    panoId: { type: String },
   },
   { _id: false }
 );
@@ -127,6 +133,7 @@ const LastMileTestLogSchema = new Schema<lastMileTestLogInterface>({
   panoramaPhoto: { type: String },
   panoramaDate: { type: String },
   panoramaStatus: { type: String },
+  panoramaValidation: [{ _id: false, panoId: String, status: String, reason: String, distanceMeters: Number }],
   panoramaSource: { type: String, enum: ["pipeline", "background"] },
   panoId: { type: String },
   panoramaCopyright: { type: String },

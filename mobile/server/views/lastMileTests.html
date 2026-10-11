@@ -328,9 +328,9 @@
     var SOURCE_LABELS = {
       google_places: 'Google Places',
       google_building_entrances: 'Google building entrances',
-      street_view_panorama: 'Legacy panorama',
-      street_view_reference: 'Legacy destination image',
-      street_view_sign_closeup: 'Legacy sign close-up',
+      street_view_panorama: 'Street View panorama',
+      street_view_reference: 'Street View destination image',
+      street_view_sign_closeup: 'Street View sign close-up',
       phone_gps: 'Phone GPS',
       phone_compass: 'Phone compass'
     };
@@ -446,7 +446,7 @@
 
     // --- Module Logic ---
     function findStep(steps, name) {
-      return (steps || []).find(function (s) { return s.name === name; });
+      return (steps || []).slice().reverse().find(function (s) { return s.name === name; });
     }
 
     function badge(status, label) {
@@ -571,10 +571,11 @@
         destination_not_verified: 'Google Places could not confirm the requested destination within the local search area. The name may be ambiguous, the phone location may be inaccurate, or Google may not have returned the business.',
         compass_heading_unavailable: 'The phone did not provide a usable compass reading. Buddy Walk did not calculate a turn because compass heading is required for guidance.',
         heading_sources_disagree: 'The phone compass and the panorama match disagreed by 90 degrees or more about which way the user was facing. Buddy Walk deliberately withheld the turn and asked the user to recalibrate the compass and retake the photo, instead of guessing.',
-        destination_not_visible: 'The destination could not be visually confirmed from the available photos. Buddy Walk intentionally withheld turn guidance.',
-        current_view_not_visible: 'The user photo could not be matched confidently to a nearby view.',
-        entrance_not_visually_confirmed: 'Google Maps verified the destination nearby, but the storefront could not be visually confirmed. The user still received the distance and a compass-based turn; visual entrance verification was deliberately withheld.',
-        no_outdoor_panorama: 'No outdoor imagery was available at the user position. The user received the Google Maps distance and, when GPS allowed, a compass-based turn.',
+        destination_not_visible: 'The destination could not be visually confirmed in the Street View panorama or the nearby reference image. Buddy Walk intentionally withheld turn guidance.',
+        current_view_not_visible: 'The user photo could not be matched confidently to the Street View panorama.',
+        entrance_not_visually_confirmed: 'Google Maps verified the destination nearby, but the storefront could not be visually confirmed in the Street View panorama, the reference image, or the sign close-ups (imagery may be outdated or the sign obscured). The user still received the distance and a compass-based turn; visual entrance verification was deliberately withheld.',
+        no_outdoor_panorama: 'No suitable outdoor panorama was available in this trial. Check the recorded guidance for whether a map-based turn was provided by the older pipeline.',
+        no_validated_outdoor_panorama: 'No nearby panorama passed outdoor visual validation. Indoor, uncertain, duplicate, distant, and failed candidates are logged below. Precise turn and entrance guidance was withheld.',
       };
       var summary = explanations[test.error] || 'This trial stopped before Buddy Walk could provide a fully verified localization result.';
       var details = (test.steps || [])
@@ -614,7 +615,7 @@
         })
         .then(function (payload) {
           var next = Object.assign({}, summary, payload.data || {});
-          // getOne omits legacy panorama blobs, so keep the list-row image flags.
+          // getOne omits Street View blobs, so keep the list-row image flags.
           next.hasPanorama = summary.hasPanorama;
           next.hasDestinationPhoto = summary.hasDestinationPhoto;
           renderDetail(next, index);
@@ -630,7 +631,7 @@
         return 'Not a Last Meters trial: the input was a question and was answered by the question flow.';
       }
       if (test.testScenario === 'no_panorama') {
-        return 'No outdoor panorama exists at the user position (' + (test.panoramaStatus || 'unavailable') + ').';
+        return 'No usable outdoor panorama was obtained (' + (test.panoramaStatus || 'unavailable') + '). This can mean imagery was missing, rejected, or could not be validated; see the validation attempts.';
       }
       if (test.panoramaSource === 'background' && test.panoramaStatus) {
         return 'The review panorama could not be saved: ' + test.panoramaStatus + '.';
@@ -647,7 +648,7 @@
       if (test.error === 'destination_not_verified' || test.testScenario === 'destination_not_verified') {
         return 'Panorama skipped: Google Places could not verify the destination nearby.';
       }
-      return 'No panorama: the run stopped before imagery could be saved — check the failed stage below.';
+      return 'No panorama: the run stopped before or during Street View download — check the failed stage below.';
     }
 
     function dataSourcesHtml(test) {
@@ -700,6 +701,7 @@
 
     function renderDetail(test, index) {
       var modules = buildModules(test);
+      var timedSteps = (test.steps || []).filter(function(s) { return typeof s.durationMs === 'number'; });
       var coords = [test.lat, test.lng].filter(function(v) { return v !== undefined; }).join(', ');
       
       document.getElementById('lmDetailTitle').textContent = test.destinationPlaceName || test.destination || 'Unknown Destination';
@@ -714,7 +716,20 @@
           ? '<div class="img-container"><img class="rotatable-img" data-angle="0" src="' + imgSrc(test.userPhoto) + '" alt="User photo" /></div>'
           : '<div class="empty">' + (test.hasUserPhoto ? 'Loading photo…' : 'No photo') + '</div>') +
         '</div></div>';
+      if (test.panoramaValidation && test.panoramaValidation.length) {
+        imagesHtml += '<div class="module-block"><div class="module-head">Outdoor panorama validation</div>' +
+          test.panoramaValidation.map(function(attempt) {
+            return '<p class="module-metric"><b>' + esc(attempt.status) + '</b>: ' + esc(attempt.reason) +
+              (attempt.panoId ? ' | Panorama: ' + esc(attempt.panoId) : '') +
+              (attempt.distanceMeters != null ? ' | Camera distance: ' + esc(attempt.distanceMeters) + ' m' : '') + '</p>';
+          }).join('') + '</div>';
+      }
 
+      if (timedSteps.length) {
+        imagesHtml += '<div class="module-block"><div class="module-head">Vision timing (parallel work may overlap)</div>' +
+          timedSteps.map(function(s) { return '<p>' + esc(s.name) + ': ' + esc(s.durationMs) + ' ms' +
+            (s.panoId ? ' | ' + esc(s.panoId) : '') + '</p>'; }).join('') + '</div>';
+      }
       var reviewHtml = '<div class="review-section" data-id="' + esc(idOf(test)) + '">' +
         '<div>' +
           '<label class="small" style="display:block;margin-bottom:4px">Outcome (required)</label>' +

@@ -32,12 +32,12 @@ export function hasOwnMtaKey(): boolean {
   return allPresent('MTA_API_KEY');
 }
 
-/** Google Maps, used by Last Meters for Places and geocoding. */
+/** Google Maps / Street View, used by Last Meters for panoramas and geocoding. */
 export function hasOwnMapsKey(): boolean {
   return anyPresent('GOOGLE_MAPS_API_KEY', 'GOOGLE_API_KEY');
 }
 
-/** Last Meters needs OpenAI vision + Google Maps — Gemini-only is not enough. */
+/** Last Meters needs OpenAI vision + Google Street View — Gemini-only is not enough. */
 export function canRunLocalLastMile(): boolean {
   return Boolean(process.env.OPENAI_API_KEY?.trim()) && hasOwnMapsKey();
 }
@@ -95,7 +95,7 @@ export function getServiceRouting(): ServiceRouting {
     mta: route(hasOwnMtaKey()),
     lastMile: route(canRunLocalLastMile()),
   };
-  // OpenAI + Maps must run locally when configured — do not proxy Last
+  // Street View + OpenAI must run locally when configured — do not proxy Last
   // Meters through buddywalk.app text even if ZERO_CONFIG forces other routes.
   if (canRunLocalLastMile()) {
     routing.lastMile = 'local';

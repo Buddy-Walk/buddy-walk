@@ -214,7 +214,7 @@ export class LastMileTestLogService {
     id: string,
     panorama: Pick<
       lastMileTestLogInterface,
-      "panoramaPhoto" | "panoramaDate" | "panoramaStatus" | "panoId" | "panoramaCopyright" | "panoramaAgeYears"
+      "panoramaPhoto" | "panoramaDate" | "panoramaStatus" | "panoId" | "panoramaCopyright" | "panoramaAgeYears" | "panoramaValidation"
     > & { panoramaHeadings?: number[] }
   ): Promise<void> {
     const update: Partial<lastMileTestLogInterface> = {

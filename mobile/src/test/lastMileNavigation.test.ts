@@ -15,6 +15,7 @@ import {
   compareCompassAndPanoramaHeadings,
   isDestinationBearingReliable,
   isLastMileHeadingAligned,
+  LAST_MILE_HEADING_CONFLICT_MAX_SCORE,
   lastMileHeadingDifference,
   LAST_MILE_HEADINGS,
   LAST_MILE_PANORAMA_FOV_DEGREES,
@@ -26,6 +27,7 @@ import {
   resolveVerifiedTargetHeading,
   shouldUseDestinationReference,
   snapLastMileHeading,
+  streetViewImageryAgeYears,
 } from "../../server/utils/lastMileNavigation";
 
 test("parseLastMileHeading accepts a single valid panorama heading", () => {
@@ -36,10 +38,17 @@ test("parseLastMileHeading accepts a single valid panorama heading", () => {
 
 test("parseLastMileHeading maps a VIEW index to that tile's heading", () => {
   // Sep 30 Dunkin': Step 2 answered "2" because the overlay said VIEW 2.
-  assert.equal(parseLastMileHeading("2"), 45);
-  assert.equal(parseLastMileHeading("VIEW 2"), 45);
+  assert.equal(parseLastMileHeading("2"), 22.5);
+  assert.equal(parseLastMileHeading("VIEW 2"), 22.5);
   assert.equal(parseLastMileHeading("1"), 0);
-  assert.equal(parseLastMileHeading("8"), 315);
+  assert.equal(parseLastMileHeading("8"), 157.5);
+  assert.equal(parseLastMileHeading("VIEW 16 | 337.5 DEG"), 337.5);
+  for (const heading of LAST_MILE_HEADINGS) {
+    assert.equal(parseLastMileHeading(String(heading)), heading);
+  }
+  assert.equal(parseLastMileHeading("22.7"), null);
+  assert.equal(parseLastMileHeading("-22.5"), null);
+  assert.equal(parseLastMileHeading("22.5 or 337.5"), null);
 });
 
 test("parseLastMileHeading rejects uncertain, conflicting, and invalid responses", () => {
@@ -98,24 +107,30 @@ test("small corrections use slight-turn wording", () => {
   assert.equal(buildLastMileTurnInstruction(0, 62), "Turn 60 degrees to your right.");
 });
 
-test("confidence is high when GPS and compass are both good", () => {
-  const strong = calculateLastMileConfidence({
-    gpsAccuracyMeters: 8,
-    compassAccuracyLevel: 3,
+test("confidence can never be high when compass and panorama disagree", () => {
+  // McDonald's 9/22: 14 m GPS, panorama and destination matched, compass disagreed -> was 0.77 HIGH.
+  const conflict = calculateLastMileConfidence({
+    gpsAccuracyMeters: 14,
+    panoramaCurrentViewMatched: true,
+    compassPanoramaAgrees: false,
+    destinationVisuallyMatched: true,
+    destinationReferenceVerified: false,
   });
-  assert.equal(strong.level, "high");
-  assert.ok(strong.score >= 0.75);
+  assert.equal(conflict.level, "low");
+  assert.ok(conflict.score <= LAST_MILE_HEADING_CONFLICT_MAX_SCORE);
+  assert.ok(conflict.reasons.includes("Compass and panorama headings disagree."));
 });
 
 test("a medium compass calibration lowers confidence", () => {
-  const calibrated = calculateLastMileConfidence({
+  const input = {
     gpsAccuracyMeters: 8,
-    compassAccuracyLevel: 3,
-  });
-  const medium = calculateLastMileConfidence({
-    gpsAccuracyMeters: 8,
-    compassAccuracyLevel: 2,
-  });
+    panoramaCurrentViewMatched: true,
+    compassPanoramaAgrees: true,
+    destinationVisuallyMatched: true,
+    destinationReferenceVerified: false,
+  };
+  const calibrated = calculateLastMileConfidence({ ...input, compassAccuracyLevel: 3 });
+  const medium = calculateLastMileConfidence({ ...input, compassAccuracyLevel: 2 });
   assert.ok(medium.score < calibrated.score);
   assert.ok(medium.reasons.includes("Phone compass calibration is not high."));
 });
@@ -177,9 +192,10 @@ test("parseDestinationVisibility only accepts an exact visible result", () => {
 });
 
 test("snapLastMileHeading chooses the nearest panorama direction", () => {
-  assert.equal(snapLastMileHeading(12), 0);
+  assert.equal(snapLastMileHeading(12), 22.5);
   assert.equal(snapLastMileHeading(44), 45);
-  assert.equal(snapLastMileHeading(338), 0);
+  assert.equal(snapLastMileHeading(338), 337.5);
+  assert.equal(snapLastMileHeading(359), 0);
   assert.equal(snapLastMileHeading(-46), 315);
   assert.throws(() => snapLastMileHeading(Number.NaN));
 });
@@ -230,20 +246,26 @@ test("panorama heading is comparison-only and never replaces the compass", () =>
   });
 });
 
-test("confidence fusion rewards good GPS and flags weak localization", () => {
+test("confidence fusion rewards independent agreement and flags weak localization", () => {
   const strong = calculateLastMileConfidence({
     gpsAccuracyMeters: 8,
-    compassAccuracyLevel: 3,
+    panoramaCurrentViewMatched: true,
+    compassPanoramaAgrees: true,
+    destinationVisuallyMatched: true,
+    destinationReferenceVerified: false,
   });
   assert.equal(strong.level, "high");
   assert.ok(strong.score >= 0.75);
 
   const weak = calculateLastMileConfidence({
     gpsAccuracyMeters: 75,
-    compassAccuracyLevel: 1,
+    panoramaCurrentViewMatched: false,
+    compassPanoramaAgrees: false,
+    destinationVisuallyMatched: false,
+    destinationReferenceVerified: false,
   });
   assert.equal(weak.level, "low");
-  assert.ok(weak.reasons.length >= 1);
+  assert.ok(weak.reasons.length >= 3);
 });
 
 test("verified panorama target preserves precise front-to-behind guidance", () => {
@@ -272,6 +294,7 @@ test("close aligned guidance does not inflate the distance to 50 feet", () => {
 });
 
 test("panorama sectors cover 360 degrees once without overlap", () => {
+  assert.equal(LAST_MILE_HEADINGS.length, 16);
   assert.equal(LAST_MILE_HEADINGS.length * LAST_MILE_PANORAMA_FOV_DEGREES, 360);
   for (let index = 1; index < LAST_MILE_HEADINGS.length; index += 1) {
     assert.equal(
@@ -282,6 +305,11 @@ test("panorama sectors cover 360 degrees once without overlap", () => {
 });
 
 test("destination references are limited to the same frontage", () => {
+  assert.equal(shouldUseDestinationReference(10, 10), false);
+  assert.equal(shouldUseDestinationReference(10, 2), true);
+  assert.equal(shouldUseDestinationReference(10, 8), true);
+  assert.equal(shouldUseDestinationReference(10, 8.01), false);
+  assert.equal(shouldUseDestinationReference(10, undefined), true);
   assert.equal(
     shouldUseDestinationReference(
       LAST_METERS_DESTINATION_REFERENCE_RADIUS_METERS - 1
@@ -301,6 +329,16 @@ test("destination references are limited to the same frontage", () => {
     false
   );
   assert.throws(() => shouldUseDestinationReference(Number.NaN));
+});
+
+test("Citi close-range aligned wording does not claim GPS proves the door is ahead", () => {
+  const aligned = buildCloseRangeNoTurnInstruction("Citi", 10, isLastMileHeadingAligned(325, 321), "2016-09");
+  assert.match(aligned, /compass agrees/);
+  assert.match(aligned, /2016-09/);
+  assert.match(aligned, /too uncertain/);
+  assert.doesNotMatch(aligned, /Face the storefront|Turn \d|immediately in front/);
+  const opposite = buildCloseRangeNoTurnInstruction("Citi", 8, isLastMileHeadingAligned(136, 321), "2016-09");
+  assert.match(opposite, /will not guess a turn/);
 });
 
 test("Test B guidance asks the user to move one block and retake", () => {
@@ -324,10 +362,38 @@ test("resolveExactModeGate forgives reported GPS error up to a cap", () => {
   assert.throws(() => resolveExactModeGate(-1));
 });
 
-test("Last Meters answers cite Google Maps and Google's closed status", () => {
+test("streetViewImageryAgeYears reads Street View capture dates", () => {
+  const now = new Date("2026-09-30T12:00:00Z");
+  assert.equal(streetViewImageryAgeYears("2016-09", now), 10);
+  assert.equal(streetViewImageryAgeYears("2026-04", now), 5 / 12);
+  assert.equal(streetViewImageryAgeYears("2020", now), 6.25);
+  assert.equal(streetViewImageryAgeYears(undefined, now), undefined);
+  assert.equal(streetViewImageryAgeYears("unknown", now), undefined);
+});
+
+test("calculateLastMileConfidence flags stale Street View imagery", () => {
+  const evidence = {
+    gpsAccuracyMeters: 10,
+    compassAccuracyLevel: 3,
+    panoramaCurrentViewMatched: true,
+    compassPanoramaAgrees: true,
+    destinationVisuallyMatched: true,
+    destinationReferenceVerified: false,
+  };
+  const fresh = calculateLastMileConfidence({ ...evidence, panoramaAgeYears: 0.5 });
+  const stale = calculateLastMileConfidence({ ...evidence, panoramaAgeYears: 10 });
+  assert.ok(Math.abs(fresh.score - stale.score - 0.05) < 1e-9);
+  assert.deepEqual(fresh.reasons, []);
+  assert.ok(stale.reasons.includes("Street View imagery is about 10 years old."));
+});
+
+test("Last Meters answers cite their source and Google's closed status", () => {
   assert.equal(buildLastMileSourceNote(null), " Source: Google Maps.");
-  assert.equal(buildLastMileSourceNote("2016-09"), " Source: Google Maps.");
-  assert.equal(buildLastMileSourceNote(undefined), " Source: Google Maps.");
+  assert.equal(
+    buildLastMileSourceNote("2016-09"),
+    " Source: Google Maps and Street View imagery from 2016-09."
+  );
+  assert.equal(buildLastMileSourceNote(undefined), " Source: Google Maps and Street View.");
   assert.equal(buildClosedNowNotice("The UPS Store"), " Google Maps lists The UPS Store as closed right now.");
   assert.equal(buildClosedNowNotice("Citi", true), " Google Maps lists Citi as temporarily closed.");
 });
@@ -337,9 +403,9 @@ test("beside-building guidance does not send the user to another block", () => {
   assert.equal(
     text,
     "You appear to be beside Brookfield Place, which may have more than one entrance. " +
+      "I could not confirm an entrance in front of you in Street View. " +
       "The entrance listed on Google Maps is roughly 450 feet to the south. " +
       "If you find a door here, ask someone nearby whether it is open to the public."
   );
   assert.doesNotMatch(text, /not visible from this block/);
-  assert.doesNotMatch(text, /Street View/i);
 });

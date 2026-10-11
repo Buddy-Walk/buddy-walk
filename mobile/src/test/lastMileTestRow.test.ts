@@ -58,7 +58,7 @@ test("rows read without images produce the same list response as stripping them"
   }
 });
 
-test("toLastMileTestResponse keeps the user photo but not legacy panorama images", () => {
+test("toLastMileTestResponse keeps the user photo but not Street View images", () => {
   const row = toLastMileTestResponse({ userPhoto: PHOTO, panoramaPhoto: PANORAMA }, true);
   assert.equal(row.userPhoto, PHOTO);
   assert.equal(row.panoramaPhoto, `[base64 image ${PANORAMA.length} chars]`);

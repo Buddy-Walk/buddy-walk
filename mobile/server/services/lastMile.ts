@@ -1,9 +1,13 @@
 import axios from "axios";
 import OpenAI from "openai";
+import sharp from "sharp";
 import { AppContext } from "../types";
+import { LAST_MILE_HEADINGS, LAST_MILE_PANORAMA_FOV_DEGREES } from "../utils/lastMileNavigation";
+import { outdoorPanoramaRejection } from "../utils/outdoorPanorama";
 
-const HEADINGS = [0, 45, 90, 135, 180, 225, 270, 315] as const;
+const HEADINGS = LAST_MILE_HEADINGS;
 const DEFAULT_CONFIDENCE_THRESHOLD = 70;
+const PANORAMA_RETRY_COUNT = 2;
 const APPROX_METERS_PER_BLOCK = 80;
 
 type TargetPosition = "left" | "center" | "right" | "unknown";
@@ -11,6 +15,17 @@ type TargetPosition = "left" | "center" | "right" | "unknown";
 interface PanoramaTile {
   heading: number;
   base64: string;
+}
+
+interface PanoramaMetadataResponse {
+  status: string;
+  copyright?: string;
+  pano_id?: string;
+  location?: {
+    lat: number;
+    lng: number;
+  };
+  error_message?: string;
 }
 
 interface ComparisonResult {
@@ -62,8 +77,8 @@ function circularAverage(a: number, b: number): number {
 }
 
 function positionOffset(position: TargetPosition): number {
-  if (position === "left") return -15;
-  if (position === "right") return 15;
+  if (position === "left") return -LAST_MILE_PANORAMA_FOV_DEGREES / 3;
+  if (position === "right") return LAST_MILE_PANORAMA_FOV_DEGREES / 3;
   return 0;
 }
 
@@ -81,7 +96,7 @@ function selectBestAngle(
   let angle = normalizeHeading(best.matchedAngle + positionOffset(best.position));
 
   const adjacent = matches.find(
-    (candidate, index) => index > 0 && circularDistance(best.matchedAngle, candidate.matchedAngle) === 45,
+    (candidate, index) => index > 0 && circularDistance(best.matchedAngle, candidate.matchedAngle) === LAST_MILE_PANORAMA_FOV_DEGREES,
   );
 
   if (adjacent) {
@@ -162,8 +177,8 @@ export class LastMileService {
           code: "PANORAMA_UNUSABLE",
           retryable: true,
           output:
-            "Last Meters uses Google Places, GPS, and compass only. This older panorama matcher is no longer used.",
-          sources: ["Google Maps"],
+            "Based on Google Street View imagery, I could not get a usable panorama after two attempts. Please walk a few meters and take another photo.",
+          sources: ["Google Street View imagery"],
         });
         return;
       }
@@ -176,9 +191,9 @@ export class LastMileService {
           code: "LOW_CONFIDENCE_CURRENT_VIEW",
           uncertain: true,
           output:
-            "Based on AI image comparison, I am not confident enough to determine which photo direction matches your photo. Please take another photo from your current position.",
+            "Based on AI image comparison, I am not confident enough to determine which Street View direction matches your photo. Please take another photo from your current position.",
           confidence: Math.max(...currentViewComparisons.map((item) => item.confidence), 0),
-          sources: ["AI image comparison", "Google Maps"],
+          sources: ["AI image comparison", "Google Street View imagery"],
           comparisons: currentViewComparisons,
         });
         return;
@@ -195,9 +210,9 @@ export class LastMileService {
             requiresConfirmation: true,
             uncertain: true,
             output:
-              `Based on Google Maps and AI storefront recognition, I could not identify ${destination} nearby. I also could not find a relevant Google Places result. Please confirm the store name or take another photo.`,
+              `Based on Google Street View imagery and AI storefront recognition, I could not identify ${destination} nearby. I also could not find a relevant Google Places result. Please confirm the store name or take another photo.`,
             confidence: Math.max(...targetComparisons.map((item) => item.confidence), 0),
-            sources: ["Google Maps", "AI storefront recognition", "Google Maps place information"],
+            sources: ["Google Street View imagery", "AI storefront recognition", "Google Maps place information"],
             comparisons: targetComparisons,
           });
           return;
@@ -207,10 +222,10 @@ export class LastMileService {
           code: "DESTINATION_CONFIRMATION_REQUIRED",
           requiresConfirmation: true,
           output:
-            `The requested store was not found in the nearby photo imagery. Based on Google Maps place information, the closest likely result is ${candidate.name}, located at ${candidate.address}, approximately ${candidate.estimatedBlocks} blocks (${candidate.walkingDistance}) away. Is this the store you are looking for?`,
+            `The requested store was not found in the nearby Street View imagery. Based on Google Maps place information, the closest likely result is ${candidate.name}, located at ${candidate.address}, approximately ${candidate.estimatedBlocks} blocks (${candidate.walkingDistance}) away. Is this the store you are looking for?`,
           candidate,
           confidence: Math.max(...targetComparisons.map((item) => item.confidence), 0),
-          sources: ["Google Maps", "AI storefront recognition", "Google Maps place information"],
+          sources: ["Google Street View imagery", "AI storefront recognition", "Google Maps place information"],
           comparisons: targetComparisons,
         });
         return;
@@ -231,14 +246,14 @@ export class LastMileService {
         currentView: {
           angle: currentView.angle,
           confidence: currentView.confidence,
-          source: "AI image comparison against Google Maps",
+          source: "AI image comparison against Google Street View imagery",
           comparisons: currentView.matches,
         },
         target: {
           name: destination,
           angle: target.angle,
           confidence: target.confidence,
-          source: "AI storefront recognition against Google Maps",
+          source: "AI storefront recognition against Google Street View imagery",
           comparisons: target.matches,
         },
         turn: {
@@ -253,7 +268,7 @@ export class LastMileService {
           source: "AI recognition of the user's photo",
         },
         sources: [
-          "Google Maps",
+          "Google Street View imagery",
           "Phone GPS and compass data",
           "AI image comparison",
           "AI storefront recognition",
@@ -266,9 +281,78 @@ export class LastMileService {
   }
 
   private async fetchValidatedPanoramaTiles(
-    _lat: number,
-    _lng: number,
+    lat: number,
+    lng: number,
   ): Promise<PanoramaTile[] | null> {
+    const apiKey = googleMapsApiKey();
+    if (!apiKey) return null;
+
+    for (let attempt = 1; attempt <= PANORAMA_RETRY_COUNT; attempt += 1) {
+      try {
+        const metadataUrl = "https://maps.googleapis.com/maps/api/streetview/metadata";
+        const metadataResponse = await axios.get<PanoramaMetadataResponse>(metadataUrl, {
+          params: {
+            location: `${lat},${lng}`,
+            radius: 50,
+            source: "outdoor",
+            key: apiKey,
+          },
+          timeout: 10000,
+        });
+
+        const metadata = metadataResponse.data;
+        if (outdoorPanoramaRejection(metadata)) {
+          console.warn(`Street View metadata invalid on attempt ${attempt}:`, metadata.status);
+          continue;
+        }
+
+        const tiles: PanoramaTile[] = [];
+        let valid = true;
+
+        for (const heading of HEADINGS) {
+          const imageResponse = await axios.get<ArrayBuffer>(
+            "https://maps.googleapis.com/maps/api/streetview",
+            {
+              params: {
+                size: "640x640",
+                pano: metadata.pano_id,
+                heading,
+                fov: LAST_MILE_PANORAMA_FOV_DEGREES,
+                source: "outdoor",
+                return_error_code: true,
+                pitch: 0,
+                key: apiKey,
+              },
+              responseType: "arraybuffer",
+              timeout: 15000,
+            },
+          );
+
+          const buffer = Buffer.from(imageResponse.data);
+          const imageMetadata = await sharp(buffer).metadata();
+          const usable =
+            buffer.byteLength > 10000 &&
+            (imageMetadata.width ?? 0) >= 320 &&
+            (imageMetadata.height ?? 0) >= 320;
+
+          if (!usable) {
+            valid = false;
+            console.warn(`Street View tile at ${heading}° was unusable on attempt ${attempt}.`);
+            break;
+          }
+
+          tiles.push({
+            heading,
+            base64: `data:image/jpeg;base64,${buffer.toString("base64")}`,
+          });
+        }
+
+        if (valid && tiles.length === HEADINGS.length) return tiles;
+      } catch (error) {
+        console.warn(`Street View panorama attempt ${attempt} failed:`, error);
+      }
+    }
+
     return null;
   }
 
@@ -281,7 +365,7 @@ export class LastMileService {
     imageContent.push({ type: "image_url", image_url: { url: image } });
 
     return this.runComparison(
-      `Compare the user's photo against every photo image. Evaluate all eight views, even after finding a match. For each view return whether it matches the user's current view, the view's labeled heading as matchedAngle, a confidence percentage from 0 to 100, and where the matching subject/view falls in that photo image: left, center, right, or unknown. Do not invent a match when visual evidence is weak.`,
+      `Compare the user's photo against every Street View image. Evaluate all ${HEADINGS.length} views, even after finding a match. For each view return whether it matches the user's current view, the view's labeled heading as matchedAngle, a confidence percentage from 0 to 100, and where the matching subject/view falls in that Street View image: left, center, right, or unknown. Do not invent a match when visual evidence is weak.`,
       imageContent,
     );
   }
@@ -291,7 +375,7 @@ export class LastMileService {
     tiles: PanoramaTile[],
   ): Promise<ComparisonResult[]> {
     return this.runComparison(
-      `Inspect every photo image for the storefront or store name "${destination}". Evaluate all eight views, even after finding a match. For each view return whether the destination is present, the view's labeled heading as matchedAngle, a confidence percentage from 0 to 100, and whether the target is on the left, center, right, or unknown portion of the image. If signage or storefront identity is ambiguous, lower confidence and do not mark it as a confirmed match.`,
+      `Inspect every Street View image for the storefront or store name "${destination}". Evaluate all ${HEADINGS.length} views, even after finding a match. For each view return whether the destination is present, the view's labeled heading as matchedAngle, a confidence percentage from 0 to 100, and whether the target is on the left, center, right, or unknown portion of the image. If signage or storefront identity is ambiguous, lower confidence and do not mark it as a confirmed match.`,
       this.panoramaMessageContent(tiles),
     );
   }
@@ -306,7 +390,7 @@ export class LastMileService {
         {
           role: "system",
           content:
-            `${instruction}\nReturn JSON only using this shape: {"comparisons":[{"heading":0,"match":true,"matchedAngle":0,"confidence":85,"position":"center"}]}. Include exactly one result for each heading 0,45,90,135,180,225,270,315.`,
+            `${instruction}\nReturn JSON only using this shape: {"comparisons":[{"heading":0,"match":true,"matchedAngle":0,"confidence":85,"position":"center"}]}. Include exactly one result for each heading ${HEADINGS.join(",")}.`,
         },
         { role: "user", content: content as never },
       ],
@@ -348,7 +432,7 @@ export class LastMileService {
   private panoramaMessageContent(tiles: PanoramaTile[]): Array<Record<string, unknown>> {
     const content: Array<Record<string, unknown>> = [];
     for (const tile of tiles) {
-      content.push({ type: "text", text: `VIEW ${tile.heading}°` });
+      content.push({ type: "text", text: `STREET VIEW ${tile.heading}°` });
       content.push({ type: "image_url", image_url: { url: tile.base64 } });
     }
     return content;

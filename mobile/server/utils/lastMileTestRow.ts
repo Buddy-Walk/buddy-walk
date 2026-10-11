@@ -73,7 +73,7 @@ export function toLastMileTestResponse<T extends LastMileTestImageFields>(
     return {
       ...row,
       ...flags,
-      // Legacy panorama composites are huge and not shown on the dashboard.
+      // Street View composites are huge and not shown on the dashboard.
       panoramaPhoto: imagePlaceholder(row.panoramaPhoto),
       destinationPhoto: imagePlaceholder(row.destinationPhoto),
     };

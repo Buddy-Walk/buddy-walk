@@ -1,12 +1,14 @@
-export const LAST_MILE_HEADINGS = [0, 45, 90, 135, 180, 225, 270, 315] as const;
-export const LAST_MILE_PANORAMA_FOV_DEGREES = 45;
+export const LAST_MILE_HEADINGS = [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180, 202.5, 225, 247.5, 270, 292.5, 315, 337.5] as const;
+export const LAST_MILE_PANORAMA_FOV_DEGREES = 22.5;
 export const LAST_METERS_EXACT_RADIUS_METERS = 250;
 export const LAST_METERS_DESTINATION_REFERENCE_RADIUS_METERS = 75;
 /**
  * Most GPS error the exact-mode gate will forgive. Past this the fix is too
- * vague to trust a close-range turn, even if the user really is at the door.
+ * vague to trust a panorama match, even if the user really is at the door.
  */
 export const LAST_METERS_GPS_ALLOWANCE_MAX_METERS = 100;
+export const LAST_MILE_STALE_IMAGERY_YEARS = 3;
+export const LAST_MILE_REFERENCE_MAX_AGE_YEARS = 8;
 
 export type LastMileTestScenario =
   | "test_a_visible"
@@ -47,6 +49,11 @@ export interface LastMileConfidenceInput {
   gpsAccuracyMeters?: number;
   /** expo-location compass calibration: 3 high, 2 medium, 1 low, 0 none. */
   compassAccuracyLevel?: number;
+  panoramaCurrentViewMatched: boolean;
+  compassPanoramaAgrees?: boolean;
+  destinationVisuallyMatched: boolean;
+  destinationReferenceVerified: boolean;
+  panoramaAgeYears?: number;
 }
 
 export interface LastMileConfidence {
@@ -64,31 +71,66 @@ export function calculateLastMileConfidence(
   input: LastMileConfidenceInput
 ): LastMileConfidence {
   const reasons: string[] = [];
-  // Places already verified the destination. GPS and compass decide how sure
-  // the turn is.
-  let score = 0.35;
+  // The score starts low: a high-confidence result needs corroboration from
+  // several sources, not merely a verified map destination.
+  let score = 0.15;
 
   if (input.gpsAccuracyMeters === undefined) {
     reasons.push("Phone GPS accuracy was not available.");
   } else if (input.gpsAccuracyMeters <= 15) {
-    score += 0.3;
+    score += 0.2;
   } else if (input.gpsAccuracyMeters <= 40) {
-    score += 0.18;
+    score += 0.12;
   } else {
-    score += 0.05;
+    score += 0.03;
     reasons.push(`Phone GPS accuracy is about ${Math.round(input.gpsAccuracyMeters)} meters.`);
   }
 
-  if (input.compassAccuracyLevel === undefined) {
-    score += 0.15;
-  } else if (input.compassAccuracyLevel >= 3) {
-    score += 0.3;
-  } else if (input.compassAccuracyLevel === 2) {
-    score += 0.15;
-    reasons.push("Phone compass calibration is not high.");
+  if (input.panoramaCurrentViewMatched) {
+    score += 0.2;
   } else {
-    score += 0.05;
+    reasons.push("The user photo did not independently match the panorama.");
+  }
+
+  if (input.compassPanoramaAgrees === true) {
+    score += 0.15;
+  } else if (input.compassPanoramaAgrees === false) {
+    reasons.push("Compass and panorama headings disagree.");
+  } else {
+    reasons.push("Compass and panorama headings could not be compared.");
+  }
+
+  if (
+    typeof input.compassAccuracyLevel === "number" &&
+    input.compassAccuracyLevel < 3
+  ) {
+    score -= 0.05;
     reasons.push("Phone compass calibration is not high.");
+  }
+
+  if (input.destinationVisuallyMatched) {
+    score += 0.2;
+  } else if (input.destinationReferenceVerified) {
+    score += 0.12;
+    reasons.push("Destination was verified with a separate Street View reference.");
+  } else {
+    reasons.push("Destination was not visually verified.");
+  }
+
+  if (
+    typeof input.panoramaAgeYears === "number" &&
+    input.panoramaAgeYears >= LAST_MILE_STALE_IMAGERY_YEARS
+  ) {
+    score -= 0.05;
+    reasons.push(
+      `Street View imagery is about ${Math.floor(input.panoramaAgeYears)} years old.`
+    );
+  }
+
+  // One wrong heading source means the turn itself may be wrong, so no amount
+  // of other agreement can make the result trustworthy.
+  if (input.compassPanoramaAgrees === false) {
+    score = Math.min(score, LAST_MILE_HEADING_CONFLICT_MAX_SCORE);
   }
 
   const boundedScore = Math.max(0, Math.min(1, score));
@@ -109,7 +151,7 @@ export function parseLastMileHeading(response: string): number | null {
   }
 
   const validHeadings = new Set<number>(LAST_MILE_HEADINGS);
-  const numbers = [...text.matchAll(/\b\d{1,3}\b/g)].map((match) => Number(match[0]));
+  const numbers = [...text.matchAll(/-?\d+(?:\.\d+)?/g)].map((match) => Number(match[0]));
   const headingMatches = [
     ...new Set(
       numbers
@@ -120,10 +162,10 @@ export function parseLastMileHeading(response: string): number | null {
   if (headingMatches.length === 1) return headingMatches[0];
 
   // Tile overlays are "VIEW n | 045 DEG". The model sometimes echoes the
-  // view index instead of the heading; 1-8 never overlap real headings.
+  // view index instead of the heading; 1-16 never overlap real headings.
   if (headingMatches.length === 0 && numbers.length === 1) {
     const viewIndex = numbers[0];
-    if (viewIndex >= 1 && viewIndex <= LAST_MILE_HEADINGS.length) {
+    if (Number.isInteger(viewIndex) && viewIndex >= 1 && viewIndex <= LAST_MILE_HEADINGS.length) {
       return LAST_MILE_HEADINGS[viewIndex - 1];
     }
   }
@@ -141,7 +183,7 @@ export function snapLastMileHeading(heading: number): number {
   }
   const normalized = ((heading % 360) + 360) % 360;
   return LAST_MILE_HEADINGS[
-    Math.round(normalized / 45) % LAST_MILE_HEADINGS.length
+    Math.round(normalized / LAST_MILE_PANORAMA_FOV_DEGREES) % LAST_MILE_HEADINGS.length
   ];
 }
 
@@ -260,7 +302,7 @@ function formatLastMileDirection(bearing: number): string {
     "west",
     "northwest",
   ];
-  return directionNames[snapLastMileHeading(bearing) / 45];
+  return directionNames[Math.round((((bearing % 360) + 360) % 360) / 45) % 8];
 }
 
 export interface ExactModeGate {
@@ -297,11 +339,27 @@ export function resolveExactModeGate(
   };
 }
 
-export function shouldUseDestinationReference(distanceMeters: number): boolean {
+/** Street View dates are "YYYY" or "YYYY-MM". */
+export function streetViewImageryAgeYears(
+  date: string | undefined,
+  now = new Date()
+): number | undefined {
+  const match = date?.trim().match(/^(\d{4})(?:-(\d{1,2}))?/);
+  if (!match) return undefined;
+  const year = Number(match[1]);
+  const month = match[2] ? Number(match[2]) : 6;
+  if (!Number.isFinite(year) || month < 1 || month > 12) return undefined;
+  const capturedMonths = year * 12 + (month - 1);
+  const nowMonths = now.getUTCFullYear() * 12 + now.getUTCMonth();
+  return Math.max(0, (nowMonths - capturedMonths) / 12);
+}
+
+export function shouldUseDestinationReference(distanceMeters: number, panoramaAgeYears?: number): boolean {
   if (!Number.isFinite(distanceMeters) || distanceMeters < 0) {
     throw new Error("Last Meters distance must be a non-negative finite number.");
   }
-  return distanceMeters <= LAST_METERS_DESTINATION_REFERENCE_RADIUS_METERS;
+  return distanceMeters <= LAST_METERS_DESTINATION_REFERENCE_RADIUS_METERS &&
+    !(typeof panoramaAgeYears === "number" && Number.isFinite(panoramaAgeYears) && panoramaAgeYears > LAST_MILE_REFERENCE_MAX_AGE_YEARS);
 }
 
 function describeResolvedBranch(destination: string, address?: string): string {
@@ -370,8 +428,8 @@ export function buildHeadingConflictInstruction(
     throw new Error("Last Meters distance must be a non-negative finite number.");
   }
   return (
-    `${destination} is about ${formatLastMileDistance(distanceMeters)} away, but your phone compass is ` +
-    "unreliable, so I will not guess a turn. " +
+    `${destination} is about ${formatLastMileDistance(distanceMeters)} away, but your phone compass and ` +
+    "Street View disagree about which way you are facing, so I will not guess a turn. " +
     "Stay where you are, move the phone in a slow figure eight to recalibrate the compass, " +
     "then hold it upright in front of you and take a new photo."
   );
@@ -379,13 +437,21 @@ export function buildHeadingConflictInstruction(
 
 export function buildCloseRangeNoTurnInstruction(
   destination: string,
-  distanceMeters: number
+  distanceMeters: number,
+  headingAligned = false,
+  imageryDate?: string,
 ): string {
   if (!Number.isFinite(distanceMeters) || distanceMeters < 0) {
     throw new Error("Last Meters distance must be a non-negative finite number.");
   }
+  const proximity = `You are within about ${formatLastMileDistance(distanceMeters)} of ${destination}. `;
+  if (headingAligned) {
+    return proximity + "Your compass agrees with the estimated map direction, but GPS is too uncertain here to confirm the entrance is ahead. " +
+      "Keep your current orientation while taking another photo; do not move forward based on this estimate. " +
+      (imageryDate ? `Street View imagery from ${imageryDate} did not confirm the door.` : "Street View did not confirm the door.");
+  }
   return (
-    `You are within about ${formatLastMileDistance(distanceMeters)} of ${destination}. ` +
+    proximity +
     "At this range GPS cannot tell which side the entrance is on, so I will not guess a turn. " +
     "Face the storefront and take a new photo, or ask someone nearby for the door."
   );
@@ -441,6 +507,7 @@ export function buildBesideBuildingInstruction(
   }
   return (
     `You appear to be beside ${destination}, which may have more than one entrance. ` +
+    "I could not confirm an entrance in front of you in Street View. " +
     `The entrance listed on Google Maps is roughly ${formatLastMileDistance(distanceMeters)} ` +
     `to the ${formatLastMileDirection(bearing)}. ` +
     "If you find a door here, ask someone nearby whether it is open to the public."
@@ -453,8 +520,11 @@ export function buildClosedNowNotice(destination: string, temporarily = false): 
     : ` Google Maps lists ${destination} as closed right now.`;
 }
 
-export function buildLastMileSourceNote(_unused?: string | null): string {
-  return " Source: Google Maps.";
+export function buildLastMileSourceNote(streetViewDate?: string | null): string {
+  if (streetViewDate === null) return " Source: Google Maps.";
+  return streetViewDate
+    ? ` Source: Google Maps and Street View imagery from ${streetViewDate}.`
+    : " Source: Google Maps and Street View.";
 }
 
 /**
