@@ -31,6 +31,9 @@ import {
   pedestrianRampInterface,
 } from "../database/models/features";
 import sharp from "sharp";
+import { LastMileSensors, sensorSafetyReasons, RECAPTURE_MESSAGE } from "../../src/utils/lastMileSafety";
+import { evaluateWalkingLeg, preciseTurnReasons, WalkingEvidence } from "../utils/lastMilePolicy";
+import { LAST_MILE_PIPELINE_VERSION, photoHash, ReplayInput } from "../utils/lastMileReplay";
 import { outdoorPanoramaRejection } from "../utils/outdoorPanorama";
 import { selectOutdoorPanorama, parseSceneVerdict, SceneClassifier, PanoramaAudit, PanoramaAttempt, PanoramaSearchBudget } from "./outdoorPanoramaSelection";
 import {
@@ -39,20 +42,14 @@ import {
   getConversationHistory,
 } from "../utils/conversationHistory";
 import {
-  buildAlignedHeadingInstruction,
-  buildBesideBuildingInstruction,
   buildClosedNowNotice,
-  buildCloseRangeNoTurnInstruction,
   buildHeadingConflictInstruction,
-  buildLastMileApproachInstruction,
   buildLastMileDistanceSentence,
-  buildLastMileRetakeInstruction,
   buildLastMileSourceNote,
   buildLastMileTurnInstruction,
   calculateLastMileConfidence,
   compareCompassAndPanoramaHeadings,
   formatLastMileDistance,
-  isDestinationBearingReliable,
   isLastMileHeadingAligned,
   lastMileHeadingDifference,
   LAST_MILE_HEADINGS,
@@ -707,9 +704,19 @@ export class OpenAIService {
     deviceHeading?: number,
     gpsAccuracyMeters?: number,
     compassAccuracyLevel?: number,
+    sensors?: LastMileSensors,
+    execution?: { retryOf: string; evaluationTime: number },
   ) {
     const { res } = ctx;
     const startedAt = Date.now();
+    const evaluationTime = execution?.evaluationTime ?? startedAt;
+    const safetyNow = () => evaluationTime + Date.now() - startedAt;
+    let safetyReasons: string[] = [];
+    let walkingEvidence: WalkingEvidence = { verified: false, reason: "walking_route_not_checked" };
+    let panoramaTargetHeading: number | undefined;
+    const replayInput: ReplayInput = { schemaVersion: 1, receivedAt: evaluationTime, lat, lng, destination,
+      heading: deviceHeading, gpsAccuracyMeters, compassAccuracyLevel, sensors,
+      originalPhotoSha256: photoHash(image), photoRepresentation: "stored-compressed" };
     let activeStage = "destination proximity check";
     let navigationMode: "approach" | "exact" | "aligned" | undefined;
     let testScenario: LastMileTestScenario | undefined;
@@ -768,6 +775,15 @@ export class OpenAIService {
     }[] = [];
 
     const trialContext = () => ({
+      pipelineVersion: LAST_MILE_PIPELINE_VERSION,
+      deployedCommit: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || "local-unversioned",
+      runKind: execution ? "replay" as const : "field" as const,
+      retryOf: execution?.retryOf,
+      replayInput,
+      safetyReasons,
+      walkingEvidence,
+      panoramaTargetHeading,
+      confidenceMethod: "heuristic-not-calibrated" as const,
       destination,
       destinationQuery,
       lat,
@@ -833,6 +849,17 @@ export class OpenAIService {
         userPhoto: await resizeDataUrlImage(image, 1024, 76),
         ...outcome,
       });
+
+    const withhold = async (reasons: string[], message = RECAPTURE_MESSAGE) => {
+      safetyReasons = [...new Set(reasons)];
+      testSteps.push({ name: "turn_safety_gate", prompt: "Require sufficient evidence before any precise turn.",
+        response: safetyReasons.join("; "), model: "deterministic-safety-policy", success: false });
+      const testLogId = await recordTrial({ finalOutput: message, success: false, error: "turn_withheld" });
+      res.status(200).json({ output: message, testLogId, warning: "turn_withheld", safetyReasons,
+        guidanceKind: "withheld", targetHeading: null, pipelineVersion: LAST_MILE_PIPELINE_VERSION });
+    };
+    const initialSensorReasons = sensorSafetyReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow());
+    if (initialSensorReasons.length) { await withhold(initialSensorReasons); return; }
 
     console.log("\n==================================================");
     console.log("📥 [BACKEND] HIT RECEIVED ON /api/last-mile route!");
@@ -959,6 +986,14 @@ export class OpenAIService {
         return;
       }
 
+      const ambiguity = (verifiedDestination.placeCandidates || []).filter(candidate => candidate.relevant &&
+        candidate.placeId !== verifiedDestination!.placeId && candidate.businessStatus !== "CLOSED_PERMANENTLY" &&
+        candidate.distanceMeters <= verifiedDestination!.distanceMeters + Math.max(20, gpsAccuracyMeters ?? 20));
+      if (ambiguity.length) {
+        await withhold(["destination_branch_ambiguous"], `I found more than one nearby ${destinationQuery}. Please specify the street address: ${verifiedDestination.placeAddress} or ${ambiguity.slice(0, 2).map(c => c.address).join(" or ")}.`);
+        return;
+      }
+
       // The panorama is taken at the user's position, so it can download
       // while the entrance lookup runs. Approach and aligned trials save it
       // for review after they have already answered.
@@ -1063,11 +1098,7 @@ export class OpenAIService {
           success: true,
         });
         const finalOutput =
-          buildAlignedHeadingInstruction(
-            place.placeName,
-            distanceMeters,
-            place.placeAddress,
-          ) +
+          `${place.placeName}, ${place.placeAddress}, is approximately ${Math.round(distanceMeters)} meters away in a straight line. A walking route has not been verified. Use your primary walking navigation before trying Last Meters closer to the destination.` +
           closedNotice +
           buildLastMileSourceNote(null);
         const testLogId = await recordTrial({ finalOutput, success: true });
@@ -1086,12 +1117,7 @@ export class OpenAIService {
         navigationMode = "approach";
         testScenario = "test_b_approach";
         const finalOutput =
-          buildLastMileApproachInstruction(
-            place.placeName,
-            distanceMeters,
-            bearing,
-            place.placeAddress,
-          ) +
+          `${place.placeName}, ${place.placeAddress}, is approximately ${Math.round(distanceMeters)} meters away in a straight line. A walking route has not been verified. Use your primary walking navigation before trying Last Meters closer to the destination.` +
           closedNotice +
           buildLastMileSourceNote(null);
         testSteps.push({
@@ -1130,82 +1156,16 @@ export class OpenAIService {
       });
 
       /**
-       * Places-only answer for when Street View cannot confirm the entrance:
-       * a compass-to-map turn when the bearing is meaningful, never a guess
-       * when the user is closer than the GPS error.
+       * Preserve the recorded failure context without converting a map pin
+       * into a visually verified entrance or a precise turn.
        */
       const respondWithPlacesFallback = async (fallback: {
         imageryNote: string;
         error: string;
         reason: string;
       }) => {
-        const bearingReliable = isDestinationBearingReliable(
-          distanceMeters,
-          gpsAccuracyMeters,
-        );
-        let turnFallback = "";
-        let bearingTarget: number | undefined;
-        if (
-          bearingReliable &&
-          typeof deviceHeading === "number" &&
-          Number.isFinite(deviceHeading)
-        ) {
-          bearingTarget = snapLastMileHeading(bearing);
-          turnFallback =
-            ` ${buildLastMileTurnInstruction(deviceHeading, bearing)}` +
-            " That turn is based on your phone compass and the map location," +
-            " not a visually confirmed entrance — use caution.";
-        }
-        const guidance = !bearingReliable
-          ? buildCloseRangeNoTurnInstruction(place.placeName, distanceMeters, headingAligned, panoramaDate)
-          : besideBuilding
-            ? buildBesideBuildingInstruction(
-                place.placeName,
-                distanceMeters,
-                bearing,
-              ) + turnFallback
-            : `You are about ${formatLastMileDistance(distanceMeters)} from ${place.placeName}. ` +
-              "Google Maps confirms the destination is near you, but I could not verify" +
-              " the exact entrance in Street View." +
-              fallback.imageryNote +
-              (turnFallback ||
-                " I cannot provide a turn direction without a compass heading.");
-        const finalOutput =
-          guidance +
-          closedNotice +
-          buildLastMileSourceNote(panoramaPhoto ? panoramaDate : null);
-        testSteps.push({
-          name: "places_proximity_fallback",
-          prompt:
-            "Use the already verified Google Places destination when Street View cannot visually confirm the entrance.",
-          response:
-            `DESTINATION_CONFIRMED: ${place.placeName}, ` +
-            `${Math.round(distanceMeters)} meters away. ${fallback.reason}.` +
-            (bearingReliable && besideBuilding ? " USER_BESIDE_BUILDING." : "") +
-            (turnFallback ? " COMPASS_BEARING_TURN_PROVIDED." : "") +
-            (bearingReliable
-              ? ""
-              : " CLOSER_THAN_GPS_ACCURACY_NO_TURN_PROVIDED."),
-          model: "google-places",
-          success: true,
-        });
-        // Destination verification succeeded; only entrance localization failed.
-        const testLogId = await recordTrial({
-          finalOutput,
-          success: true,
-          error: fallback.error,
-          targetHeading: bearingTarget,
-          turnInstruction: turnFallback.trim() || undefined,
-        });
-        res.status(200).json({
-          output: finalOutput,
-          testLogId,
-          mode: navigationMode,
-          testScenario,
-          currentHeading,
-          targetHeading: bearingTarget ?? null,
-          warning: fallback.error,
-        });
+        await withhold([fallback.error], `Google Maps places ${place.placeName} about ${formatLastMileDistance(distanceMeters)} away, but the entrance is not visually verified. I will not give a precise turn. Use your primary navigation or ask for assistance.`);
+        return;
       };
 
       activeStage = "panorama download";
@@ -1397,7 +1357,7 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
             : `${headingComparisonAgrees ? "AGREE" : "DISAGREE"}: ` +
               `${headingComparisonDifference} DEG DIFFERENCE`,
         model: "deterministic-comparison",
-        success: headingComparisonDifference !== undefined,
+        success: headingComparisonAgrees === true,
         error:
           headingComparisonDifference === undefined
             ? "Both heading sources were not available."
@@ -1425,13 +1385,14 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
       if (headingComparisonAgrees === false) {
         testScenario = "heading_conflict";
         confidenceLevel = "low";
+        safetyReasons = ["heading_sources_disagree"];
         const finalOutput =
           buildHeadingConflictInstruction(place.placeName, distanceMeters) +
           closedNotice +
           buildLastMileSourceNote(panoramaDate);
         const testLogId = await recordTrial({
           finalOutput,
-          success: true,
+          success: false,
           error: "heading_sources_disagree",
         });
         res.status(200).json({
@@ -1461,7 +1422,8 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
       visualMatchAgreesWithMap = targetHeading !== null;
       if (visualMatchAgreesWithMap) {
         testScenario = "test_a_visible";
-        targetBearing = panoramaTargetBearing;
+        panoramaTargetHeading = targetHeading ?? undefined;
+        targetBearing = destinationBearing;
       }
       testSteps.push({
         name: "target_store_match",
@@ -1496,11 +1458,7 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
           navigationMode = "approach";
           testScenario = "test_b_approach";
           const finalOutput =
-            buildLastMileRetakeInstruction(
-              place.placeName,
-              distanceMeters,
-              bearing,
-            ) +
+            `I could not visually confirm ${place.placeName}. The map places it approximately ${Math.round(distanceMeters)} meters away in a straight line, but a walking route has not been verified. Stay in a safe place and use your primary walking navigation or ask for assistance.` +
             closedNotice +
             buildLastMileSourceNote(panoramaDate);
           const testLogId = await recordTrial({ finalOutput, success: true });
@@ -1656,7 +1614,8 @@ Use VISIBLE only when the storefront, sign, or entrance clearly corresponds to t
             if (signTextMatched && targetHeading === null) {
               testScenario = "test_a_sign_text";
               targetHeading = expectedTargetHeading;
-              targetBearing = panoramaTargetBearing;
+              panoramaTargetHeading = expectedTargetHeading;
+              targetBearing = destinationBearing;
             }
             testSteps.push({
               name: "sign_text_match",
@@ -1713,15 +1672,29 @@ Use VISIBLE only when the storefront, sign, or entrance clearly corresponds to t
       confidenceLevel = confidence.level;
       confidenceReasons = confidence.reasons;
       testSteps.push({
-        name: "confidence_fusion",
-        prompt:
-          "Combine GPS accuracy, compass/panorama agreement, user-image localization, and destination verification without changing the compass guidance heading.",
+        name: "confidence_fusion", prompt: "Score independent evidence before the turn safety gate; this is a heuristic, not a calibrated probability.",
         response: `${confidence.level.toUpperCase()}: ${Math.round(confidence.score * 100)}%`,
-        model: "deterministic-confidence",
-        success: confidence.level !== "low",
-        error:
-          confidence.level === "low" ? confidence.reasons.join(" ") : undefined,
+        model: "deterministic-confidence", success: confidence.level === "high",
+        error: confidence.level !== "high" ? confidence.reasons.join(" ") : undefined,
       });
+      try {
+        const route = await axios.get("https://maps.googleapis.com/maps/api/directions/json", {
+          params: { mode: "walking", origin: `${lat},${lng}`, destination: `${targetLocation.lat},${targetLocation.lng}`, key: getGoogleMapsApiKey() }, timeout: 8000,
+        });
+        walkingEvidence = route.data.status === "OK"
+          ? evaluateWalkingLeg(route.data.routes?.[0]?.legs?.[0], { lat, lng }, targetLocation)
+          : { verified: false, reason: "walking_route_unavailable" };
+      } catch { walkingEvidence = { verified: false, reason: "walking_route_unavailable" }; }
+      const turnReasons = preciseTurnReasons({ confidenceLevel: confidence.level,
+        photoMatched: panoramaMatchedHeading !== undefined, headingAgrees: headingComparisonAgrees,
+        compassAccuracy: compassAccuracyLevel, gpsAccuracy: gpsAccuracyMeters, distanceMeters,
+        entranceListed: entranceSource === "geocoding_entrance",
+        visualTargetMatched: visualMatchAgreesWithMap || signTextMatched === true || destinationReferenceUsed,
+        walking: walkingEvidence, sensorReasons: sensorSafetyReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime) });
+      if (turnReasons.length) { await withhold(turnReasons, "I cannot verify the entrance and your orientation well enough for a precise turn. Stay in a safe place and use your primary walking navigation or ask for assistance. Entrance accessibility has not been verified."); return; }
+      // Visual bearings remain camera-origin evidence. Guidance uses phone-origin geometry.
+      targetHeading = destinationBearing;
+      targetBearing = destinationBearing;
 
       // ==========================================
       // TYPESCRIPT MATH CALCULATION (Bulletproof Turn Logic)
@@ -1810,14 +1783,12 @@ Keep the response to two short sentences and do not repeat the turn instruction.
       );
       console.log("=========================================\n");
 
-      const confidenceNotice =
-        confidence.level === "low"
-          ? " Confidence is low. Stop safely after turning and take another photo to confirm before moving forward."
-          : "";
+      const lateReasons = sensorSafetyReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime);
+      if (lateReasons.length) { await withhold(lateReasons); return; }
       const finalOutput =
-        `${turnInstruction} ${distanceSentence} Landmarks: ${landmarksGuidance}${confidenceNotice}` +
+        `${turnInstruction} ${distanceSentence} Landmarks: ${landmarksGuidance}` +
         closedNotice +
-        buildLastMileSourceNote(panoramaDate);
+        " Entrance accessibility has not been verified. " + buildLastMileSourceNote(panoramaDate);
       const testLogId = await recordTrial({
         finalOutput,
         success: true,

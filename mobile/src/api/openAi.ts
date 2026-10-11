@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { LastMileSensors } from '../utils/lastMileSafety';
 import { aiClient, apiClient } from './client';
 import { withNetworkRetry } from './retry';
 import { withBriefReplyInstruction } from '../utils/briefAiInstruction';
@@ -53,6 +54,7 @@ export async function sendLastMileRequest(
     compassAccuracyLevel?: number;
     image: string;
     destination: string;
+    sensors?: LastMileSensors;
   },
   signal?: AbortSignal
 ): Promise<{
@@ -61,6 +63,8 @@ export async function sendLastMileRequest(
   testLogId?: string;
   mode?: 'approach' | 'exact' | 'aligned';
   warning?: string;
+  safetyReasons?: string[];
+  guidanceKind?: 'withheld' | 'orientation';
 }> {
   // Last Meters hits Render; when Maps+OpenAI keys are absent it is rewritten to
   // buddywalk.app /api/text upstream.

@@ -3,6 +3,8 @@ import { LAST_MILE_TEST_SCENARIOS } from "../../utils/lastMileNavigation";
 import type { LastMileTestScenario } from "../../utils/lastMileNavigation";
 import type { PlaceCandidateLog } from "../../utils/nearbyPlaces";
 import type { PanoramaAttempt } from "../../services/outdoorPanoramaSelection";
+import type { ReplayInput } from "../../utils/lastMileReplay";
+import type { WalkingEvidence } from "../../utils/lastMilePolicy";
 
 export const REVIEW_OUTCOMES = ["got_there", "needed_retake", "would_not_get_there"] as const;
 export const TURN_CORRECTNESS = ["correct", "wrong", "no_turn_given"] as const;
@@ -25,6 +27,15 @@ export interface lastMileTestStepInterface {
 }
 
 export interface lastMileTestLogInterface {
+  pipelineVersion?: string;
+  deployedCommit?: string;
+  runKind?: "field" | "replay";
+  retryOf?: string;
+  replayInput?: ReplayInput;
+  safetyReasons?: string[];
+  walkingEvidence?: WalkingEvidence;
+  panoramaTargetHeading?: number;
+  confidenceMethod?: "heuristic-not-calibrated";
   destination: string;
   /** Place name actually searched after question lead-ins were removed. */
   destinationQuery?: string;
@@ -132,6 +143,15 @@ const LastMileTestLogSchema = new Schema<lastMileTestLogInterface>({
   userPhoto: { type: String, required: true },
   panoramaPhoto: { type: String },
   panoramaDate: { type: String },
+  pipelineVersion: String,
+  deployedCommit: String,
+  runKind: { type: String, enum: ["field", "replay"] },
+  retryOf: String,
+  replayInput: Schema.Types.Mixed,
+  safetyReasons: [String],
+  walkingEvidence: Schema.Types.Mixed,
+  panoramaTargetHeading: Number,
+  confidenceMethod: String,
   panoramaStatus: { type: String },
   panoramaValidation: [{ _id: false, panoId: String, status: String, reason: String, distanceMeters: Number }],
   panoramaSource: { type: String, enum: ["pipeline", "background"] },

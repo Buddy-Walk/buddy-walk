@@ -5,7 +5,7 @@ import sharp from "sharp";
 import { OpenAIService } from "../../server/services/openAI";
 import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
 
-for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallback"] as const) {
+for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallback", "verified-turn", "detour", "low-confidence", "ambiguous", "missing-sensors"] as const) {
   test(`Last Meters integration: ${scenario}`, async t => {
     const oldKey = process.env.GOOGLE_MAPS_API_KEY;
     process.env.GOOGLE_MAPS_API_KEY = "unit-test";
@@ -19,11 +19,20 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
     assert.ok(jpeg.length > 10000);
     let lookups = 0;
     t.mock.method(axios, "get", async (url: string, options: any) => {
-      if (url.includes("nearbysearch")) return { data: { status: "OK", results: [{ place_id: "citi", name: "Citi", vicinity: "Test Street", geometry: { location: { lat: 40.70045, lng: -74 } }, types: ["bank"] }] } };
-      if (url.includes("geocode")) return { data: { status: "ZERO_RESULTS" } };
+      if (url.includes("nearbysearch")) {
+        const place = { place_id: "citi", name: "Citi", vicinity: "Test Street", geometry: { location: { lat: 40.70045, lng: -74 } }, types: ["bank"] };
+        return { data: { status: "OK", results: scenario === "ambiguous" ? [place, { ...place, place_id: "citi-two", vicinity: "Other Street" }] : [place] } };
+      }
+      if (url.includes("geocode")) return ["verified-turn", "detour", "low-confidence"].includes(scenario)
+        ? { data: { status: "OK", results: [{ buildings: [{ place_id: "citi" }], entrances: [{ location: { lat: 40.70045, lng: -74 }, building_place_id: "citi" }] }] } }
+        : { data: { status: "ZERO_RESULTS" } };
+      if (url.includes("directions")) return { data: { status: "OK", routes: [{ legs: [{
+        start_location: { lat: 40.7, lng: -74 }, end_location: { lat: 40.70045, lng: -74 },
+        distance: { value: scenario === "detour" ? 300 : 50 }, steps: [{ travel_mode: "WALKING", start_location: { lat: 40.7, lng: -74 }, end_location: { lat: 40.70045, lng: -74 } }],
+      }] }] } };
       if (url.endsWith("/metadata")) {
         lookups++;
-        return { data: { status: "OK", pano_id: scenario === "second-panorama" && lookups >= 3 ? "second" : "first", copyright: "Google", date: scenario === "parallel-fallback" ? "2025-01" : "2016-01", location: { lat: 40.7, lng: -74 } } };
+        return { data: { status: "OK", pano_id: scenario === "second-panorama" && lookups >= 3 ? "second" : "first", copyright: "Google", date: ["parallel-fallback", "verified-turn", "detour", "low-confidence"].includes(scenario) ? "2025-01" : "2016-01", location: { lat: 40.7, lng: -74 } } };
       }
       if (url.includes("streetview")) return { status: 200, data: jpeg };
       throw new Error(`Unexpected request: ${url}`);
@@ -32,6 +41,7 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
     let currentCalls = 0;
     let referenceCalls = 0;
     let signCalls = 0;
+    let guidanceCalls = 0;
     const service = new OpenAIService();
     (service as any)._client = { chat: { completions: { create: async (request: any) => {
       const prompt = request.messages[0].content as string;
@@ -39,18 +49,18 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
       if (prompt.startsWith("Classify the CAMERA")) text = "OUTDOOR";
       else if (prompt.includes("Find the storefront, sign, or entrance")) {
         targetCalls++;
-        text = scenario === "second-panorama" && targetCalls === 2 ? "0" : "NOT_VISIBLE";
+        text = (scenario === "second-panorama" && targetCalls === 2) || ["verified-turn", "detour", "low-confidence"].includes(scenario) ? "0" : "NOT_VISIBLE";
       } else if (prompt.includes("center of the user's photo")) {
         currentCalls++;
         assert.equal(targetCalls, currentCalls, "Step 2 must start before awaiting Step 1");
-        text = scenario === "conflict" ? "270" : "90";
+        text = scenario === "conflict" ? "270" : scenario === "low-confidence" ? "NOT_VISIBLE" : "90";
       } else if (prompt.includes("destination-focused Street View image for")) {
         referenceCalls++;
         assert.equal(signCalls, 1, "Sign close-up work should already be running");
         text = "VISIBLE";
       }
       else if (prompt.includes("Transcribe the business names")) { signCalls++; text = "NO_TEXT"; }
-      else if (prompt.includes("orientation assistant for a blind pedestrian")) text = "NO_RELIABLE_LANDMARKS";
+      else if (prompt.includes("orientation assistant for a blind pedestrian")) { guidanceCalls++; text = "NO_RELIABLE_LANDMARKS"; }
       else assert.fail(`Unexpected prompt: ${prompt}`);
       return { choices: [{ message: { content: text } }], usage: { total_tokens: 10 } };
     } } } };
@@ -58,8 +68,30 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
     t.mock.method(lastMileTestLogService, "record", async (row: any) => { logged = row; return "trial-test"; });
     let answer: any;
     const res = { status: () => res, json: (body: any) => { answer = body; } };
-    await service.lastMileRequest({ res } as any, 40.7, -74, `data:image/jpeg;base64,${jpeg.toString("base64")}`, "Citi", 90, 14, 3);
+    const now = Date.now();
+    await service.lastMileRequest({ res } as any, 40.7, -74, `data:image/jpeg;base64,${jpeg.toString("base64")}`, "Citi", 90, 14, 3, scenario === "missing-sensors" ? undefined : {
+      photoCapturedAt: now, positionTimestamp: now, headingTimestamp: now, headingReference: "true",
+      latestPosition: { lat: 40.7, lng: -74, accuracy: 14, timestamp: now },
+      latestHeading: 90, latestHeadingTimestamp: now, latestHeadingReference: "true",
+    });
     assert.equal(answer.testLogId, "trial-test");
+    assert.equal(logged.runKind, "field");
+    assert.equal(logged.replayInput.sensors?.photoCapturedAt, scenario === "missing-sensors" ? undefined : now);
+    if (["verified-turn", "detour", "low-confidence", "ambiguous", "missing-sensors"].includes(scenario)) {
+      if (scenario === "verified-turn") {
+        assert.equal(guidanceCalls, 1);
+        assert.match(logged.turnInstruction, /90 degrees.*LEFT/i);
+        assert.equal(logged.targetHeading, 0);
+        assert.equal(logged.panoramaTargetHeading, 0);
+      } else {
+        assert.equal(guidanceCalls, 0);
+        assert.equal(logged.turnInstruction, undefined);
+        assert.equal(answer.guidanceKind, "withheld");
+        assert.ok(logged.safetyReasons.length);
+        if (scenario === "ambiguous" || scenario === "missing-sensors") assert.equal(lookups, 0);
+      }
+      return;
+    }
     assert.equal(referenceCalls, scenario === "parallel-fallback" ? 1 : 0, "Only recent imagery should call Step 2B");
     if (scenario === "conflict") {
       assert.equal(answer.warning, "heading_sources_disagree");
@@ -68,7 +100,8 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
     } else if (scenario === "parallel-fallback") {
       assert.equal(signCalls, 1);
       assert.equal(logged.destinationReferenceUsed, true);
-      assert.ok(logged.turnInstruction);
+      assert.equal(logged.turnInstruction, undefined);
+      assert.ok(logged.safetyReasons.includes("entrance_not_listed"));
     } else {
       assert.ok(signCalls > 0, "Stale imagery must still get Step 2C");
       assert.ok(logged.steps.some((s: any) => s.response === "SKIPPED: stale_imagery"));

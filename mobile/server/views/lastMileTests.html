@@ -323,7 +323,7 @@
 
     /** Rows reviewed before outcome scoring only have a pass/partial/fail status. */
     function outcomeOf(row) {
-      return row.reviewOutcome || OUTCOME_FOR_STATUS[row.reviewerStatus] || 'unscored';
+      return row.reviewOutcome || 'unscored';
     }
     var SOURCE_LABELS = {
       google_places: 'Google Places',
@@ -362,15 +362,16 @@
     }
 
     function renderSummary(rows) {
-      var trials = rows.filter(function (r) { return r.testScenario !== 'question_routed'; });
+      var trials = rows.filter(function (r) { return r.testScenario !== 'question_routed' && r.runKind !== 'replay'; });
       var scored = trials.filter(function (r) { return outcomeOf(r) !== 'unscored'; });
       var success = scored.filter(function (r) { return outcomeOf(r) === 'got_there'; }).length;
       var byWeek = {};
       var byLocation = {};
+      var byVersion = {};
       scored.forEach(function (r) {
         var week = 'Week of ' + weekOf(r.serverTs || r.createdAt);
         var place = (r.destinationPlaceName || r.destination || 'Unknown') + (r.destinationPlaceAddress ? ' — ' + r.destinationPlaceAddress : '');
-        [[byWeek, week], [byLocation, place]].forEach(function (pair) {
+        [[byWeek, week], [byLocation, place], [byVersion, r.pipelineVersion || 'legacy-unversioned']].forEach(function (pair) {
           var g = pair[0][pair[1]] || (pair[0][pair[1]] = { scored: 0, success: 0 });
           g.scored += 1;
           if (outcomeOf(r) === 'got_there') g.success += 1;
@@ -390,7 +391,13 @@
           '<div class="small">' + scored.length + ' of ' + trials.length + ' trials scored. ' +
           'Success means the reviewer chose "Would get me there".</div></div>' +
         '<div class="summary-card"><h3>By week</h3>' + successTable(sortedWeeks, 'Week') + '</div>' +
-        '<div class="summary-card"><h3>By location</h3>' + successTable(sortedPlaces, 'Location') + '</div>';
+        '<div class="summary-card"><h3>By location</h3>' + successTable(sortedPlaces, 'Location') + '</div>' +
+        '<div class="summary-card"><h3>By pipeline version</h3>' + successTable(byVersion, 'Version') + '</div>' +
+        '<div class="summary-card"><h3>Field errors</h3><p>Wrong turns: ' +
+          trials.filter(function(r) { return r.turnCorrectness === 'wrong'; }).length + ' / ' +
+          trials.filter(function(r) { return ['correct', 'wrong'].indexOf(r.turnCorrectness) >= 0; }).length +
+          ' scored</p><p>Wrong entrances: ' + trials.filter(function(r) { return r.entranceCorrectness === 'wrong'; }).length + ' / ' +
+          trials.filter(function(r) { return ['correct', 'wrong'].indexOf(r.entranceCorrectness) >= 0; }).length + ' scored</p></div>';
     }
 
     function saveReview(id, body) {
@@ -473,7 +480,7 @@
       var modD_confidence = findStep(steps, 'confidence_fusion');
       var modE_guidance = findStep(steps, 'accessible_guidance');
 
-      var modBStatus = test.currentHeading !== undefined && test.currentHeading !== null ? 'pass' : 'fail';
+      var modBStatus = test.panoramaMatchedHeading != null && test.headingComparisonAgrees === true ? 'pass' : 'fail';
       if (test.testScenario === 'destination_unverified' || test.testScenario === 'question_routed') modBStatus = 'na';
 
       var modCStatus = modC_target 
@@ -513,7 +520,8 @@
             ['Panorama search', modC_target ? (modC_target.response || '—') : '—'],
             ['Fallback reference search', modC_reference ? (modC_reference.response || '—') : '—'],
             ['Sign text close-up', modC_sign ? ((modC_sign.success ? 'Matched: ' : 'No match: ') + (modC_sign.response || modC_sign.error || '—')) : '—'],
-            ['Resolved destination heading', test.targetHeading != null ? test.targetHeading + '°' : 'Not visible']
+            ['Camera-origin visual bearing', test.panoramaTargetHeading != null ? test.panoramaTargetHeading + '°' : 'Not confirmed'],
+            ['Phone-origin guidance bearing', test.targetHeading != null ? test.targetHeading + '°' : 'Withheld / not calculated']
           ],
           raw: [modC_target, modC_reference, modC_sign].filter(Boolean)
         },
@@ -522,7 +530,7 @@
           title: 'Module D · Confidence Fusion',
           metrics: [
             ['GPS Accuracy', test.gpsAccuracyMeters != null ? Math.round(test.gpsAccuracyMeters) + ' m' : '—'],
-            ['Confidence Score', test.confidenceScore != null ? Math.round(test.confidenceScore * 100) + '%' : '—'],
+            ['Heuristic score (not probability)', test.confidenceScore != null ? Math.round(test.confidenceScore * 100) + '%' : '—'],
             ['Confidence Level', test.confidenceLevel ? test.confidenceLevel.toUpperCase() : '—'],
             ['Reasons', (test.confidenceReasons || []).join(' ') || 'None']
           ],
@@ -756,6 +764,13 @@
         : '—';
 
       var metaHtml = '<div class="test-meta">' +
+        '<div><b>Pipeline:</b> ' + esc(test.pipelineVersion || 'legacy-unversioned') + '</div>' +
+        '<div><b>Run:</b> ' + esc(test.runKind || 'field') + (test.retryOf ? ' | Source trial: ' + esc(test.retryOf) : '') + '</div>' +
+        '<div><b>Commit:</b> ' + esc(test.deployedCommit || 'unknown') + '</div>' +
+        '<div><b>Camera-origin visual bearing:</b> ' + (test.panoramaTargetHeading != null ? esc(test.panoramaTargetHeading) + '°' : '—') + '</div>' +
+        '<div><b>Safety gate:</b> ' + esc((test.safetyReasons || []).join(', ') || 'No withheld reasons recorded') + '</div>' +
+        '<div><b>Walking route:</b> ' + esc(test.walkingEvidence ? test.walkingEvidence.reason : 'not checked') + '</div>' +
+        '<div><b>Confidence method:</b> ' + esc(test.confidenceMethod || 'legacy') + '</div>' +
         '<div><b>Mode:</b> ' + esc(displayMode) + '</div>' +
         '<div><b>Scenario:</b> ' + esc(test.testScenario || '—') + '</div>' +
         '<div><b>Distance:</b> ' + (test.destinationDistanceMeters != null ? Math.round(test.destinationDistanceMeters) + ' m' : '—') + '</div>' +
@@ -779,6 +794,12 @@
         renderModuleBlock(modules.moduleE) +
         finalGuidanceHtml +
         reviewHtml;
+      var replay = test.replayCompatibility;
+      if (replay) {
+        document.getElementById('lmDetailBody').insertAdjacentHTML('beforeend',
+          '<p>' + esc(replay.reason) + '</p><button type="button" class="replay-btn" data-id="' + esc(idOf(test)) + '"' +
+          (replay.replayable ? '' : ' disabled') + '>Run replay</button><p class="replay-result" role="status"></p>');
+      }
     }
 
     // --- Row Facts ---
@@ -988,6 +1009,24 @@
     });
 
     document.body.addEventListener('click', function (e) {
+      if (e.target.classList.contains('replay-btn')) {
+        if (!window.confirm('Run a new replay using paid Google/OpenAI calls? The original trial is preserved. This is not a field test.')) return;
+        var replayButton = e.target;
+        replayButton.disabled = true;
+        var replayStatus = document.querySelector('.replay-result');
+        replayStatus.textContent = 'Running replay...';
+        fetch(window.location.origin + '/api/last-mile-tests/' + encodeURIComponent(replayButton.getAttribute('data-id')) + '/replay' + qs(false), {
+          method: 'POST', headers: authHeaders()
+        }).then(function(res) { return res.json().then(function(payload) {
+          if (!res.ok) throw new Error(payload.error || 'HTTP ' + res.status);
+          return payload;
+        }); }).then(function(payload) {
+          replayStatus.textContent = 'Replay trial: ' + (payload.result.testLogId || 'not persisted') + '. ' + payload.result.output;
+          load();
+        }).catch(function(error) { replayStatus.textContent = 'Replay failed: ' + error.message; })
+          .finally(function() { replayButton.disabled = false; });
+        return;
+      }
       // Clicking anywhere on a trial row opens its detail, same as the View button.
       // Any other control placed in a row keeps its own behavior, and a click that
       // ends a drag-selection is ignored so addresses can still be copied.

@@ -11,8 +11,16 @@ import {
   type lastMileTestLogInterface,
 } from "../database/models/lastMileTestLog";
 import type { PlaceCandidateLog } from "../utils/nearbyPlaces";
+import { replayCompatibility } from "../utils/lastMileReplay";
+import { summarizeFieldEvaluation } from "../utils/lastMileEvaluation";
+import { OpenAIService } from "../services/openAI";
+import { canRunLocalLastMile } from "../config/serverMode";
+
+let replayActive = false;
+let replayTimes: number[] = [];
 
 const LAST_MILE_TEST_CSV_COLUMNS = [
+  "pipelineVersion", "deployedCommit", "runKind", "retryOf", "replayInput", "safetyReasons", "walkingEvidence", "panoramaTargetHeading", "confidenceMethod",
   "serverTs",
   "destination",
   "destinationQuery",
@@ -101,6 +109,45 @@ function optionalEnum<T extends string>(
 }
 
 export class LastMileTestLogController {
+  async evaluation(req: Request, res: Response): Promise<void> {
+    if (!isAdminAuthorized(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
+    try {
+      const limit = parseLimit(req, 1000, 5000);
+      const { data } = await lastMileTestLogService.getSummaries(limit, buildDateFilter(req));
+      res.json({ ...summarizeFieldEvaluation(data), sampledTrials: data.length, limit, potentiallyTruncated: data.length === limit });
+    } catch {
+      console.error("[last-mile-tests] Evaluation query failed");
+      res.status(503).json({ error: "Evaluation data is temporarily unavailable." });
+    }
+  }
+
+  async replay(req: Request, res: Response): Promise<void> {
+    if (!process.env.ADMIN_TOKEN) { res.status(503).json({ error: "Configure ADMIN_TOKEN before enabling paid replays." }); return; }
+    if (!isAdminAuthorized(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
+    if (!canRunLocalLastMile()) { res.status(503).json({ error: "Replay requires local OpenAI and Maps keys." }); return; }
+    replayTimes = replayTimes.filter(t => Date.now() - t < 60_000);
+    if (replayActive || replayTimes.length >= 3) { res.status(429).json({ error: "Replay limit reached. Wait before retrying." }); return; }
+    replayActive = true;
+    try {
+      const row = await lastMileTestLogService.getById(req.params.id);
+      if (!row) { res.status(404).json({ error: "Trial not found" }); return; }
+      const compatibility = replayCompatibility(row);
+      if (!compatibility.replayable) { res.status(422).json({ error: compatibility.reason }); return; }
+      replayTimes.push(Date.now());
+      const input = row.replayInput!;
+      let status = 200;
+      let result: unknown;
+      const replayResponse = { status(code: number) { status = code; return this; }, json(body: unknown) { result = body; return this; } };
+      await new OpenAIService().lastMileRequest({ req, res: replayResponse as unknown as Response }, input.lat, input.lng,
+        row.userPhoto, input.destination, input.heading, input.gpsAccuracyMeters, input.compassAccuracyLevel, input.sensors,
+        { retryOf: req.params.id, evaluationTime: input.receivedAt });
+      res.status(status).json({ result, replay: true, warning: compatibility.reason });
+    } catch {
+      console.error("[last-mile-tests] Replay failed");
+      res.status(500).json({ error: "Replay failed; inspect server logs. No original trial was changed." });
+    } finally { replayActive = false; }
+  }
+
   async list(req: Request, res: Response): Promise<void> {
     if (!isAdminAuthorized(req)) {
       res.status(401).json({ error: "Unauthorized" });
@@ -142,7 +189,7 @@ export class LastMileTestLogController {
     const includeImages = req.query.includeImages === "true";
     res.status(200).json({
       source: isMongoConnected() ? "mongo" : "memory",
-      data: toLastMileTestResponse(data, includeImages),
+      data: { ...toLastMileTestResponse(data, includeImages), replayCompatibility: replayCompatibility(data) },
     });
   }
 
@@ -173,6 +220,9 @@ export class LastMileTestLogController {
         placeCandidates: describeCandidatesForCsv(row.placeCandidates),
         dataSources: (row.dataSources || []).join("|"),
         steps: JSON.stringify(row.steps),
+        replayInput: JSON.stringify(row.replayInput || null),
+        safetyReasons: JSON.stringify(row.safetyReasons || []),
+        walkingEvidence: JSON.stringify(row.walkingEvidence || null),
       })) as Record<string, unknown>[],
       LAST_MILE_TEST_CSV_COLUMNS
     );

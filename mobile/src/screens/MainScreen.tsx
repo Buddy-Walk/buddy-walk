@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
+import { LastMileSensors, sensorSafetyReasons, RECAPTURE_MESSAGE } from "../utils/lastMileSafety";
 import {
   View,
   ScrollView,
@@ -201,6 +202,9 @@ export default function MainScreen({ navigation }: Props) {
   const lastMileAbortRef = useRef<AbortController | null>(null);
   const [lastMileLoading, setLastMileLoading] = useState(false);
   const capturedPhotoLocationRef = useRef<Location.LocationObject | null>(null);
+  const headingTimestampRef = useRef<number>(0);
+  const headingReferenceRef = useRef<"true" | "magnetic" | "unknown">("unknown");
+  const capturedSensorMetadataRef = useRef<Pick<LastMileSensors, "photoCapturedAt" | "positionTimestamp" | "headingTimestamp" | "headingReference"> | null>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recDotOpacity = useRef(new Animated.Value(1)).current;
   const audioRecordingRef = useRef<AudioRecorder | null>(null);
@@ -343,7 +347,9 @@ export default function MainScreen({ navigation }: Props) {
         locationSub = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.BestForNavigation,
-            distanceInterval: 2,
+            // Last Meters needs fresh fixes even while the user stands still.
+            distanceInterval: 0,
+            timeInterval: 1000,
           },
           (loc) => {
             locationRef.current = loc;
@@ -352,6 +358,8 @@ export default function MainScreen({ navigation }: Props) {
         if (Platform.OS !== "web") {
           try {
             headingSub = await Location.watchHeadingAsync((heading) => {
+              headingTimestampRef.current = Date.now();
+              headingReferenceRef.current = heading.trueHeading >= 0 ? "true" : "magnetic";
               headingAccuracyRef.current = heading.accuracy;
               // Keeping the last good value would send a stale heading from
               // before the user turned, so an uncalibrated compass reads as none.
@@ -374,7 +382,7 @@ export default function MainScreen({ navigation }: Props) {
       }
     })();
 
-    // Low-accuracy readings remain unset so Last Meters uses panorama matching.
+    // Low-accuracy readings stay unset; panorama evidence cannot replace them.
     return () => {
       locationSub?.remove();
       headingSub?.remove();
@@ -646,6 +654,7 @@ export default function MainScreen({ navigation }: Props) {
       capturedPhotoHeadingRef.current = null;
       capturedPhotoHeadingAccuracyRef.current = null;
       capturedPhotoLocationRef.current = null;
+      capturedSensorMetadataRef.current = null;
 
       // capture the correct compass heading for the photo
       const headingAtCapture = headingRef.current;
@@ -653,6 +662,10 @@ export default function MainScreen({ navigation }: Props) {
 
       // capture the current location / GPS
       const locationAtCapture = locationRef.current;
+      const sensorMetadataAtCapture = {
+        photoCapturedAt: Date.now(), positionTimestamp: locationAtCapture?.timestamp ?? 0,
+        headingTimestamp: headingTimestampRef.current, headingReference: headingReferenceRef.current,
+      };
 
       const photo = await cameraRef.current.takePictureAsync({
         base64: true,
@@ -668,6 +681,7 @@ export default function MainScreen({ navigation }: Props) {
         capturedPhotoHeadingRef.current = headingAtCapture;
         capturedPhotoHeadingAccuracyRef.current = headingAccuracyAtCapture;
         capturedPhotoLocationRef.current = locationAtCapture;
+        capturedSensorMetadataRef.current = sensorMetadataAtCapture;
         // disabled for testing
         // setUserInput("Describe the image");
         speak(
@@ -1398,12 +1412,23 @@ export default function MainScreen({ navigation }: Props) {
     }, SLOW_RESPONSE_HINT_MS * 2);
 
     try {
-      let loc = capturedPhotoLocationRef.current; // captured photo location, not current location
-      if (!loc) {
-        loc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        locationRef.current = loc;
+      const loc = capturedPhotoLocationRef.current;
+      const metadata = capturedSensorMetadataRef.current;
+      const makeSensors = (): LastMileSensors | undefined => {
+        const latest = locationRef.current;
+        if (!metadata || !latest) return undefined;
+        return { ...metadata, latestPosition: { lat: latest.coords.latitude, lng: latest.coords.longitude,
+          accuracy: latest.coords.accuracy ?? -1, timestamp: latest.timestamp },
+          latestHeading: headingRef.current ?? -1, latestHeadingTimestamp: headingTimestampRef.current,
+          latestHeadingReference: headingReferenceRef.current };
+      };
+      const position = { lat: loc?.coords.latitude ?? NaN, lng: loc?.coords.longitude ?? NaN };
+      const captureHeading = capturedPhotoHeadingRef.current ?? undefined;
+      const sensors = makeSensors();
+      if (!loc || sensorSafetyReasons(sensors, position, captureHeading, loc.coords.accuracy ?? undefined).length) {
+        setAiResponse(RECAPTURE_MESSAGE);
+        speak(RECAPTURE_MESSAGE, { preferDevice: true });
+        return;
       }
 
       const data = await sendLastMileRequest(
@@ -1416,10 +1441,17 @@ export default function MainScreen({ navigation }: Props) {
             capturedPhotoHeadingAccuracyRef.current ?? undefined,
           image: capturedImage,
           destination: parsedInput.destination,
+          sensors,
         },
         controller.signal,
       );
 
+      if (controller.signal.aborted || lastMileAbortRef.current !== controller) return;
+      if (sensorSafetyReasons(makeSensors(), position, captureHeading, loc.coords.accuracy ?? undefined).length) {
+        setAiResponse(RECAPTURE_MESSAGE);
+        speak(RECAPTURE_MESSAGE, { preferDevice: true });
+        return;
+      }
       if (data.output) {
         setAiResponse(data.output);
         speak(data.output, { preferDevice: true });

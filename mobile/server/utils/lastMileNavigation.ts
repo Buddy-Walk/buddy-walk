@@ -244,7 +244,7 @@ export function compareCompassAndPanoramaHeadings(
 export function resolveVerifiedTargetHeading(
   visuallyMatchedHeading: number | null,
   expectedMapHeading: number,
-  toleranceDegrees = 90
+  toleranceDegrees = LAST_MILE_PANORAMA_FOV_DEGREES
 ): number | null {
   if (
     !LAST_MILE_HEADINGS.includes(
@@ -265,7 +265,7 @@ export function resolveVerifiedTargetHeading(
     visuallyMatchedHeading,
     expectedMapHeading
   ) <= toleranceDegrees
-    ? expectedMapHeading
+    ? visuallyMatchedHeading
     : null;
 }
 
@@ -314,9 +314,8 @@ export interface ExactModeGate {
 }
 
 /**
- * A tester at the door can measure past 250 m when the fix is poor, so the
- * gate forgives up to the reported accuracy (capped) before falling back to
- * approach mode.
+ * Require the whole reported GPS uncertainty radius to fit inside exact mode.
+ * Poor or unknown accuracy must not widen the precise-guidance boundary.
  */
 export function resolveExactModeGate(
   distanceMeters: number,
@@ -325,17 +324,13 @@ export function resolveExactModeGate(
   if (!Number.isFinite(distanceMeters) || distanceMeters < 0) {
     throw new Error("Last Meters distance must be a non-negative finite number.");
   }
-  const allowanceMeters =
-    typeof gpsAccuracyMeters === "number" &&
-    Number.isFinite(gpsAccuracyMeters) &&
-    gpsAccuracyMeters > 0
-      ? Math.min(gpsAccuracyMeters, LAST_METERS_GPS_ALLOWANCE_MAX_METERS)
-      : 0;
-  const exact = distanceMeters - allowanceMeters <= LAST_METERS_EXACT_RADIUS_METERS;
+  const accuracyKnown = typeof gpsAccuracyMeters === "number" && Number.isFinite(gpsAccuracyMeters) && gpsAccuracyMeters >= 0;
+  const allowanceMeters = 0;
+  const exact = accuracyKnown && gpsAccuracyMeters <= 20 && distanceMeters + gpsAccuracyMeters <= LAST_METERS_EXACT_RADIUS_METERS;
   return {
     exact,
     allowanceMeters,
-    widened: exact && distanceMeters > LAST_METERS_EXACT_RADIUS_METERS,
+    widened: false,
   };
 }
 

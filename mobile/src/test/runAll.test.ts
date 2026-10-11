@@ -3,6 +3,8 @@ import './serverMode.test.ts';
 import './lastMileNavigation.test.ts';
 import './outdoorPanorama.test.ts';
 import './lastMilePipeline.test.ts';
+import './lastMileSafety.test.ts';
+import './lastMileReplay.test.ts';
 import './lastMileTestRow.test.ts';
 import './nearbyPlaces.test.ts';
 import './lastMetersInput.test.ts';

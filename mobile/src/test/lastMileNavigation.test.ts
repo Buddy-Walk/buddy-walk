@@ -270,7 +270,9 @@ test("confidence fusion rewards independent agreement and flags weak localizatio
 
 test("verified panorama target preserves precise front-to-behind guidance", () => {
   assert.equal(resolveVerifiedTargetHeading(180, 180), 180);
-  assert.equal(resolveVerifiedTargetHeading(135, 180), 180);
+  assert.equal(resolveVerifiedTargetHeading(135, 180), null);
+  assert.equal(resolveVerifiedTargetHeading(157.5, 180), 157.5);
+  assert.equal(resolveVerifiedTargetHeading(0, 337.5), 0);
   assert.equal(resolveVerifiedTargetHeading(0, 180), null);
   assert.equal(buildLastMileTurnInstruction(0, 180), "Turn around 180 degrees without moving forward.");
 });
@@ -348,14 +350,16 @@ test("Test B guidance asks the user to move one block and retake", () => {
   );
 });
 
-test("resolveExactModeGate forgives reported GPS error up to a cap", () => {
-  assert.deepEqual(resolveExactModeGate(240), { exact: true, allowanceMeters: 0, widened: false });
-  assert.deepEqual(resolveExactModeGate(280, 40), { exact: true, allowanceMeters: 40, widened: true });
-  assert.deepEqual(resolveExactModeGate(300, 40), { exact: false, allowanceMeters: 40, widened: false });
+test("resolveExactModeGate requires accurate GPS and includes its uncertainty", () => {
+  assert.deepEqual(resolveExactModeGate(240), { exact: false, allowanceMeters: 0, widened: false });
+  assert.deepEqual(resolveExactModeGate(240, 10), { exact: true, allowanceMeters: 0, widened: false });
+  assert.deepEqual(resolveExactModeGate(241, 10), { exact: false, allowanceMeters: 0, widened: false });
+  assert.deepEqual(resolveExactModeGate(280, 40), { exact: false, allowanceMeters: 0, widened: false });
+  assert.deepEqual(resolveExactModeGate(300, 40), { exact: false, allowanceMeters: 0, widened: false });
   assert.deepEqual(resolveExactModeGate(340, 150), {
-    exact: true,
-    allowanceMeters: LAST_METERS_GPS_ALLOWANCE_MAX_METERS,
-    widened: true,
+    exact: false,
+    allowanceMeters: 0,
+    widened: false,
   });
   assert.equal(resolveExactModeGate(360, 150).exact, false);
   assert.equal(resolveExactModeGate(260, Number.NaN).exact, false);

@@ -69,9 +69,11 @@ export class OpenAIController {
         heading,
         gpsAccuracyMeters,
         compassAccuracyLevel,
+        sensors,
       } = req.body;
-      const validCoordinates = Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
-      if (!validCoordinates || !image || !destination?.trim()) {
+      const validCoordinates = typeof lat === "number" && Number.isFinite(lat) && Math.abs(lat) <= 90 &&
+        typeof lng === "number" && Number.isFinite(lng) && Math.abs(lng) <= 180;
+      if (!validCoordinates || typeof image !== "string" || !image.startsWith("data:image/") || typeof destination !== "string" || !destination.trim()) {
         return res.status(400).json({ error: "Missing or invalid required fields" });
       }
       if (!canRunLocalLastMile()) {
@@ -100,6 +102,7 @@ export class OpenAIController {
         deviceHeading,
         accuracy,
         compassLevel,
+        sensors,
       );
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });

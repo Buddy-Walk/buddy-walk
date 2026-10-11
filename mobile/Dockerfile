@@ -15,6 +15,7 @@ COPY server ./server
 # Shared client utils imported by server/services/openAI.ts
 COPY src/utils/trainLine.ts ./src/utils/trainLine.ts
 COPY src/utils/lastMetersInput.ts ./src/utils/lastMetersInput.ts
+COPY src/utils/lastMileSafety.ts ./src/utils/lastMileSafety.ts
 
 EXPOSE 8000
 
