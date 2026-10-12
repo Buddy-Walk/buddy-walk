@@ -149,6 +149,10 @@
     
     /* Visuals Grid */
     .images-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .panorama-review { margin-bottom: 24px; }
+    .panorama-review img { display: block; width: 100%; height: auto; max-height: none; object-fit: contain; }
+    .panorama-review .image-label { flex-wrap: wrap; gap: 8px; }
+    .panorama-review p { overflow-wrap: anywhere; }
     .image-wrap { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #0b0d10; }
     
     /* Updated Image Label for the Rotate Button */
@@ -601,7 +605,9 @@
     }
 
     // --- Detail Modal Render ---
+    var detailRequest = 0;
     function openDetail(index) {
+      var request = ++detailRequest;
       var summary = activeTests[index];
       if (!summary) return;
 
@@ -616,20 +622,19 @@
       if (!testId) return;
 
       var baseUrl = window.location.origin;
-      fetch(baseUrl + '/api/last-mile-tests/' + encodeURIComponent(testId) + qs(true), { headers: authHeaders() })
+      fetch(baseUrl + '/api/last-mile-tests/' + encodeURIComponent(testId) + qs(true) + '&includeStreetView=true', { headers: authHeaders() })
         .then(function (res) {
           if (!res.ok) throw new Error('HTTP ' + res.status);
           return res.json();
         })
         .then(function (payload) {
+          if (request !== detailRequest) return;
           var next = Object.assign({}, summary, payload.data || {});
-          // getOne omits Street View blobs, so keep the list-row image flags.
-          next.hasPanorama = summary.hasPanorama;
-          next.hasDestinationPhoto = summary.hasDestinationPhoto;
           renderDetail(next, index);
         })
         .catch(function (error) {
-          showError('Could not load the user photo for this test. ' + error.message);
+          if (request !== detailRequest) return;
+          showError('Could not load the saved images for this test. Reopen the trial to retry. ' + error.message);
         });
     }
 
@@ -707,6 +712,21 @@
         '<tbody>' + rowsHtml + '</tbody></table></details>';
     }
 
+    function streetViewImagesHtml(test) {
+      return [
+        { field: 'panoramaPhoto', flag: 'hasPanorama', title: 'Saved panorama', missing: noPanoramaReason(test) },
+        { field: 'destinationPhoto', flag: 'hasDestinationPhoto', title: 'Destination Street View reference', missing: test.destinationPhotoStatus || 'No separate destination reference saved.' }
+      ].map(function(item) {
+        var src = imgSrc(test[item.field]);
+        var headings = item.field === 'panoramaPhoto' && test.panoramaHeadings && test.panoramaHeadings.length
+          ? '<p class="small">Tile center headings (in stored order): ' + esc(test.panoramaHeadings.map(function(h) { return h + '°'; }).join(', ')) + '</p>' : '';
+        return '<div class="panorama-review"><div class="image-label"><span>' + esc(item.title) + '</span>' +
+          (src ? '<a download="' + item.field + '.jpg" href="' + src + '">Download image</a>' : '') + '</div>' +
+          (src ? '<img src="' + src + '" alt="' + esc(item.title) + '" loading="lazy" />' :
+            '<div class="empty">' + esc(test[item.flag] ? 'Loading saved image...' : item.missing) + '</div>') + headings + '</div>';
+      }).join('');
+    }
+
     function renderDetail(test, index) {
       var modules = buildModules(test);
       var timedSteps = (test.steps || []).filter(function(s) { return typeof s.durationMs === 'number'; });
@@ -723,7 +743,7 @@
         (hasUserPhoto
           ? '<div class="img-container"><img class="rotatable-img" data-angle="0" src="' + imgSrc(test.userPhoto) + '" alt="User photo" /></div>'
           : '<div class="empty">' + (test.hasUserPhoto ? 'Loading photo…' : 'No photo') + '</div>') +
-        '</div></div>';
+        '</div></div>' + streetViewImagesHtml(test);
       if (test.panoramaValidation && test.panoramaValidation.length) {
         imagesHtml += '<div class="module-block"><div class="module-head">Outdoor panorama validation</div>' +
           test.panoramaValidation.map(function(attempt) {

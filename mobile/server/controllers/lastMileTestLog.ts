@@ -189,7 +189,7 @@ export class LastMileTestLogController {
     const includeImages = req.query.includeImages === "true";
     res.status(200).json({
       source: isMongoConnected() ? "mongo" : "memory",
-      data: { ...toLastMileTestResponse(data, includeImages), replayCompatibility: replayCompatibility(data) },
+      data: { ...toLastMileTestResponse(data, includeImages, includeStreetView), replayCompatibility: replayCompatibility(data) },
     });
   }
 

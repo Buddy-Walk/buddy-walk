@@ -62,7 +62,8 @@ export function toLastMileTestSummaryResponse<T extends LastMileTestImageStats>(
  */
 export function toLastMileTestResponse<T extends LastMileTestImageFields>(
   row: T,
-  includeImages: boolean
+  includeImages: boolean,
+  includeStreetView = false
 ): T & LastMileTestImageFlags {
   const flags: LastMileTestImageFlags = {
     hasUserPhoto: isStoredImage(row.userPhoto),
@@ -73,9 +74,9 @@ export function toLastMileTestResponse<T extends LastMileTestImageFields>(
     return {
       ...row,
       ...flags,
-      // Street View composites are huge and not shown on the dashboard.
-      panoramaPhoto: imagePlaceholder(row.panoramaPhoto),
-      destinationPhoto: imagePlaceholder(row.destinationPhoto),
+      // Only an explicitly requested single-trial detail includes Street View.
+      panoramaPhoto: includeStreetView ? row.panoramaPhoto : imagePlaceholder(row.panoramaPhoto),
+      destinationPhoto: includeStreetView ? row.destinationPhoto : imagePlaceholder(row.destinationPhoto),
     };
   }
   return {

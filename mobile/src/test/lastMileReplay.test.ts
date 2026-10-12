@@ -66,6 +66,38 @@ test("Mongo schema preserves replay provenance and withheld reasons", () => {
   assert.deepEqual(doc.safetyReasons, ["photo_stale"]);
   assert.equal(doc.panoramaTargetHeading, 0);
 });
+
+test("trial detail opts into saved Street View blobs without changing list behavior", async t => {
+  const photo = "data:image/jpeg;base64,test";
+  let requested: unknown;
+  t.mock.method(lastMileTestLogService, "getById", async (_id: string, options: unknown) => {
+    requested = options;
+    return { userPhoto: photo, panoramaPhoto: photo, destinationPhoto: photo } as any;
+  });
+  const req = { headers: { "x-admin-token": process.env.ADMIN_TOKEN }, params: { id: "trial" },
+    query: { includeImages: "true", includeStreetView: "true" } } as any;
+  const res = response();
+  await new LastMileTestLogController().getOne(req, res as any);
+  assert.deepEqual(requested, { includeStreetView: true });
+  assert.equal(res.body.data.panoramaPhoto, photo);
+  assert.equal(res.body.data.destinationPhoto, photo);
+});
+
+test("dashboard renders saved panoramas, decimal headings and missing-image explanations", () => {
+  const html = readFileSync("server/views/lastMileTests.html", "utf8");
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
+  const helper = script.slice(script.indexOf("function streetViewImagesHtml("), script.indexOf("function renderDetail("));
+  const context = vm.createContext({ esc: (v: any) => String(v),
+    imgSrc: (v: any) => typeof v === "string" && v.startsWith("data:") ? v : "", noPanoramaReason: () => "No outdoor panorama saved." });
+  vm.runInContext(helper, context);
+  const rendered = vm.runInContext('streetViewImagesHtml({panoramaPhoto:"data:image/jpeg;base64,pano",destinationPhoto:"data:image/jpeg;base64,ref",panoramaHeadings:[0,22.5]})', context);
+  assert.match(rendered, /src="data:image\/jpeg;base64,pano"/);
+  assert.match(rendered, /src="data:image\/jpeg;base64,ref"/);
+  assert.match(rendered, /22.5°/);
+  assert.match(rendered, /download="panoramaPhoto.jpg"/);
+  assert.match(vm.runInContext('streetViewImagesHtml({})', context), /No outdoor panorama saved/);
+  assert.match(script, /includeStreetView=true/);
+});
 test("dashboard script parses and excludes replay and legacy status from field metrics", () => {
   const html = readFileSync("server/views/lastMileTests.html", "utf8");
   const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];

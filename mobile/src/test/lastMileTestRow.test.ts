@@ -65,3 +65,13 @@ test("toLastMileTestResponse keeps the user photo but not Street View images", (
   assert.equal(row.hasPanorama, true);
   assert.equal(row.hasUserPhoto, true);
 });
+
+test("single-trial opt-in returns saved panorama and destination images", () => {
+  const original = { userPhoto: PHOTO, panoramaPhoto: PANORAMA, destinationPhoto: PHOTO };
+  const row = toLastMileTestResponse(original, true, true);
+  assert.equal(row.panoramaPhoto, PANORAMA);
+  assert.equal(row.destinationPhoto, PHOTO);
+  assert.equal(row.hasPanorama, true);
+  assert.equal(row.hasDestinationPhoto, true);
+  assert.equal(toLastMileTestResponse(original, false, true).panoramaPhoto, imagePlaceholder(PANORAMA));
+});
