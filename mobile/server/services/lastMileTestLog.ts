@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import sharp from "sharp";
 import lastMileTestLogModel, {
   lastMileTestLogInterface,
@@ -13,9 +14,21 @@ import {
   type LastMileTestImageField,
   type LastMileTestImageStats,
 } from "../utils/lastMileTestRow";
+import {
+  LAST_MILE_PIPELINE_VERSION,
+  STORED_PHOTO_JPEG_QUALITY,
+  STORED_PHOTO_MAX_WIDTH,
+  deployedCommit,
+  hasReplayablePhoto,
+} from "../utils/lastMileReplay";
 
 export type LastMileTestSummary = Omit<lastMileTestLogInterface, LastMileTestImageField> &
-  LastMileTestImageStats;
+  LastMileTestImageStats & {
+    /** Whether the stored user photo can be replayed, read without the photo. */
+    userPhotoReplayable: boolean;
+  };
+
+type StoredLastMileTest = lastMileTestLogInterface & { _id?: unknown };
 
 /**
  * Image lengths and data-URL checks computed inside MongoDB. Each trial carries
@@ -36,16 +49,41 @@ const IMAGE_STATS_STAGE = {
         ] as const;
       })
     ),
+    // Mirrors hasReplayablePhoto.
+    userPhotoReplayable: {
+      $regexMatch: { input: { $ifNull: ["$userPhoto", ""] }, regex: "^data:image/[\\w.+-]+;base64,." },
+    },
   },
 };
+const WITHOUT_IMAGES_STAGE = {
+  $project: Object.fromEntries(LAST_MILE_TEST_IMAGE_FIELDS.map((field) => [field, 0] as const)),
+};
+
+function toSummary(row: lastMileTestLogInterface): LastMileTestSummary {
+  const { userPhoto, panoramaPhoto, destinationPhoto, ...rest } = row;
+  return {
+    ...rest,
+    imageStats: imageStatsOf({ userPhoto, panoramaPhoto, destinationPhoto }),
+    userPhotoReplayable: hasReplayablePhoto(userPhoto),
+  };
+}
+
+function withoutImages(row: lastMileTestLogInterface): lastMileTestLogInterface {
+  const { userPhoto, panoramaPhoto, destinationPhoto, ...rest } = row;
+  return rest;
+}
+
+function rowId(row: lastMileTestLogInterface): string {
+  return String((row as StoredLastMileTest)._id ?? "");
+}
 
 export async function compressUserPhoto(dataUrl: string): Promise<string> {
   try {
     const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, "");
     const outputBuffer = await sharp(Buffer.from(base64Data, "base64"))
       .rotate()
-      .resize({ width: 1024, withoutEnlargement: true })
-      .jpeg({ quality: 76 })
+      .resize({ width: STORED_PHOTO_MAX_WIDTH, withoutEnlargement: true })
+      .jpeg({ quality: STORED_PHOTO_JPEG_QUALITY })
       .toBuffer();
     return `data:image/jpeg;base64,${outputBuffer.toString("base64")}`;
   } catch (error) {
@@ -70,9 +108,14 @@ export async function compressPanoramaPhoto(dataUrl: string): Promise<string> {
 }
 
 export class LastMileTestLogService {
-  async record(input: Omit<lastMileTestLogInterface, "serverTs">): Promise<string | undefined> {
+  /** Stamps the pipeline version and deployed commit on every log. */
+  async record(
+    input: Omit<lastMileTestLogInterface, "serverTs" | "pipelineVersion" | "deployedCommit">
+  ): Promise<string | undefined> {
     const doc: lastMileTestLogInterface = {
       ...input,
+      pipelineVersion: LAST_MILE_PIPELINE_VERSION,
+      deployedCommit: deployedCommit(),
       userPhoto: input.userPhoto?.startsWith("data:")
         ? await compressUserPhoto(input.userPhoto)
         : input.userPhoto,
@@ -101,13 +144,19 @@ export class LastMileTestLogService {
     }
   }
 
+  /** Newest first. Dashboard retries are left out unless includeRetries is set. */
   async getData(
     limit: number,
-    dateFilter?: Record<string, unknown>
+    dateFilter?: Record<string, unknown>,
+    includeRetries = false
   ): Promise<{ source: string; data: lastMileTestLogInterface[] }> {
     if (isMongoConnected()) {
+      const filter = {
+        ...(dateFilter ?? {}),
+        ...(includeRetries ? {} : { retryOf: { $exists: false } }),
+      };
       const data = await lastMileTestLogModel
-        .find(dateFilter ?? {})
+        .find(filter)
         .sort({ serverTs: -1 })
         .limit(limit)
         .allowDiskUse(true)
@@ -116,6 +165,7 @@ export class LastMileTestLogService {
     }
 
     let rows = [...memoryLastMileTests].reverse();
+    if (!includeRetries) rows = rows.filter((row) => !row.retryOf);
     if (dateFilter?.serverTs) {
       const range = dateFilter.serverTs as { $gte?: Date; $lte?: Date };
       rows = rows.filter((row) => {
@@ -131,29 +181,29 @@ export class LastMileTestLogService {
   /** Like getData, but without the base64 images. */
   async getSummaries(
     limit: number,
-    dateFilter?: Record<string, unknown>
+    dateFilter?: Record<string, unknown>,
+    includeRetries = false
   ): Promise<{ source: string; data: LastMileTestSummary[] }> {
     if (isMongoConnected()) {
       const data = await lastMileTestLogModel
         .aggregate<LastMileTestSummary>([
-          { $match: dateFilter ?? {} },
+          {
+            $match: {
+              ...(dateFilter ?? {}),
+              ...(includeRetries ? {} : { retryOf: { $exists: false } }),
+            },
+          },
           { $sort: { serverTs: -1 } },
           { $limit: Math.max(1, Math.floor(limit)) },
           IMAGE_STATS_STAGE,
-          { $project: Object.fromEntries(LAST_MILE_TEST_IMAGE_FIELDS.map((field) => [field, 0] as const)) },
+          WITHOUT_IMAGES_STAGE,
         ])
         .allowDiskUse(true);
       return { source: "mongo", data };
     }
 
-    const { source, data } = await this.getData(limit, dateFilter);
-    return {
-      source,
-      data: data.map((row) => {
-        const { userPhoto, panoramaPhoto, destinationPhoto, ...rest } = row;
-        return { ...rest, imageStats: imageStatsOf({ userPhoto, panoramaPhoto, destinationPhoto }) };
-      }),
-    };
+    const { source, data } = await this.getData(limit, dateFilter, includeRetries);
+    return { source, data: data.map(toSummary) };
   }
 
   async getById(
@@ -161,6 +211,7 @@ export class LastMileTestLogService {
     options?: { includeStreetView?: boolean }
   ): Promise<lastMileTestLogInterface | null> {
     if (isMongoConnected()) {
+      if (!mongoose.isValidObjectId(id)) return null;
       let query = lastMileTestLogModel.findById(id);
       if (!options?.includeStreetView) {
         query = query.select("-panoramaPhoto -destinationPhoto");
@@ -168,16 +219,66 @@ export class LastMileTestLogService {
       const data = await query.lean();
       return data ?? null;
     }
-    const row = memoryLastMileTests.find((entry) => {
-      const maybeId = (entry as lastMileTestLogInterface & { _id?: unknown })._id;
-      return String(maybeId ?? "") === id;
-    });
+    const row = this.findMemoryRow(id);
     if (!row) return null;
     if (options?.includeStreetView) return row;
     const rest = { ...row };
     delete rest.panoramaPhoto;
     delete rest.destinationPhoto;
     return rest;
+  }
+
+  /** Summaries of specific trials, such as originals of retries on a list page. */
+  async getSummariesByIds(ids: string[]): Promise<LastMileTestSummary[]> {
+    const unique = [...new Set(ids)];
+    if (!unique.length) return [];
+    if (isMongoConnected()) {
+      const valid = unique
+        .filter((id) => mongoose.isValidObjectId(id))
+        .map((id) => new mongoose.Types.ObjectId(id));
+      return lastMileTestLogModel.aggregate<LastMileTestSummary>([
+        { $match: { _id: { $in: valid } } },
+        IMAGE_STATS_STAGE,
+        WITHOUT_IMAGES_STAGE,
+      ]);
+    }
+    return memoryLastMileTests.filter((row) => unique.includes(rowId(row))).map(toSummary);
+  }
+
+  /** Every retry of an original test, oldest first, without images. */
+  async getRetries(originalId: string): Promise<lastMileTestLogInterface[]> {
+    if (isMongoConnected()) {
+      return lastMileTestLogModel
+        .find({ retryOf: originalId })
+        .select(LAST_MILE_TEST_IMAGE_FIELDS.map((field) => `-${field}`).join(" "))
+        .sort({ serverTs: 1 })
+        .lean();
+    }
+    return memoryLastMileTests
+      .filter((row) => row.retryOf === originalId)
+      .sort((a, b) => new Date(a.serverTs).getTime() - new Date(b.serverTs).getTime())
+      .map(withoutImages);
+  }
+
+  /** How many retries each original has, for the dashboard row badges. */
+  async countRetries(originalIds: string[]): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    if (!originalIds.length) return counts;
+    if (isMongoConnected()) {
+      const groups = await lastMileTestLogModel.aggregate<{ _id: string; count: number }>([
+        { $match: { retryOf: { $in: originalIds } } },
+        { $group: { _id: "$retryOf", count: { $sum: 1 } } },
+      ]);
+      groups.forEach((group) => counts.set(group._id, group.count));
+      return counts;
+    }
+    const wanted = new Set(originalIds);
+    memoryLastMileTests.forEach((row) => {
+      if (row.retryOf && wanted.has(row.retryOf)) {
+        counts.set(row.retryOf, (counts.get(row.retryOf) ?? 0) + 1);
+      }
+    });
+    return counts;
   }
 
   async updateReview(
@@ -237,10 +338,7 @@ export class LastMileTestLogService {
   }
 
   private findMemoryRow(id: string): lastMileTestLogInterface | undefined {
-    return memoryLastMileTests.find((entry) => {
-      const maybeId = (entry as lastMileTestLogInterface & { _id?: unknown })._id;
-      return String(maybeId ?? "") === id;
-    });
+    return memoryLastMileTests.find((entry) => rowId(entry) === id);
   }
 }
 

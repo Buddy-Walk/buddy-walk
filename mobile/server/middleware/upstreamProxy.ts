@@ -6,6 +6,7 @@ import {
   compressUserPhoto,
   lastMileTestLogService,
 } from '../services/lastMileTestLog';
+import { buildReplayInput, parseLastMetersRequest } from '../utils/lastMileReplay';
 
 function truncate(value: unknown, max = 800): string | undefined {
   if (typeof value !== 'string' || !value.trim()) return undefined;
@@ -278,7 +279,9 @@ async function recordProxiedLastMileFailure(
   const body = asRecord(req.body);
   const image = pickString(body.image) ?? '';
   const message = error instanceof Error ? error.message : 'Upstream API unavailable';
+  const request = parseLastMetersRequest(body);
   return lastMileTestLogService.record({
+    replayInput: request && image ? buildReplayInput(request, image, startedAt) : undefined,
     destination: pickString(body.destination) ?? 'unknown destination',
     lat: pickNumber(body.lat) ?? 0,
     lng: pickNumber(body.lng) ?? 0,
@@ -382,7 +385,9 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
       : pickString(asRecord(upstreamRes.data).error) ??
         `Upstream text returned ${upstreamRes.status}`;
 
+    const request = parseLastMetersRequest(body);
     const testLogId = await lastMileTestLogService.record({
+      replayInput: request ? buildReplayInput(request, image, startedAt) : undefined,
       destination,
       lat,
       lng,

@@ -87,3 +87,53 @@ export function toLastMileTestResponse<T extends LastMileTestImageFields>(
     destinationPhoto: imagePlaceholder(row.destinationPhoto),
   };
 }
+
+/** The facts the retry history shows for one run. */
+export interface RetryHistoryFields {
+  _id?: unknown;
+  serverTs?: Date | string;
+  retryOf?: string;
+  retryPanoramaMode?: string;
+  retryDefaultsApplied?: string[];
+  panoId?: string;
+  panoramaDate?: string;
+  panoramaSource?: string;
+  panoramaStatus?: string;
+  navigationMode?: string;
+  testScenario?: string;
+  success?: boolean;
+  error?: string;
+  finalOutput?: string;
+  reviewerStatus?: string;
+  reviewOutcome?: string;
+  pipelineVersion?: string;
+  deployedCommit?: string;
+  safetyReasons?: string[];
+  latencyMs?: number;
+}
+
+/** One history entry: the original test or one of its retries, without images. */
+export function toRetryHistoryEntry(row: RetryHistoryFields) {
+  return {
+    id: String(row._id ?? ""),
+    serverTs: row.serverTs,
+    isRetry: Boolean(row.retryOf),
+    panoramaMode: row.retryPanoramaMode,
+    defaultsApplied: row.retryDefaultsApplied ?? [],
+    panoId: row.panoId,
+    panoramaDate: row.panoramaDate,
+    panoramaSource: row.panoramaSource,
+    panoramaStatus: row.panoramaStatus,
+    navigationMode: row.navigationMode,
+    testScenario: row.testScenario,
+    success: row.success,
+    error: row.error,
+    finalOutput: row.finalOutput,
+    reviewerStatus: row.reviewerStatus,
+    reviewOutcome: row.reviewOutcome,
+    pipelineVersion: row.pipelineVersion,
+    deployedCommit: row.deployedCommit,
+    safetyReasons: row.safetyReasons ?? [],
+    latencyMs: row.latencyMs,
+  };
+}

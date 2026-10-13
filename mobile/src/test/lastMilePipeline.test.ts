@@ -69,11 +69,12 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
     let answer: any;
     const res = { status: () => res, json: (body: any) => { answer = body; } };
     const now = Date.now();
-    await service.lastMileRequest({ res } as any, 40.7, -74, `data:image/jpeg;base64,${jpeg.toString("base64")}`, "Citi", 90, 14, 3, scenario === "missing-sensors" ? undefined : {
+    await service.lastMileRequest({ res } as any, { lat: 40.7, lng: -74, destination: "Citi", deviceHeading: 90,
+      gpsAccuracyMeters: 14, compassAccuracyLevel: 3, sensors: scenario === "missing-sensors" ? undefined : {
       photoCapturedAt: now, positionTimestamp: now, headingTimestamp: now, headingReference: "true",
       latestPosition: { lat: 40.7, lng: -74, accuracy: 14, timestamp: now },
       latestHeading: 90, latestHeadingTimestamp: now, latestHeadingReference: "true",
-    });
+    } }, `data:image/jpeg;base64,${jpeg.toString("base64")}`);
     assert.equal(answer.testLogId, "trial-test");
     assert.equal(logged.runKind, "field");
     assert.equal(logged.replayInput.sensors?.photoCapturedAt, scenario === "missing-sensors" ? undefined : now);

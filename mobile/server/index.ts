@@ -54,6 +54,11 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
       `[server] MongoDB connected (${mongoose.connection.name || "default database"}).`
     );
     await lastMileTestLogModel.collection.createIndex({ serverTs: -1 });
+    // Retry history and per-row retry counts; field tests are left out.
+    await lastMileTestLogModel.collection.createIndex(
+      { retryOf: 1, serverTs: 1 },
+      { partialFilterExpression: { retryOf: { $exists: true } } }
+    );
     console.log("[server] Last Meters dashboard index ready.");
   } catch (error) {
     console.warn("MongoDB unavailable — using in-memory store for metrics, chat logs, and companion:", error);

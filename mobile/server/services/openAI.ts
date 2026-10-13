@@ -31,9 +31,17 @@ import {
   pedestrianRampInterface,
 } from "../database/models/features";
 import sharp from "sharp";
-import { LastMileSensors, sensorSafetyReasons, RECAPTURE_MESSAGE } from "../../src/utils/lastMileSafety";
+import { sensorSafetyReasons, RECAPTURE_MESSAGE } from "../../src/utils/lastMileSafety";
 import { evaluateWalkingLeg, preciseTurnReasons, WalkingEvidence } from "../utils/lastMilePolicy";
-import { LAST_MILE_PIPELINE_VERSION, photoHash, ReplayInput } from "../utils/lastMileReplay";
+import {
+  LAST_MILE_PIPELINE_VERSION,
+  STORED_PHOTO_JPEG_QUALITY,
+  STORED_PHOTO_MAX_WIDTH,
+  buildReplayInput,
+  type LastMetersRequestInput,
+  type ReplayInput,
+} from "../utils/lastMileReplay";
+import type { RetryPanoramaMode } from "../database/models/lastMileTestLog";
 import { outdoorPanoramaRejection } from "../utils/outdoorPanorama";
 import { selectOutdoorPanorama, parseSceneVerdict, SceneClassifier, PanoramaAudit, PanoramaAttempt, PanoramaSearchBudget } from "./outdoorPanoramaSelection";
 import {
@@ -695,28 +703,48 @@ export class OpenAIService {
   }
 
   // --- LAST METERS NAVIGATION PIPELINE ---
+  /** Runs Last Meters for an app request and sends the answer. */
   async lastMileRequest(
     ctx: AppContext,
-    lat: number,
-    lng: number,
+    request: LastMetersRequestInput,
     image: string,
-    destination: string,
-    deviceHeading?: number,
-    gpsAccuracyMeters?: number,
-    compassAccuracyLevel?: number,
-    sensors?: LastMileSensors,
-    execution?: { retryOf: string; evaluationTime: number },
   ) {
-    const { res } = ctx;
+    const result = await this.runLastMeters(request, image);
+    if (result.kind === "question") {
+      return this.textRequest(ctx, result.textRequest);
+    }
+    ctx.res.status(result.status).json(result.body);
+  }
+
+  /**
+   * The Last Meters pipeline. Records the trial and returns the answer
+   * instead of sending it, so dashboard retries can replay a past trial.
+   */
+  async runLastMeters(
+    request: LastMetersRequestInput,
+    image: string,
+    options: LastMetersRunOptions = {},
+  ): Promise<LastMetersRunResult> {
+    const {
+      lat,
+      lng,
+      destination,
+      deviceHeading,
+      gpsAccuracyMeters,
+      compassAccuracyLevel,
+      sensors,
+    } = request;
+    const { retry, pinnedPanoId } = options;
     const startedAt = Date.now();
-    const evaluationTime = execution?.evaluationTime ?? startedAt;
+    // A retry keeps the original's snapshot and judges sensor freshness as of
+    // the original request.
+    const evaluationTime = retry?.replayInput.receivedAt ?? startedAt;
     const safetyNow = () => evaluationTime + Date.now() - startedAt;
     let safetyReasons: string[] = [];
     let walkingEvidence: WalkingEvidence = { verified: false, reason: "walking_route_not_checked" };
     let panoramaTargetHeading: number | undefined;
-    const replayInput: ReplayInput = { schemaVersion: 1, receivedAt: evaluationTime, lat, lng, destination,
-      heading: deviceHeading, gpsAccuracyMeters, compassAccuracyLevel, sensors,
-      originalPhotoSha256: photoHash(image), photoRepresentation: "stored-compressed" };
+    const replayInput = retry?.replayInput ?? buildReplayInput(request, image, startedAt);
+    let recordedLogId: string | undefined;
     let activeStage = "destination proximity check";
     let navigationMode: "approach" | "exact" | "aligned" | undefined;
     let testScenario: LastMileTestScenario | undefined;
@@ -775,10 +803,6 @@ export class OpenAIService {
     }[] = [];
 
     const trialContext = () => ({
-      pipelineVersion: LAST_MILE_PIPELINE_VERSION,
-      deployedCommit: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || "local-unversioned",
-      runKind: execution ? "replay" as const : "field" as const,
-      retryOf: execution?.retryOf,
       replayInput,
       safetyReasons,
       walkingEvidence,
@@ -843,23 +867,51 @@ export class OpenAIService {
       error?: string;
       targetHeading?: number;
       turnInstruction?: string;
-    }) =>
-      lastMileTestLogService.record({
+    }) => {
+      recordedLogId = await lastMileTestLogService.record({
         ...trialContext(),
-        userPhoto: await resizeDataUrlImage(image, 1024, 76),
+        // A retry links to the original and reuses its stored photo.
+        ...(retry
+          ? {
+              runKind: "replay" as const,
+              retryOf: retry.retryOf,
+              retryPanoramaMode: retry.panoramaMode,
+              retryDefaultsApplied: retry.defaultsApplied,
+            }
+          : {
+              runKind: "field" as const,
+              userPhoto: await resizeDataUrlImage(
+                image,
+                STORED_PHOTO_MAX_WIDTH,
+                STORED_PHOTO_JPEG_QUALITY,
+              ),
+            }),
         ...outcome,
       });
+      return recordedLogId;
+    };
+    const respond = (
+      status: number,
+      body: Record<string, unknown>,
+      reviewPanorama?: Promise<void>,
+    ): LastMetersRunResult => ({
+      kind: "response",
+      status,
+      body,
+      testLogId: recordedLogId,
+      reviewPanorama,
+    });
 
     const withhold = async (reasons: string[], message = RECAPTURE_MESSAGE) => {
       safetyReasons = [...new Set(reasons)];
       testSteps.push({ name: "turn_safety_gate", prompt: "Require sufficient evidence before any precise turn.",
         response: safetyReasons.join("; "), model: "deterministic-safety-policy", success: false });
       const testLogId = await recordTrial({ finalOutput: message, success: false, error: "turn_withheld" });
-      res.status(200).json({ output: message, testLogId, warning: "turn_withheld", safetyReasons,
+      return respond(200, { output: message, testLogId, warning: "turn_withheld", safetyReasons,
         guidanceKind: "withheld", targetHeading: null, pipelineVersion: LAST_MILE_PIPELINE_VERSION });
     };
     const initialSensorReasons = sensorSafetyReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow());
-    if (initialSensorReasons.length) { await withhold(initialSensorReasons); return; }
+    if (initialSensorReasons.length) return withhold(initialSensorReasons);
 
     console.log("\n==================================================");
     console.log("📥 [BACKEND] HIT RECEIVED ON /api/last-mile route!");
@@ -892,24 +944,28 @@ export class OpenAIService {
         /\b(?:in front of me|around me|describe|what do you see|this)\b/i.test(
           destination,
         );
-      return this.textRequest(ctx, {
-        text: destination,
-        image: asksAboutSurroundings && image ? [image] : undefined,
-        coords: {
-          latitude: lat,
-          longitude: lng,
-          accuracy: gpsAccuracyMeters ?? null,
-          heading: deviceHeading ?? null,
+      return {
+        kind: "question",
+        testLogId: recordedLogId,
+        textRequest: {
+          text: destination,
+          image: asksAboutSurroundings && image ? [image] : undefined,
+          coords: {
+            latitude: lat,
+            longitude: lng,
+            accuracy: gpsAccuracyMeters ?? null,
+            heading: deviceHeading ?? null,
+          },
+          analytics: {
+            feature:
+              parsedInput.reason === "transit"
+                ? "mta"
+                : asksAboutSurroundings
+                  ? "photo_qa"
+                  : undefined,
+          },
         },
-        analytics: {
-          feature:
-            parsedInput.reason === "transit"
-              ? "mta"
-              : asksAboutSurroundings
-                ? "photo_qa"
-                : undefined,
-        },
-      });
+      };
     }
     destinationQuery = parsedInput.destination;
     testSteps.push({
@@ -977,28 +1033,26 @@ export class OpenAIService {
           success: false,
           error: "destination_not_verified",
         });
-        res.status(200).json({
+        return respond(200, {
           output: finalOutput,
           testLogId,
           testScenario,
           warning: "destination_not_verified",
         });
-        return;
       }
 
       const ambiguity = (verifiedDestination.placeCandidates || []).filter(candidate => candidate.relevant &&
         candidate.placeId !== verifiedDestination!.placeId && candidate.businessStatus !== "CLOSED_PERMANENTLY" &&
         candidate.distanceMeters <= verifiedDestination!.distanceMeters + Math.max(20, gpsAccuracyMeters ?? 20));
       if (ambiguity.length) {
-        await withhold(["destination_branch_ambiguous"], `I found more than one nearby ${destinationQuery}. Please specify the street address: ${verifiedDestination.placeAddress} or ${ambiguity.slice(0, 2).map(c => c.address).join(" or ")}.`);
-        return;
+        return withhold(["destination_branch_ambiguous"], `I found more than one nearby ${destinationQuery}. Please specify the street address: ${verifiedDestination.placeAddress} or ${ambiguity.slice(0, 2).map(c => c.address).join(" or ")}.`);
       }
 
       // The panorama is taken at the user's position, so it can download
       // while the entrance lookup runs. Approach and aligned trials save it
       // for review after they have already answered.
       const panoramaBudget: PanoramaSearchBudget = { seen: new Set(), deadline: Date.now() + 45_000 };
-      const panoramaDownload = processPanoramaTiles(lat, lng, classifyPanorama, auditPanorama, panoramaBudget);
+      const panoramaDownload = processPanoramaTiles(lat, lng, classifyPanorama, auditPanorama, panoramaBudget, pinnedPanoId);
       panoramaDownload.catch(() => undefined);
 
       let targetLocation: LatLng = verifiedDestination.location;
@@ -1102,15 +1156,13 @@ export class OpenAIService {
           closedNotice +
           buildLastMileSourceNote(null);
         const testLogId = await recordTrial({ finalOutput, success: true });
-        res.status(200).json({
+        return respond(200, {
           output: finalOutput,
           testLogId,
           mode: navigationMode,
           testScenario,
           warning: "heading_already_aligned",
-        });
-        void saveBackgroundPanorama(testLogId, panoramaDownload);
-        return;
+        }, saveBackgroundPanorama(testLogId, panoramaDownload));
       }
 
       if (!gate.exact) {
@@ -1130,15 +1182,13 @@ export class OpenAIService {
           success: true,
         });
         const testLogId = await recordTrial({ finalOutput, success: true });
-        res.status(200).json({
+        return respond(200, {
           output: finalOutput,
           testLogId,
           mode: navigationMode,
           testScenario,
           warning: "destination_too_far",
-        });
-        void saveBackgroundPanorama(testLogId, panoramaDownload);
-        return;
+        }, saveBackgroundPanorama(testLogId, panoramaDownload));
       }
 
       navigationMode = "exact";
@@ -1164,8 +1214,7 @@ export class OpenAIService {
         error: string;
         reason: string;
       }) => {
-        await withhold([fallback.error], `Google Maps places ${place.placeName} about ${formatLastMileDistance(distanceMeters)} away, but the entrance is not visually verified. I will not give a precise turn. Use your primary navigation or ask for assistance.`);
-        return;
+        return withhold([fallback.error], `Google Maps places ${place.placeName} about ${formatLastMileDistance(distanceMeters)} away, but the entrance is not visually verified. I will not give a precise turn. Use your primary navigation or ask for assistance.`);
       };
 
       activeStage = "panorama download";
@@ -1194,16 +1243,16 @@ export class OpenAIService {
           "I could not verify a suitable outdoor panorama, so I cannot safely provide a precise turn or entrance direction. " +
           "Stay in a safe place and use your primary navigation or ask for assistance." + closedNotice + buildLastMileSourceNote(null);
         const testLogId = await recordTrial({ finalOutput, success: false, error: "no_validated_outdoor_panorama" });
-        res.status(200).json({ output: finalOutput, testLogId, mode: navigationMode, testScenario,
+        return respond(200, { output: finalOutput, testLogId, mode: navigationMode, testScenario,
           currentHeading, targetHeading: null, warning: "no_validated_outdoor_panorama" });
-        return;
       }
       let targetHeading: number | null = null;
       let targetBearing: number | undefined;
       let visualMatchAgreesWithMap = false;
       for (let matchingAttempt = 0; matchingAttempt < 3; matchingAttempt++) {
       const tryNextPanorama = async (): Promise<boolean> => {
-        if (matchingAttempt >= 2 || panoramaBudget.seen.size >= 3 || Date.now() >= panoramaBudget.deadline) return false;
+        // An original-panorama retry must not move on to a different panorama.
+        if (pinnedPanoId || matchingAttempt >= 2 || panoramaBudget.seen.size >= 3 || Date.now() >= panoramaBudget.deadline) return false;
         auditPanorama({ panoId: panorama.metadata.pano_id, status: "destination_not_visible",
           reason: "Destination matching failed; trying a distinct nearby outdoor panorama." });
         try {
@@ -1372,14 +1421,13 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
           success: false,
           error: "compass_heading_unavailable",
         });
-        res.status(200).json({
+        return respond(200, {
           output: finalOutput,
           testLogId,
           mode: navigationMode,
           testScenario,
           warning: "compass_heading_unavailable",
         });
-        return;
       }
 
       if (headingComparisonAgrees === false) {
@@ -1395,7 +1443,7 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
           success: false,
           error: "heading_sources_disagree",
         });
-        res.status(200).json({
+        return respond(200, {
           output: finalOutput,
           testLogId,
           mode: navigationMode,
@@ -1404,7 +1452,6 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
           confidenceLevel: "low",
           warning: "heading_sources_disagree",
         });
-        return;
       }
 
       // ==========================================
@@ -1448,12 +1495,11 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
           // Beside a large building the door in front of the user may be
           // real; "not visible from this block" would send them away from it.
           if (besideBuilding) {
-            await respondWithPlacesFallback({
+            return respondWithPlacesFallback({
               imageryNote: "",
               error: "entrance_not_visually_confirmed",
               reason: "ENTRANCE_NOT_VISUALLY_CONFIRMED",
             });
-            return;
           }
           navigationMode = "approach";
           testScenario = "test_b_approach";
@@ -1462,7 +1508,7 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
             closedNotice +
             buildLastMileSourceNote(panoramaDate);
           const testLogId = await recordTrial({ finalOutput, success: true });
-          res.status(200).json({
+          return respond(200, {
             output: finalOutput,
             testLogId,
             mode: navigationMode,
@@ -1471,7 +1517,6 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
             targetHeading,
             warning: "destination_not_visible_move_closer",
           });
-          return;
         }
 
         testScenario = "test_a_reference";
@@ -1646,14 +1691,13 @@ Use VISIBLE only when the storefront, sign, or entrance clearly corresponds to t
       }
       if (targetHeading === null) {
         if (await tryNextPanorama()) continue;
-        await respondWithPlacesFallback({
+        return respondWithPlacesFallback({
           imageryNote: panoramaDate
             ? ` The available Street View panorama is dated ${panoramaDate} and may be outdated.`
             : " The available Street View imagery may be outdated.",
           error: "entrance_not_visually_confirmed",
           reason: "ENTRANCE_NOT_VISUALLY_CONFIRMED",
         });
-        return;
       }
 
       break;
@@ -1691,7 +1735,7 @@ Use VISIBLE only when the storefront, sign, or entrance clearly corresponds to t
         entranceListed: entranceSource === "geocoding_entrance",
         visualTargetMatched: visualMatchAgreesWithMap || signTextMatched === true || destinationReferenceUsed,
         walking: walkingEvidence, sensorReasons: sensorSafetyReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime) });
-      if (turnReasons.length) { await withhold(turnReasons, "I cannot verify the entrance and your orientation well enough for a precise turn. Stay in a safe place and use your primary walking navigation or ask for assistance. Entrance accessibility has not been verified."); return; }
+      if (turnReasons.length) return withhold(turnReasons, "I cannot verify the entrance and your orientation well enough for a precise turn. Stay in a safe place and use your primary walking navigation or ask for assistance. Entrance accessibility has not been verified.");
       // Visual bearings remain camera-origin evidence. Guidance uses phone-origin geometry.
       targetHeading = destinationBearing;
       targetBearing = destinationBearing;
@@ -1784,7 +1828,7 @@ Keep the response to two short sentences and do not repeat the turn instruction.
       console.log("=========================================\n");
 
       const lateReasons = sensorSafetyReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime);
-      if (lateReasons.length) { await withhold(lateReasons); return; }
+      if (lateReasons.length) return withhold(lateReasons);
       const finalOutput =
         `${turnInstruction} ${distanceSentence} Landmarks: ${landmarksGuidance}` +
         closedNotice +
@@ -1795,7 +1839,7 @@ Keep the response to two short sentences and do not repeat the turn instruction.
         targetHeading,
         turnInstruction,
       });
-      res.status(200).json({
+      return respond(200, {
         output: finalOutput,
         testLogId,
         mode: navigationMode,
@@ -1824,7 +1868,7 @@ Keep the response to two short sentences and do not repeat the turn instruction.
         success: false,
         error: error?.message ?? "Last meters calculation failed.",
       });
-      if (!res.headersSent) res.status(502).json({ error: clientError });
+      return respond(502, { error: clientError });
     }
   }
 
@@ -2890,6 +2934,35 @@ async function resizeDataUrlImage(
   }
 }
 
+export interface LastMetersRunOptions {
+  /** Fetch this user-position panorama instead of searching for one. */
+  pinnedPanoId?: string;
+  /** Set for dashboard retries: link the log to the original, reuse its photo. */
+  retry?: {
+    retryOf: string;
+    panoramaMode: RetryPanoramaMode;
+    defaultsApplied: string[];
+    /** The original's snapshot, upgraded to the current version. */
+    replayInput: ReplayInput;
+  };
+}
+
+export type LastMetersRunResult =
+  | {
+      kind: "response";
+      status: number;
+      body: Record<string, unknown>;
+      testLogId?: string;
+      /** Settles once a review-only panorama is attached to the log. */
+      reviewPanorama?: Promise<void>;
+    }
+  | {
+      /** The input was a question; the caller answers it with textRequest. */
+      kind: "question";
+      testLogId?: string;
+      textRequest: textRequestBody;
+    };
+
 interface StreetViewMetadata {
   status: string;
   date?: string;
@@ -2984,12 +3057,45 @@ export async function classifyPanoramaScene(client: OpenAI, images: string[], ti
   return parseSceneVerdict(response.choices[0]?.message.content ?? "");
 }
 
+/**
+ * Metadata for one specific panorama. Throws with a STREET_VIEW_PANO_* code
+ * when Google no longer serves it as a Google outdoor panorama, so a pinned
+ * retry never silently falls back to a different panorama.
+ */
+export async function fetchStreetViewPanoramaById(
+  panoId: string,
+): Promise<StreetViewMetadata> {
+  const response = await axios.get<StreetViewMetadata>(
+    "https://maps.googleapis.com/maps/api/streetview/metadata",
+    {
+      params: { pano: panoId, key: getGoogleMapsApiKey() },
+      timeout: 20_000,
+    },
+  );
+  const metadata = { ...response.data, pano_id: response.data.pano_id ?? panoId };
+  const rejection = outdoorPanoramaRejection(metadata);
+  if (rejection) {
+    const panoError = new Error(
+      `Street View panorama ${panoId} is no longer available: metadata returned ${rejection}.`,
+    );
+    Object.assign(panoError, { code: `STREET_VIEW_PANO_${rejection}` });
+    throw panoError;
+  }
+  return metadata;
+}
+
+/**
+ * Searches for a validated outdoor panorama near the user and downloads its
+ * views. A pinned pano ID skips the search: that panorama already passed
+ * outdoor validation on the trial being retried.
+ */
 export async function processPanoramaTiles(
   lat: number,
   lng: number,
   classify: SceneClassifier,
   audit?: PanoramaAudit,
   budget?: PanoramaSearchBudget,
+  pinnedPanoId?: string,
 ): Promise<{
   tiles: { heading: number; base64: string }[];
   metadata: StreetViewMetadata;
@@ -2998,7 +3104,9 @@ export async function processPanoramaTiles(
   console.log(`Fetching ${LAST_MILE_HEADINGS.length} outdoor panorama views...`);
   const headings = [...LAST_MILE_HEADINGS];
   const apiKey = getGoogleMapsApiKey();
-  const { metadata, attempts } = await selectOutdoorPanorama(lat, lng, apiKey, classify, audit, budget);
+  const { metadata, attempts } = pinnedPanoId
+    ? await pinnedPanorama(pinnedPanoId, audit, budget)
+    : await selectOutdoorPanorama(lat, lng, apiKey, classify, audit, budget);
 
   const panoramaSelector = `pano=${encodeURIComponent(metadata.pano_id!)}`;
 
@@ -3029,4 +3137,20 @@ export async function processPanoramaTiles(
   );
 
   return { tiles: tilesData, metadata, attempts };
+}
+
+async function pinnedPanorama(
+  panoId: string,
+  audit?: PanoramaAudit,
+  budget?: PanoramaSearchBudget,
+): Promise<{ metadata: StreetViewMetadata; attempts: PanoramaAttempt[] }> {
+  const metadata = await fetchStreetViewPanoramaById(panoId);
+  budget?.seen.add(panoId);
+  const attempt: PanoramaAttempt = {
+    panoId,
+    status: "pinned",
+    reason: "Original panorama pinned by a dashboard retry.",
+  };
+  audit?.(attempt);
+  return { metadata, attempts: [attempt] };
 }
