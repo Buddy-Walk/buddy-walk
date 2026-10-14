@@ -430,10 +430,10 @@
     var TOKEN = '__ADMIN_TOKEN__';
     var activeTests = [];
     // Whether this server can run Last Meters; sent with every list and detail.
-    var retryInfo = { available: true };
+    let retryInfo = { available: true };
     // The test open in the detail view, so a finished retry can refresh its history.
-    var currentDetailId = null;
-    var currentDetail = null;
+    let currentDetailId = null;
+    let currentDetail = null;
 
     var OUTCOME_LABELS = {
       got_there: 'Would get me there',
@@ -488,7 +488,7 @@
 
     function renderSummary(rows) {
       // Dashboard retries are not field tests, so they never count toward the rate.
-      var trials = rows.filter(function (r) { return !r.retryOf && r.runKind !== 'replay' && r.testScenario !== 'question_routed'; });
+      const trials = rows.filter(function (r) { return !r.retryOf && r.runKind !== 'replay' && r.testScenario !== 'question_routed'; });
       var scored = trials.filter(function (r) { return outcomeOf(r) !== 'unscored'; });
       var success = scored.filter(function (r) { return outcomeOf(r) === 'got_there'; }).length;
       var byWeek = {};
@@ -736,7 +736,7 @@
 
     /** includeStreetView adds the saved panorama and destination images. */
     function fetchDetail(testId, includeStreetView) {
-      var baseUrl = window.location.origin;
+      const baseUrl = window.location.origin;
       return fetch(baseUrl + '/api/last-mile-tests/' + encodeURIComponent(testId) + qs(true) +
         (includeStreetView ? '&includeStreetView=true' : ''), { headers: authHeaders() })
         .then(function (res) {
@@ -745,7 +745,7 @@
         })
         .then(function (payload) {
           if (payload.retry) setRetryInfo(payload.retry);
-          var history = payload.data && payload.data.history;
+          const history = payload.data && payload.data.history;
           if (history && syncRemoteRetry(history.originalId, history.runningRetry)) refreshRetryControls(history.originalId);
           return payload.data;
         });
@@ -760,7 +760,7 @@
       currentDetailId = testId;
       currentDetail = summary || null;
 
-      var overlay = document.getElementById('lmDetailOverlay');
+      const overlay = document.getElementById('lmDetailOverlay');
       document.getElementById('lmDetailTitle').textContent = (summary && (summary.destinationPlaceName || summary.destination)) || 'Loading…';
       document.getElementById('lmDetailSubtitle').textContent = summary ? fmtDate(summary.serverTs || summary.createdAt) : '';
       overlay.style.display = 'block';
@@ -777,7 +777,7 @@
           if (currentDetailId !== testId) return;
           currentDetail = Object.assign({}, summary || {}, data || {});
           renderDetail(currentDetail);
-          var history = document.getElementById('retryHistory');
+          const history = document.getElementById('retryHistory');
           if (history) revealHistoryRow(history.querySelector('.history-row.current'));
           if (toHistory && history) history.scrollIntoView({ block: 'start' });
         })
@@ -800,20 +800,21 @@
     }
 
     // --- Retries ---
-    var PANORAMA_MODE_LABELS = { fresh: 'Fresh panorama', original: 'Original panorama' };
+    const PANORAMA_MODE_LABELS = { fresh: 'Fresh panorama', original: 'Original panorama' };
     // Retries in flight, keyed by the original they replay: { mode, startedAt, remote }.
     // Remote ones were started in another tab or before a reload; the server reports them.
-    var runningRetries = {};
-    var elapsedTimer = null;
-    var remotePollTimer = null;
-    var REMOTE_POLL_MS = 15000;
-    var RESEND_DELAY_MS = 5000;
-    // A little past the server's 10-minute lease, after which a run counts as interrupted.
-    var RESEND_FOR_MS = 11 * 60 * 1000;
-    var MAX_TOASTS = 4;
-    var HISTORY_ORDER_KEY = 'lastMeters.historyNewestFirst';
-    var historyNewestFirst = readHistoryOrder();
-    var TOAST_MS = 5000;
+    const runningRetries = {};
+    let elapsedTimer = null;
+    let remotePollTimer = null;
+    const REMOTE_POLL_MS = 15000;
+    const RESEND_DELAY_MS = 5000;
+    // How long to keep re-sending while the server cannot be reached. A little past
+    // the server's 2-minute lease, so a restarted server reports the run as interrupted.
+    const UNREACHABLE_FOR_MS = 3 * 60 * 1000;
+    const MAX_TOASTS = 4;
+    const HISTORY_ORDER_KEY = 'lastMeters.historyNewestFirst';
+    let historyNewestFirst = readHistoryOrder();
+    const TOAST_MS = 5000;
 
     // The history order is a per-browser preference; storage can be unavailable.
     function readHistoryOrder() {
@@ -830,14 +831,14 @@
     function testName(test) { return test.destinationPlaceName || test.destination || 'this test'; }
 
     function shortDate(value) {
-      var date = new Date(value);
+      const date = new Date(value);
       if (!value || Number.isNaN(date.getTime())) return '-';
       return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     }
 
     function setRetryInfo(info) {
       retryInfo = info;
-      var el = document.getElementById('retryOff');
+      const el = document.getElementById('retryOff');
       el.style.display = info.available ? 'none' : 'block';
       el.innerHTML = info.available ? '' : '<b>Retries are off.</b> ' + esc(info.reason);
     }
@@ -845,7 +846,7 @@
     /** Why this test cannot be retried, or '' when it can. */
     function retryBlockedReason(test) {
       if (!retryInfo.available) return retryInfo.reason || 'Retries are off on this server.';
-      var replay = test.replay || {};
+      const replay = test.replay || {};
       return replay.status === 'not_replayable' ? (replay.reason || 'This test cannot be replayed.') : '';
     }
 
@@ -859,22 +860,22 @@
 
     /** The Retry button. The panorama is chosen in the menu it opens. */
     function retryTriggerHtml(test) {
-      var running = runningRetries[originalIdOf(test)];
+      const running = runningRetries[originalIdOf(test)];
       if (running) {
         return '<button class="secondary retry-trigger running" disabled>' +
           '<span class="spinner" aria-hidden="true"></span>Running ' + elapsedHtml(running.startedAt) + '</button>';
       }
-      var blocked = retryBlockedReason(test);
+      const blocked = retryBlockedReason(test);
       return '<button class="secondary retry-trigger" aria-haspopup="menu" aria-expanded="false"' +
         (blocked ? ' disabled title="' + esc(blocked) + '"' : '') + '>Retry</button>';
     }
 
     /** List cell: the trigger, plus why it is off or which values a replay fills in. */
     function retryCellHtml(test) {
-      var replay = test.replay || {};
-      var fills = replay.defaultsApplied || [];
+      const replay = test.replay || {};
+      const fills = replay.defaultsApplied || [];
       // A server-wide reason is shown once above the list, not on every row.
-      var reason = retryInfo.available ? retryBlockedReason(test) : '';
+      const reason = retryInfo.available ? retryBlockedReason(test) : '';
       return '<div class="retry-cell">' + retryTriggerHtml(test) +
         (reason ? '<div class="retry-reason" title="' + esc(reason) + '">' + esc(reason) + '</div>' : '') +
         (!reason && fills.length
@@ -886,8 +887,8 @@
     /** Re-renders every Retry control for one original, without touching the rest of the page. */
     function refreshRetryControls(originalId) {
       document.querySelectorAll('#lmTestsList tr.trial-row').forEach(function (row) {
-        var test = activeTests[Number(row.getAttribute('data-idx'))];
-        var cell = row.querySelector('.retry-cell');
+        const test = activeTests[Number(row.getAttribute('data-idx'))];
+        const cell = row.querySelector('.retry-cell');
         if (test && cell && originalIdOf(test) === originalId) cell.outerHTML = retryCellHtml(test);
       });
       if (currentDetail && currentDetail.history && currentDetail.history.originalId === originalId) renderHistoryBlock();
@@ -904,8 +905,8 @@
     }
 
     // --- Retry menu ---
-    var menuTrigger = null;
-    var menuTest = null;
+    let menuTrigger = null;
+    let menuTest = null;
 
     function retryOptionHtml(mode, description, disabled) {
       return '<button class="retry-option" role="menuitem" data-mode="' + mode + '"' + (disabled ? ' disabled' : '') + '>' +
@@ -913,11 +914,11 @@
     }
 
     function openRetryMenu(trigger, test) {
-      var menu = document.getElementById('retryMenu');
-      var replay = test.replay || {};
-      var pano = replay.originalPanorama || {};
-      var fills = replay.defaultsApplied || [];
-      var originalDescription = pano.available
+      const menu = document.getElementById('retryMenu');
+      const replay = test.replay || {};
+      const pano = replay.originalPanorama || {};
+      const fills = replay.defaultsApplied || [];
+      const originalDescription = pano.available
         ? 'Reuse the field test\'s Street View image so only the code differs. ' +
           (pano.panoramaDate ? 'Captured ' + esc(pano.panoramaDate) + ', ' : '') + '<span class="code-id">' + esc(pano.panoId) + '</span>'
         : esc(pano.reason || 'The original panorama is unknown.');
@@ -926,13 +927,13 @@
         retryOptionHtml('fresh', 'Fetch Street View the way a field test would today.', false) +
         retryOptionHtml('original', originalDescription, !pano.available) +
         (fills.length ? '<div class="menu-foot fills">Fills in values the original did not record: ' + esc(fills.join('; ')) + '</div>' : '') +
-        '<div class="menu-foot">Runs the current pipeline with paid API calls, up to a minute. One retry runs at a time, at most 3 a minute. The result is saved as a new test.</div>';
+        '<div class="menu-foot">Runs the current pipeline with paid API calls, usually in about a minute. Up to 3 retries run at once, one per test. The result is saved as a new test.</div>';
 
       menu.hidden = false;
-      var rect = trigger.getBoundingClientRect();
-      var left = Math.min(Math.max(16, rect.right - menu.offsetWidth), window.innerWidth - menu.offsetWidth - 16);
-      var fitsBelow = rect.bottom + 6 + menu.offsetHeight <= window.innerHeight - 8;
-      var top = fitsBelow || rect.top - menu.offsetHeight - 6 < 8 ? rect.bottom + 6 : rect.top - menu.offsetHeight - 6;
+      const rect = trigger.getBoundingClientRect();
+      const left = Math.min(Math.max(16, rect.right - menu.offsetWidth), window.innerWidth - menu.offsetWidth - 16);
+      const fitsBelow = rect.bottom + 6 + menu.offsetHeight <= window.innerHeight - 8;
+      const top = fitsBelow || rect.top - menu.offsetHeight - 6 < 8 ? rect.bottom + 6 : rect.top - menu.offsetHeight - 6;
       menu.style.left = left + 'px';
       menu.style.top = top + 'px';
 
@@ -943,7 +944,7 @@
     }
 
     function closeRetryMenu(restoreFocus) {
-      var menu = document.getElementById('retryMenu');
+      const menu = document.getElementById('retryMenu');
       if (menu.hidden) return;
       menu.hidden = true;
       if (menuTrigger) {
@@ -956,7 +957,7 @@
 
     /** The test a Retry button belongs to: its table row, or the open detail. */
     function testForTrigger(trigger) {
-      var row = trigger.closest('tr.trial-row');
+      const row = trigger.closest('tr.trial-row');
       if (row) return activeTests[Number(row.getAttribute('data-idx'))];
       return trigger.closest('#lmDetailBody') ? currentDetail : null;
     }
@@ -964,8 +965,8 @@
     // --- Toasts ---
     /** bodyHtml and actionsHtml are trusted markup built with esc(). */
     function showToast(failed, title, bodyHtml, actionsHtml) {
-      var container = document.getElementById('toasts');
-      var toast = document.createElement('div');
+      const container = document.getElementById('toasts');
+      const toast = document.createElement('div');
       toast.className = 'toast' + (failed ? ' failed' : '');
       toast.setAttribute('role', failed ? 'alert' : 'status');
       toast.innerHTML = '<div class="toast-title">' + esc(title) + '</div>' +
@@ -975,7 +976,7 @@
       container.appendChild(toast);
       while (container.children.length > MAX_TOASTS) container.removeChild(container.firstChild);
 
-      var timer = null;
+      let timer = null;
       // Restarts the countdown, unless the reader is hovering, focused inside, or on another tab.
       toast.scheduleDismiss = function () {
         clearTimeout(timer);
@@ -1011,7 +1012,7 @@
 
     // --- Running a retry ---
     // uuid's browser build, served by this server and loaded on the first retry.
-    var uuidModule = null;
+    let uuidModule = null;
 
     /** A new UUIDv7 idempotency key. */
     function newIdempotencyKey() {
@@ -1027,7 +1028,7 @@
     // Retries this tab sent that have no final answer yet, by original:
     // { key, id, name, mode, startedAt }. Kept per tab so a reload re-sends them
     // with the same key and shows their result instead of losing them.
-    var PENDING_RETRIES_KEY = 'lastMeters.pendingRetries';
+    const PENDING_RETRIES_KEY = 'lastMeters.pendingRetries';
 
     function readPendingRetries() {
       try { return JSON.parse(sessionStorage.getItem(PENDING_RETRIES_KEY) || '{}') || {}; } catch (err) { return {}; }
@@ -1035,7 +1036,7 @@
 
     function savePendingRetry(originalId, entry) {
       try {
-        var pending = readPendingRetries();
+        const pending = readPendingRetries();
         if (entry) pending[originalId] = entry;
         else delete pending[originalId];
         sessionStorage.setItem(PENDING_RETRIES_KEY, JSON.stringify(pending));
@@ -1044,10 +1045,10 @@
 
     /** Picks up retries a reload interrupted, before the list marks them as remote. */
     function resumePendingRetries() {
-      var pending = readPendingRetries();
+      const pending = readPendingRetries();
       Object.keys(pending).forEach(function (originalId) {
-        var entry = pending[originalId];
-        if (!entry || !entry.key || Date.now() - entry.startedAt > RESEND_FOR_MS) {
+        const entry = pending[originalId];
+        if (!entry || !entry.key) {
           savePendingRetry(originalId, null);
           return;
         }
@@ -1063,8 +1064,10 @@
      * Sends one retry under its idempotency key. When the connection drops, the
      * proxy gives up, or the server is still running this key, it asks again with
      * the same key, which returns the first run's result instead of starting another.
+     * A run the server reports in progress is still renewing its lease, so it is
+     * waited for however long it takes; an unreachable server is given up on.
      */
-    function postRetry(id, panoramaMode, key, deadline) {
+    function postRetry(id, panoramaMode, key, lastHeardAt) {
       var baseUrl = window.location.origin;
       return fetch(baseUrl + '/api/last-mile-tests/' + encodeURIComponent(id) + '/retry' + (TOKEN && TOKEN !== '__ADMIN_TOKEN__' ? '?token=' + encodeURIComponent(TOKEN) : ''), {
         method: 'POST',
@@ -1074,7 +1077,7 @@
         .then(function (res) {
           return res.json().catch(function () { return {}; }).then(function (body) {
             if (!res.ok) {
-              var error = new Error(body.error || 'HTTP ' + res.status);
+              const error = new Error(body.error || 'HTTP ' + res.status);
               error.status = res.status;
               error.code = body.code;
               // A gateway error without our JSON body came from the proxy, not the retry.
@@ -1088,9 +1091,10 @@
           throw networkError;
         })
         .catch(function (error) {
-          var again = error.resend || error.code === 'retry_in_progress';
-          if (!again || Date.now() > deadline) throw error;
-          return wait(RESEND_DELAY_MS).then(function () { return postRetry(id, panoramaMode, key, deadline); });
+          const inProgress = error.code === 'retry_in_progress';
+          if (inProgress) lastHeardAt = Date.now();
+          else if (!error.resend || Date.now() - lastHeardAt > UNREACHABLE_FOR_MS) throw error;
+          return wait(RESEND_DELAY_MS).then(function () { return postRetry(id, panoramaMode, key, lastHeardAt); });
         });
     }
 
@@ -1099,7 +1103,7 @@
      * remote run appeared or finished.
      */
     function syncRemoteRetry(originalId, reported) {
-      var current = runningRetries[originalId];
+      const current = runningRetries[originalId];
       if (reported && !current) {
         runningRetries[originalId] = { mode: reported.panoramaMode, startedAt: reported.startedAt, remote: true };
         if (!elapsedTimer) elapsedTimer = setInterval(tickElapsed, 1000);
@@ -1115,9 +1119,9 @@
 
     /** Syncs every remote run against a fresh list; returns the originals whose run finished. */
     function syncRemoteRetries(rows) {
-      var reported = {};
+      const reported = {};
       rows.forEach(function (row) { if (row.runningRetry) reported[originalIdOf(row)] = row.runningRetry; });
-      var finished = Object.keys(runningRetries).filter(function (originalId) {
+      const finished = Object.keys(runningRetries).filter(function (originalId) {
         return runningRetries[originalId].remote && !reported[originalId];
       });
       finished.forEach(function (originalId) { syncRemoteRetry(originalId, null); });
@@ -1143,7 +1147,7 @@
           return res.json();
         })
         .then(function (payload) {
-          var finished = syncRemoteRetries(payload.data || []);
+          const finished = syncRemoteRetries(payload.data || []);
           if (finished.length) {
             load();
             finished.forEach(refreshHistory);
@@ -1160,23 +1164,23 @@
     /** Runs a retry, or with resume, re-sends one a reload interrupted under its saved key. */
     function runRetry(id, originalId, name, panoramaMode, resume) {
       if (runningRetries[originalId] && !resume) return;
-      var startedAt = resume ? resume.startedAt : Date.now();
+      const startedAt = resume ? resume.startedAt : Date.now();
       runningRetries[originalId] = { mode: panoramaMode, startedAt: startedAt };
       if (!elapsedTimer) elapsedTimer = setInterval(tickElapsed, 1000);
       refreshRetryControls(originalId);
 
-      var modeText = PANORAMA_MODE_LABELS[panoramaMode].toLowerCase();
+      const modeText = PANORAMA_MODE_LABELS[panoramaMode].toLowerCase();
       // One key per click: every re-send of this retry, including after a reload, reuses it.
       (resume ? Promise.resolve(resume.key) : newIdempotencyKey())
         .then(function (key) {
           savePendingRetry(originalId, { key: key, id: id, name: name, mode: panoramaMode, startedAt: startedAt });
-          return postRetry(id, panoramaMode, key, startedAt + RESEND_FOR_MS);
+          return postRetry(id, panoramaMode, key, Date.now());
         })
         .then(function (payload) {
-          var retry = payload.data || {};
-          var original = findLoadedTest(originalId);
-          var scenario = retry.testScenario || 'no scenario';
-          var changed = original && original.testScenario && original.testScenario !== retry.testScenario;
+          const retry = payload.data || {};
+          const original = findLoadedTest(originalId);
+          const scenario = retry.testScenario || 'no scenario';
+          const changed = original && original.testScenario && original.testScenario !== retry.testScenario;
           showToast(false, 'Retry finished',
             '<b>' + esc(name) + '</b>, ' + esc(modeText) + '<br>' +
             badge(retry.success ? 'pass' : 'fail', retry.success ? 'Answered' : 'Failed') +
@@ -1188,7 +1192,7 @@
         .catch(function (error) {
           // A retired or unreachable original panorama does not stop a fresh retry.
           // Coded refusals, such as another retry of this test running, are not about the panorama.
-          var offerFresh = panoramaMode === 'original' && !error.code && (error.status === 409 || error.status === 502);
+          const offerFresh = panoramaMode === 'original' && !error.code && (error.status === 409 || error.status === 502);
           showToast(true, 'Retry did not run',
             '<b>' + esc(name) + '</b>, ' + esc(modeText) + '<br>' + esc(error.message),
             offerFresh
@@ -1208,7 +1212,7 @@
     /** Reloads the open detail's history in place, leaving its review form untouched. */
     function refreshHistory(originalId) {
       if (!currentDetail || !currentDetail.history || currentDetail.history.originalId !== originalId) return;
-      var testId = currentDetailId;
+      const testId = currentDetailId;
       fetchDetail(testId).then(function (data) {
         if (currentDetailId !== testId || !currentDetail || !data) return;
         currentDetail.history = data.history;
@@ -1229,17 +1233,17 @@
     }
 
     function reviewMarkHtml(entry) {
-      var outcome = outcomeOf(entry);
+      const outcome = outcomeOf(entry);
       if (outcome === 'unscored') return '<span class="review-mark unscored">Not scored</span>';
       return '<span class="review-mark ' + STATUS_FOR_OUTCOME[outcome] + '">' + esc(OUTCOME_LABELS[outcome]) + '</span>';
     }
 
     function retryBannerHtml(test) {
       if (!test.retryOf) return '';
-      var history = test.history || {};
-      var original = history.original;
-      var number = (history.retries || []).map(function (r) { return r.id; }).indexOf(idOf(test)) + 1;
-      var fills = test.retryDefaultsApplied || [];
+      const history = test.history || {};
+      const original = history.original;
+      const number = (history.retries || []).map(function (r) { return r.id; }).indexOf(idOf(test)) + 1;
+      const fills = test.retryDefaultsApplied || [];
       return '<div class="retry-banner"><div>' +
         '<b>Retry' + (number ? ' ' + number : '') + '</b> of the field test from ' +
         esc(original ? shortDate(original.serverTs) : 'an original that no longer exists') + ', ' +
@@ -1251,14 +1255,14 @@
     }
 
     function historyRowHtml(entry, label, test, original) {
-      var isCurrent = entry.id === idOf(test);
-      var panoChanged = entry.isRetry && original && entry.panoId && entry.panoId !== original.panoId;
-      var scenarioChanged = entry.isRetry && original && entry.testScenario !== original.testScenario;
-      var mode = entry.isRetry ? (PANORAMA_MODE_LABELS[entry.panoramaMode] || '-') : 'Field test';
-      var panorama = entry.panoId || entry.panoramaDate
+      const isCurrent = entry.id === idOf(test);
+      const panoChanged = entry.isRetry && original && entry.panoId && entry.panoId !== original.panoId;
+      const scenarioChanged = entry.isRetry && original && entry.testScenario !== original.testScenario;
+      const mode = entry.isRetry ? (PANORAMA_MODE_LABELS[entry.panoramaMode] || '-') : 'Field test';
+      const panorama = entry.panoId || entry.panoramaDate
         ? esc(entry.panoramaDate || 'Undated') + (entry.panoId ? ' <span class="code-id">' + esc(entry.panoId) + '</span>' : '')
         : esc(entry.panoramaStatus || 'None');
-      var output = entry.finalOutput || '';
+      const output = entry.finalOutput || '';
       return '<tr class="history-row' + (entry.isRetry ? '' : ' original') + (isCurrent ? ' current' : '') + '" data-id="' + esc(entry.id) + '">' +
         '<td><button class="run-link" data-id="' + esc(entry.id) + '"' + (isCurrent ? ' aria-current="true"' : '') + '>' + esc(label) + '</button>' +
           (isCurrent ? '<span class="run-viewing">Viewing</span>' : '') + '</td>' +
@@ -1280,13 +1284,13 @@
     }
 
     function retryHistoryHtml(test) {
-      var history = test.history;
+      const history = test.history;
       if (!history) return '';
-      var original = history.original;
-      var retries = history.retries || [];
-      var running = runningRetries[history.originalId];
+      const original = history.original;
+      const retries = history.retries || [];
+      const running = runningRetries[history.originalId];
       // The original stays pinned first; retries keep their numbers in either order.
-      var runs = retries.map(function (entry, i) { return historyRowHtml(entry, 'Retry ' + (i + 1), test, original); });
+      const runs = retries.map(function (entry, i) { return historyRowHtml(entry, 'Retry ' + (i + 1), test, original); });
       if (running) {
         runs.push('<tr class="history-row pending">' +
           '<td><span class="run-pending"><span class="spinner" aria-hidden="true"></span>Retry ' + (retries.length + 1) + '</span></td>' +
@@ -1296,11 +1300,11 @@
         '</tr>');
       }
       if (historyNewestFirst) runs.reverse();
-      var originalHtml = original
+      const originalHtml = original
         ? historyRowHtml(original, 'Original', test, original)
         : '<tr class="original"><td colspan="6" class="small">The original test no longer exists.</td></tr>';
-      var blocked = retryBlockedReason(test);
-      var subtitle = retries.length
+      const blocked = retryBlockedReason(test);
+      const subtitle = retries.length
         ? retries.length + (retries.length === 1 ? ' retry' : ' retries') + ' of this field test.'
         : 'No retries yet. A retry re-runs the stored photo and inputs through the current pipeline.';
       return '<section class="module-block history-block" id="retryHistory">' +
@@ -1324,14 +1328,14 @@
 
     /** resetScroll starts the table at its top, for a new order. */
     function renderHistoryBlock(resetScroll) {
-      var el = document.getElementById('retryHistory');
+      const el = document.getElementById('retryHistory');
       if (!el || !currentDetail) return;
       if (menuTrigger && el.contains(menuTrigger)) closeRetryMenu();
-      var oldScroll = el.querySelector('.history-scroll');
-      var scrollTop = oldScroll ? oldScroll.scrollTop : 0;
+      const oldScroll = el.querySelector('.history-scroll');
+      const scrollTop = oldScroll ? oldScroll.scrollTop : 0;
       el.outerHTML = retryHistoryHtml(currentDetail);
       // A quiet refresh keeps the reader's place; a retry that just started is shown.
-      var scroller = document.querySelector('#retryHistory .history-scroll');
+      const scroller = document.querySelector('#retryHistory .history-scroll');
       if (!scroller) return;
       scroller.scrollTop = resetScroll ? 0 : scrollTop;
       revealHistoryRow(scroller.querySelector('.history-row.pending'));
@@ -1339,11 +1343,11 @@
 
     /** Scrolls the capped history table, not the page, so the row is fully visible. */
     function revealHistoryRow(row) {
-      var scroller = row && row.closest('.history-scroll');
+      const scroller = row && row.closest('.history-scroll');
       if (!scroller) return;
-      var box = scroller.getBoundingClientRect();
-      var rowBox = row.getBoundingClientRect();
-      var top = box.top + scroller.querySelector('thead').offsetHeight;
+      const box = scroller.getBoundingClientRect();
+      const rowBox = row.getBoundingClientRect();
+      const top = box.top + scroller.querySelector('thead').offsetHeight;
       if (rowBox.top < top) scroller.scrollTop -= top - rowBox.top;
       else if (rowBox.bottom > box.bottom) scroller.scrollTop += rowBox.bottom - box.bottom;
     }
@@ -1528,7 +1532,7 @@
     }
 
     // --- Row Facts ---
-    var TABLE_COLUMNS = 12;
+    const TABLE_COLUMNS = 12;
 
     function distanceGate(test) {
       var mode = ['exact', 'approach', 'aligned'].indexOf(test.navigationMode) >= 0 ? test.navigationMode : 'none';
@@ -1747,7 +1751,7 @@
     window.addEventListener('resize', function () { closeRetryMenu(); });
 
     document.addEventListener('keydown', function (e) {
-      var menu = document.getElementById('retryMenu');
+      const menu = document.getElementById('retryMenu');
       if (menu.hidden) return;
       if (e.key === 'Escape' || e.key === 'Tab') {
         if (e.key === 'Escape') e.preventDefault();
@@ -1756,8 +1760,8 @@
       }
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
-        var options = Array.prototype.slice.call(menu.querySelectorAll('.retry-option:not(:disabled)'));
-        var at = options.indexOf(document.activeElement);
+        const options = Array.prototype.slice.call(menu.querySelectorAll('.retry-option:not(:disabled)'));
+        const at = options.indexOf(document.activeElement);
         options[(at + (e.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length].focus();
       }
     });
@@ -1768,24 +1772,24 @@
 
     document.body.addEventListener('click', function (e) {
       // Retry controls are checked before rows, since they sit inside trial rows.
-      var option = e.target.closest('.retry-option');
+      const option = e.target.closest('.retry-option');
       if (option) {
-        var test = menuTest;
+        const test = menuTest;
         closeRetryMenu(true);
         if (test && confirmPaidRetry()) runRetry(idOf(test), originalIdOf(test), testName(test), option.getAttribute('data-mode'));
         return;
       }
-      var trigger = e.target.closest('.retry-trigger');
+      const trigger = e.target.closest('.retry-trigger');
       if (trigger) {
         if (menuTrigger === trigger) { closeRetryMenu(); return; }
         closeRetryMenu();
-        var triggerTest = testForTrigger(trigger);
+        const triggerTest = testForTrigger(trigger);
         if (triggerTest) openRetryMenu(trigger, triggerTest);
         return;
       }
       if (!e.target.closest('#retryMenu')) closeRetryMenu();
 
-      var toastRetry = e.target.closest('.toast-retry');
+      const toastRetry = e.target.closest('.toast-retry');
       if (toastRetry) {
         if (!confirmPaidRetry()) return;
         toastRetry.closest('.toast').remove();
@@ -1798,35 +1802,35 @@
         return;
       }
 
-      var historyOpener = e.target.closest('.open-history');
+      const historyOpener = e.target.closest('.open-history');
       if (historyOpener) {
-        var toast = historyOpener.closest('.toast');
+        const toast = historyOpener.closest('.toast');
         if (toast) toast.remove();
         openDetailById(historyOpener.getAttribute('data-id'), null, true);
         return;
       }
 
-      var orderButton = e.target.closest('.history-order button');
+      const orderButton = e.target.closest('.history-order button');
       if (orderButton) {
-        var order = orderButton.getAttribute('data-order');
+        const order = orderButton.getAttribute('data-order');
         if ((order === 'newest') !== historyNewestFirst) {
           historyNewestFirst = order === 'newest';
           saveHistoryOrder();
           renderHistoryBlock(true);
-          var pressed = document.querySelector('#retryHistory .history-order [data-order="' + order + '"]');
+          const pressed = document.querySelector('#retryHistory .history-order [data-order="' + order + '"]');
           if (pressed) pressed.focus();
         }
         return;
       }
 
-      var opener = e.target.closest('.open-test, .reload-detail, .run-link');
+      const opener = e.target.closest('.open-test, .reload-detail, .run-link');
       if (opener) {
         openDetailById(opener.getAttribute('data-id'));
         return;
       }
 
       // A run in the retry history opens that run's own detail.
-      var historyRow = e.target.closest('tr.history-row[data-id]');
+      const historyRow = e.target.closest('tr.history-row[data-id]');
       if (historyRow) {
         // The run being viewed is already open; reopening it would jump to the top.
         if (!historyRow.classList.contains('current') && !String(window.getSelection()).length) openDetailById(historyRow.getAttribute('data-id'));

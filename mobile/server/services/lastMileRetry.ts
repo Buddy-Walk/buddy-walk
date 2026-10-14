@@ -4,7 +4,7 @@ import type {
   RetryPanoramaMode,
 } from "../database/models/lastMileTestLog";
 import { assessReplay, replayRequest } from "../utils/lastMileReplay";
-import { lastMileRetryRunService, type RetryRun } from "./lastMileRetryRuns";
+import { lastMileRetryRunService, withRenewedLease, type RetryRun } from "./lastMileRetryRuns";
 import { lastMileTestLogService } from "./lastMileTestLog";
 import { fetchStreetViewPanoramaById, OpenAIService } from "./openAI";
 
@@ -56,7 +56,7 @@ export interface RetryDependencies {
   runLastMeters: OpenAIService["runLastMeters"];
   fetchPanoramaById: typeof fetchStreetViewPanoramaById;
   limiter: RetryLimiter;
-  runs: Pick<typeof lastMileRetryRunService, "find" | "claim" | "finish">;
+  runs: Pick<typeof lastMileRetryRunService, "find" | "claim" | "renew" | "finish">;
 }
 
 const pipeline = new OpenAIService();
@@ -75,13 +75,20 @@ export function retryAvailability(): { available: boolean; reason?: string } {
       reason: "Set ADMIN_TOKEN on this server before enabling retries, which make paid API calls.",
     };
   }
-  return canRunLocalLastMile()
-    ? { available: true }
-    : {
-        available: false,
-        reason:
-          "This server is missing OPENAI_API_KEY or GOOGLE_API_KEY, so it cannot run Last Meters.",
-      };
+  if (!canRunLocalLastMile()) {
+    return {
+      available: false,
+      reason: "This server is missing OPENAI_API_KEY or GOOGLE_API_KEY, so it cannot run Last Meters.",
+    };
+  }
+  if (!lastMileRetryRunService.canEnforceOneRunPerOriginal()) {
+    return {
+      available: false,
+      reason:
+        "The database index that keeps one retry per test running could not be created, so retries are off. Check the server logs.",
+    };
+  }
+  return { available: true };
 }
 
 /**
@@ -214,7 +221,9 @@ export async function retryLastMileTest(
 
     let outcome: RetryResult;
     try {
-      outcome = await runRetry(original, originalId, panoramaMode, pinnedPanoId, assessment, dependencies);
+      outcome = await withRenewedLease(dependencies.runs, idempotencyKey, () =>
+        runRetry(original, originalId, panoramaMode, pinnedPanoId, assessment, dependencies),
+      );
     } catch (error) {
       const failure =
         error instanceof LastMileRetryError
@@ -253,7 +262,9 @@ async function saveOutcome(
   outcome: Parameters<RetryDependencies["runs"]["finish"]>[1],
 ): Promise<void> {
   try {
-    await dependencies.runs.finish(key, outcome);
+    if (!(await dependencies.runs.finish(key, outcome))) {
+      console.warn(`[LastMileRetry] retry ${key} finished after it was marked interrupted; its outcome was not saved.`);
+    }
   } catch (error) {
     console.error(`[LastMileRetry] could not save the outcome of retry ${key}:`, error);
   }

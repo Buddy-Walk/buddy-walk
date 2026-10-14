@@ -17,7 +17,11 @@ import {
   type RetryDependencies,
   type RetryRequest,
 } from "../../server/services/lastMileRetry";
-import { lastMileRetryRunService, RETRY_LEASE_MS } from "../../server/services/lastMileRetryRuns";
+import {
+  lastMileRetryRunService,
+  RETRY_LEASE_MS,
+  withRenewedLease,
+} from "../../server/services/lastMileRetryRuns";
 import { parseIdempotencyKey } from "../../server/utils/idempotencyKey";
 import type { LastMetersRunOptions } from "../../server/services/openAI";
 import { buildReplayInput, replayRequest } from "../../server/utils/lastMileReplay";
@@ -501,6 +505,74 @@ test("running retries are reported by original while their lease holds", async (
   assert.deepEqual([...running.keys()], ["orig"]);
   assert.equal(running.get("orig")?.panoramaMode, "original");
   assert.equal((await lastMileRetryRunService.running(["orig"], now + RETRY_LEASE_MS)).size, 0);
+});
+
+test("a renewed lease keeps a slow run live past its first lease", async () => {
+  const key = v7();
+  const now = Date.now();
+  await lastMileRetryRunService.claim({ _id: key, requestedId: "orig", originalId: "orig", panoramaMode: "fresh" }, now);
+  assert.equal(await lastMileRetryRunService.renew(key, now + RETRY_LEASE_MS - 1000), true);
+
+  const later = now + RETRY_LEASE_MS + 1000;
+  assert.equal((await lastMileRetryRunService.find(key, later))?.status, "running");
+  assert.equal((await lastMileRetryRunService.running(["orig"], later)).size, 1);
+});
+
+test("a run marked interrupted keeps that status when it finishes later", async () => {
+  const key = v7();
+  const now = Date.now();
+  await lastMileRetryRunService.claim({ _id: key, requestedId: "orig", originalId: "orig", panoramaMode: "fresh" }, now);
+  const later = now + RETRY_LEASE_MS + 1000;
+  assert.equal((await lastMileRetryRunService.find(key, later))?.errorCode, "retry_interrupted");
+
+  assert.equal(await lastMileRetryRunService.renew(key, later), false);
+  assert.equal(
+    await lastMileRetryRunService.finish(key, { status: "succeeded", testLogId: "retry-1", defaultsApplied: [] }, later),
+    false
+  );
+  const run = await lastMileRetryRunService.find(key, later);
+  assert.equal(run?.status, "failed");
+  assert.equal(run?.errorCode, "retry_interrupted");
+  assert.equal(run?.testLogId, undefined);
+});
+
+test("a run's lease is renewed while its work runs and no longer after", async () => {
+  const renewed: string[] = [];
+  const runs = {
+    renew: async (key: string) => {
+      renewed.push(key);
+      return true;
+    },
+  };
+  const result = await withRenewedLease(
+    runs,
+    "key",
+    () => new Promise<string>((resolve) => setTimeout(() => resolve("done"), 40)),
+    5
+  );
+  assert.equal(result, "done");
+  assert.ok(renewed.length >= 2, `expected the lease to be renewed, got ${renewed.length} renewals`);
+
+  const afterWork = renewed.length;
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(renewed.length, afterWork);
+});
+
+test("a run's lease is no longer renewed once its work fails", async () => {
+  let renewals = 0;
+  const runs = {
+    renew: async () => {
+      renewals += 1;
+      return true;
+    },
+  };
+  await assert.rejects(
+    withRenewedLease(runs, "key", () => new Promise((_, reject) => setTimeout(() => reject(new Error("boom")), 20)), 5),
+    /boom/
+  );
+  const afterWork = renewals;
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(renewals, afterWork);
 });
 
 test("idempotency keys must be UUIDv7", () => {

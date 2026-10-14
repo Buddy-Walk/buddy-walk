@@ -4,10 +4,12 @@ import lastMileRetryRunModel, {
 import { isMongoConnected, memoryRetryRuns } from "../database/usageStore";
 
 /**
- * How long a run may stay "running". A retry takes about a minute; a run
- * still marked running long after that was cut off by a restart or crash.
+ * How long a run stays "running" without a heartbeat. The server running it
+ * renews the lease every RETRY_HEARTBEAT_MS, however long the run takes, so a
+ * run whose lease ran out was cut off by a restart or crash.
  */
-export const RETRY_LEASE_MS = 10 * 60_000;
+export const RETRY_LEASE_MS = 2 * 60_000;
+export const RETRY_HEARTBEAT_MS = 30_000;
 
 export const INTERRUPTED_MESSAGE =
   "The server stopped before this retry finished, so no result was saved. Start a new retry.";
@@ -45,6 +47,25 @@ function interruptedUpdate(now: number): Partial<RetryRun> {
  * run at a time, across server instances.
  */
 export class LastMileRetryRunService {
+  private oneRunPerOriginalIndexReady = false;
+
+  /**
+   * Creates the unique partial index behind "one running retry per
+   * original". Until it exists, retries stay off while Mongo is in use.
+   */
+  async ensureIndexes(): Promise<void> {
+    await lastMileRetryRunModel.collection.createIndex(
+      { originalId: 1 },
+      { name: "one_running_retry_per_original", unique: true, partialFilterExpression: { status: "running" } }
+    );
+    this.oneRunPerOriginalIndexReady = true;
+  }
+
+  /** Whether claim() can keep one retry per original running at a time. */
+  canEnforceOneRunPerOriginal(): boolean {
+    return !isMongoConnected() || this.oneRunPerOriginalIndexReady;
+  }
+
   /** The run for this key; a run whose lease ran out is marked interrupted. */
   async find(key: string, now = Date.now()): Promise<RetryRun | null> {
     if (isMongoConnected()) {
@@ -96,14 +117,37 @@ export class LastMileRetryRunService {
     }
   }
 
-  async finish(key: string, outcome: RetryRunOutcome, now = Date.now()): Promise<void> {
-    const update = { ...outcome, finishedAt: new Date(now) };
+  /**
+   * Extends a running run's lease. Returns false once the run is no longer
+   * running, such as after it was marked interrupted.
+   */
+  async renew(key: string, now = Date.now()): Promise<boolean> {
+    const leaseExpiresAt = new Date(now + RETRY_LEASE_MS);
     if (isMongoConnected()) {
-      await lastMileRetryRunModel.updateOne({ _id: key }, update);
-      return;
+      const result = await lastMileRetryRunModel.updateOne({ _id: key, status: "running" }, { leaseExpiresAt });
+      return result.matchedCount > 0;
     }
     const run = memoryRetryRuns.get(key);
-    if (run) Object.assign(run, update);
+    if (run?.status !== "running") return false;
+    run.leaseExpiresAt = leaseExpiresAt;
+    return true;
+  }
+
+  /**
+   * Records how a run ended. A run already marked interrupted keeps that
+   * status, since the client was told so and the original may have been
+   * retried since; returns false in that case.
+   */
+  async finish(key: string, outcome: RetryRunOutcome, now = Date.now()): Promise<boolean> {
+    const update = { ...outcome, finishedAt: new Date(now) };
+    if (isMongoConnected()) {
+      const result = await lastMileRetryRunModel.updateOne({ _id: key, status: "running" }, update);
+      return result.matchedCount > 0;
+    }
+    const run = memoryRetryRuns.get(key);
+    if (run?.status !== "running") return false;
+    Object.assign(run, update);
+    return true;
   }
 
   /** The live run of each original that has one. */
@@ -140,6 +184,34 @@ export class LastMileRetryRunService {
     }
     memoryRetryRuns.set(run._id, run);
     return { claimed: true, run: { ...run } };
+  }
+}
+
+/**
+ * Does the run's work while renewing its lease, so a slow run is never taken
+ * for an interrupted one.
+ */
+export async function withRenewedLease<T>(
+  runs: Pick<LastMileRetryRunService, "renew">,
+  key: string,
+  work: () => Promise<T>,
+  intervalMs = RETRY_HEARTBEAT_MS,
+): Promise<T> {
+  const timer = setInterval(() => {
+    runs.renew(key).then(
+      (running) => {
+        if (running) return;
+        clearInterval(timer);
+        console.warn(`[LastMileRetry] retry ${key} was marked interrupted while it was still running.`);
+      },
+      (error) => console.error(`[LastMileRetry] could not renew the lease of retry ${key}:`, error),
+    );
+  }, intervalMs);
+  timer.unref?.();
+  try {
+    return await work();
+  } finally {
+    clearInterval(timer);
   }
 }
 
