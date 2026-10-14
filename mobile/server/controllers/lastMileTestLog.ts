@@ -24,6 +24,8 @@ import {
   retryAvailability,
   retryLastMileTest,
 } from "../services/lastMileRetry";
+import { lastMileRetryRunService, type RetryRun } from "../services/lastMileRetryRuns";
+import { parseIdempotencyKey } from "../utils/idempotencyKey";
 
 const LAST_MILE_TEST_CSV_COLUMNS = [
   "pipelineVersion", "deployedCommit", "runKind", "retryOf", "retryPanoramaMode", "retryDefaultsApplied", "replayInput", "safetyReasons", "walkingEvidence", "panoramaTargetHeading", "confidenceMethod",
@@ -122,6 +124,11 @@ function replaySummary(original: ReplayableLog | null) {
   return summary;
 }
 
+/** A retry in flight, so other tabs and reloads show it as running. */
+function runningRetryOf(run: RetryRun | undefined) {
+  return run ? { panoramaMode: run.panoramaMode, startedAt: new Date(run.startedAt).getTime() } : null;
+}
+
 /**
  * Retry facts for each row of a list page. A retry is assessed through its
  * original, which may be off the page.
@@ -137,9 +144,11 @@ async function retryFacts<T extends ReplayableLog & { retryOf?: string }>(rows: 
   const retryCounts = await lastMileTestLogService.countRetries(
     rows.filter((row) => !row.retryOf).map(rowId)
   );
+  const running = await lastMileRetryRunService.running(rows.map((row) => row.retryOf ?? rowId(row)));
   return (row: T) => ({
     retryCount: retryCounts.get(rowId(row)) ?? 0,
     replay: replaySummary(originals.get(row.retryOf ?? rowId(row)) ?? null),
+    runningRetry: runningRetryOf(running.get(row.retryOf ?? rowId(row))),
   });
 }
 
@@ -173,6 +182,15 @@ export class LastMileTestLogController {
       return;
     }
 
+    const idempotencyKey = parseIdempotencyKey(req.headers?.["idempotency-key"]);
+    if (!idempotencyKey) {
+      res.status(400).json({
+        error: "Send an Idempotency-Key header with a new UUIDv7 for each retry.",
+        code: "idempotency_key_required",
+      });
+      return;
+    }
+
     const panoramaMode = optionalEnum(req.body?.panoramaMode, RETRY_PANORAMA_MODES);
     if (!panoramaMode.ok) {
       res.status(400).json({
@@ -182,18 +200,21 @@ export class LastMileTestLogController {
     }
 
     try {
-      const { testLogId, log, assessment } = await retryLastMileTest(
-        req.params.id,
-        panoramaMode.value ?? "fresh"
-      );
+      const { testLogId, log, defaultsApplied, replayed } = await retryLastMileTest({
+        id: req.params.id,
+        panoramaMode: panoramaMode.value ?? "fresh",
+        idempotencyKey,
+      });
+      if (replayed) res.setHeader("Idempotent-Replayed", "true");
       res.status(201).json({
         testLogId,
-        defaultsApplied: assessment.defaultsApplied,
+        defaultsApplied,
+        replayed,
         data: log ? toLastMileTestResponse(log, false) : null,
       });
     } catch (error) {
       if (error instanceof LastMileRetryError) {
-        res.status(error.status).json({ error: error.message });
+        res.status(error.status).json({ error: error.message, code: error.code });
         return;
       }
       console.error("[LastMileTestLog] retry failed:", error);
@@ -255,6 +276,7 @@ export class LastMileTestLogController {
     const includeImages = req.query.includeImages === "true";
     const { originalId, original } = await findOriginal(req.params.id, data);
     const retries = original ? await lastMileTestLogService.getRetries(originalId) : [];
+    const running = await lastMileRetryRunService.running([originalId]);
     // Retries reuse the original's photo instead of storing a copy.
     const row =
       data.retryOf && !data.userPhoto && original?.userPhoto
@@ -270,6 +292,7 @@ export class LastMileTestLogController {
           originalId,
           original: original ? toRetryHistoryEntry(original) : null,
           retries: retries.map(toRetryHistoryEntry),
+          runningRetry: runningRetryOf(running.get(originalId)),
         },
       },
     });

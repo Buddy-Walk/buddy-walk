@@ -745,6 +745,8 @@
         })
         .then(function (payload) {
           if (payload.retry) setRetryInfo(payload.retry);
+          var history = payload.data && payload.data.history;
+          if (history && syncRemoteRetry(history.originalId, history.runningRetry)) refreshRetryControls(history.originalId);
           return payload.data;
         });
     }
@@ -799,9 +801,15 @@
 
     // --- Retries ---
     var PANORAMA_MODE_LABELS = { fresh: 'Fresh panorama', original: 'Original panorama' };
-    // Retries in flight, keyed by the original they replay: { mode, startedAt }.
+    // Retries in flight, keyed by the original they replay: { mode, startedAt, remote }.
+    // Remote ones were started in another tab or before a reload; the server reports them.
     var runningRetries = {};
     var elapsedTimer = null;
+    var remotePollTimer = null;
+    var REMOTE_POLL_MS = 15000;
+    var RESEND_DELAY_MS = 5000;
+    // A little past the server's 10-minute lease, after which a run counts as interrupted.
+    var RESEND_FOR_MS = 11 * 60 * 1000;
     var MAX_TOASTS = 4;
     var HISTORY_ORDER_KEY = 'lastMeters.historyNewestFirst';
     var historyNewestFirst = readHistoryOrder();
@@ -1002,21 +1010,65 @@
     }
 
     // --- Running a retry ---
-    function confirmPaidRetry() {
-      return window.confirm('Run a retry with paid Google and OpenAI calls? The original trial is kept, and the result is saved as a dashboard retry, not a field test.');
+    // uuid's browser build, served by this server and loaded on the first retry.
+    var uuidModule = null;
+
+    /** A new UUIDv7 idempotency key. */
+    function newIdempotencyKey() {
+      if (!uuidModule) {
+        uuidModule = import(window.location.origin + '/vendor/uuid/index.js').catch(function (error) {
+          uuidModule = null;
+          throw new Error('Could not load the UUID library: ' + error.message);
+        });
+      }
+      return uuidModule.then(function (uuid) { return uuid.v7(); });
     }
 
-    function runRetry(id, originalId, name, panoramaMode) {
-      if (runningRetries[originalId]) return;
-      runningRetries[originalId] = { mode: panoramaMode, startedAt: Date.now() };
-      if (!elapsedTimer) elapsedTimer = setInterval(tickElapsed, 1000);
-      refreshRetryControls(originalId);
+    // Retries this tab sent that have no final answer yet, by original:
+    // { key, id, name, mode, startedAt }. Kept per tab so a reload re-sends them
+    // with the same key and shows their result instead of losing them.
+    var PENDING_RETRIES_KEY = 'lastMeters.pendingRetries';
 
-      var modeText = PANORAMA_MODE_LABELS[panoramaMode].toLowerCase();
+    function readPendingRetries() {
+      try { return JSON.parse(sessionStorage.getItem(PENDING_RETRIES_KEY) || '{}') || {}; } catch (err) { return {}; }
+    }
+
+    function savePendingRetry(originalId, entry) {
+      try {
+        var pending = readPendingRetries();
+        if (entry) pending[originalId] = entry;
+        else delete pending[originalId];
+        sessionStorage.setItem(PENDING_RETRIES_KEY, JSON.stringify(pending));
+      } catch (err) { /* Without storage, a reload only loses the result toast; the server still dedupes. */ }
+    }
+
+    /** Picks up retries a reload interrupted, before the list marks them as remote. */
+    function resumePendingRetries() {
+      var pending = readPendingRetries();
+      Object.keys(pending).forEach(function (originalId) {
+        var entry = pending[originalId];
+        if (!entry || !entry.key || Date.now() - entry.startedAt > RESEND_FOR_MS) {
+          savePendingRetry(originalId, null);
+          return;
+        }
+        runRetry(entry.id, originalId, entry.name, entry.mode, entry);
+      });
+    }
+
+    function wait(ms) {
+      return new Promise(function (resolve) { setTimeout(resolve, ms); });
+    }
+
+    /**
+     * Sends one retry under its idempotency key. When the connection drops, the
+     * proxy gives up, or the server is still running this key, it asks again with
+     * the same key, which returns the first run's result instead of starting another.
+     */
+    function postRetry(id, panoramaMode, key, deadline) {
       var baseUrl = window.location.origin;
-      fetch(baseUrl + '/api/last-mile-tests/' + encodeURIComponent(id) + '/retry' + (TOKEN && TOKEN !== '__ADMIN_TOKEN__' ? '?token=' + encodeURIComponent(TOKEN) : ''), {
+      return fetch(baseUrl + '/api/last-mile-tests/' + encodeURIComponent(id) + '/retry' + (TOKEN && TOKEN !== '__ADMIN_TOKEN__' ? '?token=' + encodeURIComponent(TOKEN) : ''), {
         method: 'POST',
-        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        headers: authHeaders({ 'Content-Type': 'application/json', 'Idempotency-Key': key }),
         body: JSON.stringify({ panoramaMode: panoramaMode })
       })
         .then(function (res) {
@@ -1024,10 +1076,101 @@
             if (!res.ok) {
               var error = new Error(body.error || 'HTTP ' + res.status);
               error.status = res.status;
+              error.code = body.code;
+              // A gateway error without our JSON body came from the proxy, not the retry.
+              error.resend = !body.error && res.status >= 502 && res.status <= 504;
               throw error;
             }
             return body;
           });
+        }, function (networkError) {
+          networkError.resend = true;
+          throw networkError;
+        })
+        .catch(function (error) {
+          var again = error.resend || error.code === 'retry_in_progress';
+          if (!again || Date.now() > deadline) throw error;
+          return wait(RESEND_DELAY_MS).then(function () { return postRetry(id, panoramaMode, key, deadline); });
+        });
+    }
+
+    /**
+     * Shows retries the server reports for one original. Returns whether a
+     * remote run appeared or finished.
+     */
+    function syncRemoteRetry(originalId, reported) {
+      var current = runningRetries[originalId];
+      if (reported && !current) {
+        runningRetries[originalId] = { mode: reported.panoramaMode, startedAt: reported.startedAt, remote: true };
+        if (!elapsedTimer) elapsedTimer = setInterval(tickElapsed, 1000);
+        scheduleRemotePoll();
+        return true;
+      }
+      if (!reported && current && current.remote) {
+        delete runningRetries[originalId];
+        return true;
+      }
+      return false;
+    }
+
+    /** Syncs every remote run against a fresh list; returns the originals whose run finished. */
+    function syncRemoteRetries(rows) {
+      var reported = {};
+      rows.forEach(function (row) { if (row.runningRetry) reported[originalIdOf(row)] = row.runningRetry; });
+      var finished = Object.keys(runningRetries).filter(function (originalId) {
+        return runningRetries[originalId].remote && !reported[originalId];
+      });
+      finished.forEach(function (originalId) { syncRemoteRetry(originalId, null); });
+      Object.keys(reported).forEach(function (originalId) { syncRemoteRetry(originalId, reported[originalId]); });
+      return finished;
+    }
+
+    function hasRemoteRetries() {
+      return Object.keys(runningRetries).some(function (originalId) { return runningRetries[originalId].remote; });
+    }
+
+    function scheduleRemotePoll() {
+      if (!remotePollTimer && hasRemoteRetries()) remotePollTimer = setTimeout(pollRemoteRetries, REMOTE_POLL_MS);
+    }
+
+    /** Checks whether retries started elsewhere have finished, and reloads when one has. */
+    function pollRemoteRetries() {
+      remotePollTimer = null;
+      if (!hasRemoteRetries()) return;
+      fetch(window.location.origin + '/api/last-mile-tests' + qs(false), { headers: authHeaders() })
+        .then(function (res) {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
+        .then(function (payload) {
+          var finished = syncRemoteRetries(payload.data || []);
+          if (finished.length) {
+            load();
+            finished.forEach(refreshHistory);
+          }
+        })
+        .catch(function () { /* Try again on the next poll. */ })
+        .then(scheduleRemotePoll);
+    }
+
+    function confirmPaidRetry() {
+      return window.confirm('Run a retry with paid Google and OpenAI calls? The original trial is kept, and the result is saved as a dashboard retry, not a field test.');
+    }
+
+    /** Runs a retry, or with resume, re-sends one a reload interrupted under its saved key. */
+    function runRetry(id, originalId, name, panoramaMode, resume) {
+      if (runningRetries[originalId] && !resume) return;
+      var startedAt = resume ? resume.startedAt : Date.now();
+      runningRetries[originalId] = { mode: panoramaMode, startedAt: startedAt };
+      if (!elapsedTimer) elapsedTimer = setInterval(tickElapsed, 1000);
+      refreshRetryControls(originalId);
+
+      var modeText = PANORAMA_MODE_LABELS[panoramaMode].toLowerCase();
+      // One key per click: every re-send of this retry, including after a reload, reuses it.
+      (resume ? Promise.resolve(resume.key) : newIdempotencyKey())
+        .then(function (key) {
+          savePendingRetry(originalId, { key: key, id: id, name: name, mode: panoramaMode, startedAt: startedAt });
+          return postRetry(id, panoramaMode, key, startedAt + RESEND_FOR_MS);
         })
         .then(function (payload) {
           var retry = payload.data || {};
@@ -1044,7 +1187,8 @@
         })
         .catch(function (error) {
           // A retired or unreachable original panorama does not stop a fresh retry.
-          var offerFresh = panoramaMode === 'original' && (error.status === 409 || error.status === 502);
+          // Coded refusals, such as another retry of this test running, are not about the panorama.
+          var offerFresh = panoramaMode === 'original' && !error.code && (error.status === 409 || error.status === 502);
           showToast(true, 'Retry did not run',
             '<b>' + esc(name) + '</b>, ' + esc(modeText) + '<br>' + esc(error.message),
             offerFresh
@@ -1053,6 +1197,7 @@
               : '');
         })
         .then(function () {
+          savePendingRetry(originalId, null);
           delete runningRetries[originalId];
           refreshRetryControls(originalId);
           load();
@@ -1556,6 +1701,7 @@
           showError('');
           if (payload.retry) setRetryInfo(payload.retry);
           allTests = payload.data || [];
+          syncRemoteRetries(allTests);
           applyFilters();
         })
         .catch(function (error) {
@@ -1776,6 +1922,7 @@
     });
 
     writeFilters(filtersFromHash());
+    resumePendingRetries();
     load();
   </script>
 </body>

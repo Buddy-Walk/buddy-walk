@@ -1,15 +1,24 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import type { Request, Response } from "express";
+import { v4, v7 } from "uuid";
 import { LastMileTestLogController } from "../../server/controllers/lastMileTestLog";
 import type { lastMileTestLogInterface } from "../../server/database/models/lastMileTestLog";
-import { memoryLastMileTests, pushMemoryLastMileTest } from "../../server/database/usageStore";
+import type { RetryPanoramaMode } from "../../server/database/models/lastMileTestLog";
+import {
+  memoryLastMileTests,
+  memoryRetryRuns,
+  pushMemoryLastMileTest,
+} from "../../server/database/usageStore";
 import {
   LastMileRetryError,
   RetryLimiter,
   retryLastMileTest,
   type RetryDependencies,
+  type RetryRequest,
 } from "../../server/services/lastMileRetry";
+import { lastMileRetryRunService, RETRY_LEASE_MS } from "../../server/services/lastMileRetryRuns";
+import { parseIdempotencyKey } from "../../server/utils/idempotencyKey";
 import type { LastMetersRunOptions } from "../../server/services/openAI";
 import { buildReplayInput, replayRequest } from "../../server/utils/lastMileReplay";
 import type { LastMileSensors } from "../../src/utils/lastMileSafety";
@@ -45,6 +54,41 @@ function seed(id: string, fields: Partial<lastMileTestLogInterface> = {}) {
   } as lastMileTestLogInterface);
 }
 
+/** A request with a new UUIDv7 key, as the dashboard sends one per click. */
+function retryRequest(id: string, panoramaMode: RetryPanoramaMode, idempotencyKey = v7()): RetryRequest {
+  return { id, panoramaMode, idempotencyKey };
+}
+
+/** Holds pipeline runs until release() is called; later runs pass straight through. */
+function gate() {
+  const waiting: Array<() => void> = [];
+  let open = false;
+  return {
+    wait: () => (open ? Promise.resolve() : new Promise<void>((resolve) => waiting.push(resolve))),
+    release: () => {
+      open = true;
+      waiting.splice(0).forEach((resolve) => resolve());
+    },
+    get waiting() {
+      return waiting.length;
+    },
+  };
+}
+
+/** Lets pending promise callbacks run, so held retries reach the pipeline. */
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+/** Holds the fake pipeline at a gate, so tests can act while retries run. */
+function holdPipeline(fake: ReturnType<typeof fakeDependencies>) {
+  const held = gate();
+  const runLastMeters = fake.dependencies.runLastMeters;
+  fake.dependencies.runLastMeters = async (...args) => {
+    await held.wait();
+    return runLastMeters(...args);
+  };
+  return held;
+}
+
 interface PipelineCall {
   input: unknown;
   image: string;
@@ -52,7 +96,7 @@ interface PipelineCall {
 }
 
 /** Records every call and saves a retry log the way the real pipeline does. */
-function fakeDependencies(overrides: Partial<RetryDependencies> = {}, perMinute = 100) {
+function fakeDependencies(overrides: Partial<RetryDependencies> = {}, maxConcurrent = 3) {
   const pipelineCalls: PipelineCall[] = [];
   const panoramaChecks: string[] = [];
   const dependencies: RetryDependencies = {
@@ -81,7 +125,8 @@ function fakeDependencies(overrides: Partial<RetryDependencies> = {}, perMinute 
         ReturnType<RetryDependencies["fetchPanoramaById"]>
       >;
     },
-    limiter: new RetryLimiter(perMinute),
+    limiter: new RetryLimiter(maxConcurrent),
+    runs: lastMileRetryRunService,
     ...overrides,
   };
   return { dependencies, pipelineCalls, panoramaChecks };
@@ -104,6 +149,7 @@ beforeEach(() => {
   process.env.GOOGLE_MAPS_API_KEY = "test-maps-key";
   process.env.ADMIN_TOKEN = "secret";
   memoryLastMileTests.length = 0;
+  memoryRetryRuns.clear();
 });
 
 afterEach(() => {
@@ -112,12 +158,13 @@ afterEach(() => {
     else process.env[name] = savedEnv[name];
   });
   memoryLastMileTests.length = 0;
+  memoryRetryRuns.clear();
 });
 
 test("a fresh retry runs the stored inputs with the normal panorama fetch", async () => {
   seed("orig");
   const fake = fakeDependencies();
-  const result = await retryLastMileTest("orig", "fresh", fake.dependencies);
+  const result = await retryLastMileTest(retryRequest("orig", "fresh"), fake.dependencies);
 
   assert.equal(fake.pipelineCalls.length, 1);
   const [call] = fake.pipelineCalls;
@@ -142,7 +189,7 @@ test("a fresh retry runs the stored inputs with the normal panorama fetch", asyn
 test("an original-panorama retry checks and pins the original's panorama", async () => {
   seed("orig");
   const fake = fakeDependencies();
-  await retryLastMileTest("orig", "original", fake.dependencies);
+  await retryLastMileTest(retryRequest("orig", "original"), fake.dependencies);
 
   assert.deepEqual(fake.panoramaChecks, ["pano-original"]);
   assert.equal(fake.pipelineCalls[0].options.pinnedPanoId, "pano-original");
@@ -158,7 +205,7 @@ test("a retry of a retry replays the original and links to it", async () => {
     replayInput: undefined,
   });
   const fake = fakeDependencies();
-  await retryLastMileTest("first-retry", "fresh", fake.dependencies);
+  await retryLastMileTest(retryRequest("first-retry", "fresh"), fake.dependencies);
 
   const [call] = fake.pipelineCalls;
   assert.equal(call.options.retry?.retryOf, "orig");
@@ -170,7 +217,7 @@ test("a retry is refused when ADMIN_TOKEN is not set, since it makes paid calls"
   seed("orig");
   delete process.env.ADMIN_TOKEN;
   const fake = fakeDependencies();
-  const error = await retryError(retryLastMileTest("orig", "fresh", fake.dependencies));
+  const error = await retryError(retryLastMileTest(retryRequest("orig", "fresh"), fake.dependencies));
   assert.equal(error.status, 503);
   assert.match(error.message, /ADMIN_TOKEN/);
   assert.equal(fake.pipelineCalls.length, 0);
@@ -180,7 +227,7 @@ test("a retry is refused without the OpenAI and Google keys", async () => {
   seed("orig");
   delete process.env.OPENAI_API_KEY;
   const fake = fakeDependencies();
-  const error = await retryError(retryLastMileTest("orig", "fresh", fake.dependencies));
+  const error = await retryError(retryLastMileTest(retryRequest("orig", "fresh"), fake.dependencies));
   assert.equal(error.status, 503);
   assert.match(error.message, /OPENAI_API_KEY/);
   assert.equal(fake.pipelineCalls.length, 0);
@@ -188,10 +235,10 @@ test("a retry is refused without the OpenAI and Google keys", async () => {
 
 test("unknown tests and retries whose original is gone are 404s", async () => {
   const fake = fakeDependencies();
-  assert.equal((await retryError(retryLastMileTest("missing", "fresh", fake.dependencies))).status, 404);
+  assert.equal((await retryError(retryLastMileTest(retryRequest("missing", "fresh"), fake.dependencies))).status, 404);
 
   seed("orphan", { retryOf: "deleted-original", userPhoto: undefined });
-  const orphan = await retryError(retryLastMileTest("orphan", "fresh", fake.dependencies));
+  const orphan = await retryError(retryLastMileTest(retryRequest("orphan", "fresh"), fake.dependencies));
   assert.equal(orphan.status, 404);
   assert.match(orphan.message, /original/);
   assert.equal(fake.pipelineCalls.length, 0);
@@ -203,15 +250,15 @@ test("a test that cannot be replayed never reaches the pipeline", async () => {
   seed("legacy", { replayInput: undefined });
   const fake = fakeDependencies();
 
-  const legacy = await retryError(retryLastMileTest("legacy", "fresh", fake.dependencies));
+  const legacy = await retryError(retryLastMileTest(retryRequest("legacy", "fresh"), fake.dependencies));
   assert.equal(legacy.status, 409);
   assert.match(legacy.message, /capture timestamps/);
 
-  const noPhoto = await retryError(retryLastMileTest("no-photo", "fresh", fake.dependencies));
+  const noPhoto = await retryError(retryLastMileTest(retryRequest("no-photo", "fresh"), fake.dependencies));
   assert.equal(noPhoto.status, 409);
   assert.match(noPhoto.message, /photo/);
 
-  const question = await retryError(retryLastMileTest("question", "fresh", fake.dependencies));
+  const question = await retryError(retryLastMileTest(retryRequest("question", "fresh"), fake.dependencies));
   assert.equal(question.status, 409);
   assert.match(question.message, /question/);
 
@@ -221,7 +268,7 @@ test("a test that cannot be replayed never reaches the pipeline", async () => {
 test("original mode is refused when the original has no stored panorama", async () => {
   seed("no-pano", { panoId: undefined });
   const fake = fakeDependencies();
-  const error = await retryError(retryLastMileTest("no-pano", "original", fake.dependencies));
+  const error = await retryError(retryLastMileTest(retryRequest("no-pano", "original"), fake.dependencies));
   assert.equal(error.status, 409);
   assert.deepEqual(fake.panoramaChecks, []);
   assert.equal(fake.pipelineCalls.length, 0);
@@ -236,7 +283,7 @@ test("a retired original panorama is reported, never swapped for a fresh one", a
       });
     },
   });
-  const error = await retryError(retryLastMileTest("orig", "original", fake.dependencies));
+  const error = await retryError(retryLastMileTest(retryRequest("orig", "original"), fake.dependencies));
   assert.equal(error.status, 409);
   assert.match(error.message, /no longer available.*fresh panorama/);
   assert.equal(fake.pipelineCalls.length, 0);
@@ -249,51 +296,226 @@ test("Street View being unreachable is a 502, not a retired panorama", async () 
       throw new Error("socket hang up");
     },
   });
-  const error = await retryError(retryLastMileTest("orig", "original", fake.dependencies));
+  const error = await retryError(retryLastMileTest(retryRequest("orig", "original"), fake.dependencies));
   assert.equal(error.status, 502);
   assert.match(error.message, /Could not reach Google Street View.*socket hang up/);
   assert.equal(fake.pipelineCalls.length, 0);
 });
 
-test("one retry runs at a time, and at most a few start per minute", async () => {
-  seed("orig");
-  let finish!: () => void;
-  const fake = fakeDependencies({}, 2);
-  const runLastMeters = fake.dependencies.runLastMeters;
-  fake.dependencies.runLastMeters = async (...args) => {
-    await new Promise<void>((resolve) => (finish = resolve));
-    return runLastMeters(...args);
-  };
+test("up to three retries of different tests run at once, and a fourth waits its turn", async () => {
+  ["a", "b", "c", "d"].forEach((id) => seed(id));
+  const fake = fakeDependencies();
+  const held = holdPipeline(fake);
 
-  const first = retryLastMileTest("orig", "fresh", fake.dependencies);
-  const busy = await retryError(retryLastMileTest("orig", "fresh", fake.dependencies));
-  assert.equal(busy.status, 429);
-  assert.match(busy.message, /still running/);
-  finish();
+  const running = ["a", "b", "c"].map((id) => retryLastMileTest(retryRequest(id, "fresh"), fake.dependencies));
+  await settle();
+  assert.equal(held.waiting, 3);
+
+  const fourth = await retryError(retryLastMileTest(retryRequest("d", "fresh"), fake.dependencies));
+  assert.equal(fourth.status, 429);
+  assert.equal(fourth.code, "retry_capacity");
+  assert.match(fourth.message, /3 retries are already running/);
+
+  held.release();
+  await Promise.all(running);
+  await retryLastMileTest(retryRequest("d", "fresh"), fake.dependencies);
+  assert.equal(fake.pipelineCalls.length, 4);
+});
+
+test("a capacity refusal does not use up the key", async () => {
+  seed("a");
+  seed("b");
+  const fake = fakeDependencies({}, 1);
+  const held = holdPipeline(fake);
+
+  const first = retryLastMileTest(retryRequest("a", "fresh"), fake.dependencies);
+  await settle();
+  const request = retryRequest("b", "fresh");
+  assert.equal((await retryError(retryLastMileTest(request, fake.dependencies))).status, 429);
+  held.release();
   await first;
 
-  fake.dependencies.runLastMeters = runLastMeters;
-  await retryLastMileTest("orig", "fresh", fake.dependencies);
-  const limited = await retryError(retryLastMileTest("orig", "fresh", fake.dependencies));
-  assert.equal(limited.status, 429);
-  assert.match(limited.message, /per minute/);
+  const result = await retryLastMileTest(request, fake.dependencies);
+  assert.equal(result.replayed, false);
   assert.equal(fake.pipelineCalls.length, 2);
 });
 
-test("the per-minute limit frees up as the minute passes, and refusals are not counted", () => {
-  let now = 0;
-  const limiter = new RetryLimiter(1, () => now);
-  limiter.acquire()();
-  now = 30_000;
-  assert.throws(() => limiter.acquire(), /per minute/);
-  now = 60_000;
-  limiter.acquire()();
+test("a releaser called twice frees only its own slot", () => {
+  const limiter = new RetryLimiter(2);
+  const release = limiter.acquire();
+  limiter.acquire();
+  release();
+  release();
+  limiter.acquire();
+  assert.throws(() => limiter.acquire(), /2 retries are already running/);
+});
+
+test("only one retry of the same original runs at a time, including through its retries", async () => {
+  seed("orig");
+  seed("first-retry", { retryOf: "orig", userPhoto: undefined, replayInput: undefined });
+  const fake = fakeDependencies();
+  const held = holdPipeline(fake);
+
+  const first = retryLastMileTest(retryRequest("orig", "fresh"), fake.dependencies);
+  await settle();
+
+  const again = await retryError(retryLastMileTest(retryRequest("orig", "original"), fake.dependencies));
+  assert.equal(again.status, 409);
+  assert.equal(again.code, "original_retry_running");
+  const viaRetry = await retryError(retryLastMileTest(retryRequest("first-retry", "fresh"), fake.dependencies));
+  assert.equal(viaRetry.code, "original_retry_running");
+
+  held.release();
+  await first;
+  await retryLastMileTest(retryRequest("orig", "fresh"), fake.dependencies);
+  assert.equal(fake.pipelineCalls.length, 2);
+});
+
+test("re-sending a running key reports it in progress without a second run", async () => {
+  seed("orig");
+  const fake = fakeDependencies();
+  const held = holdPipeline(fake);
+
+  const request = retryRequest("orig", "fresh");
+  const first = retryLastMileTest(request, fake.dependencies);
+  await settle();
+  const resent = await retryError(retryLastMileTest(request, fake.dependencies));
+  assert.equal(resent.status, 409);
+  assert.equal(resent.code, "retry_in_progress");
+
+  held.release();
+  await first;
+  assert.equal(fake.pipelineCalls.length, 1);
+});
+
+test("re-sending a finished key returns the same result without running again", async () => {
+  seed("orig");
+  const fake = fakeDependencies();
+  const request = retryRequest("orig", "fresh");
+
+  const first = await retryLastMileTest(request, fake.dependencies);
+  const second = await retryLastMileTest(request, fake.dependencies);
+
+  assert.equal(first.replayed, false);
+  assert.equal(second.replayed, true);
+  assert.equal(second.testLogId, first.testLogId);
+  assert.deepEqual(second.defaultsApplied, first.defaultsApplied);
+  assert.equal(second.log?.panoId, "pano-fresh");
+  assert.equal(fake.pipelineCalls.length, 1);
+});
+
+test("re-sending a key whose run failed returns the same failure without running again", async () => {
+  seed("orig");
+  let checks = 0;
+  const fake = fakeDependencies({
+    fetchPanoramaById: async () => {
+      checks += 1;
+      throw new Error("socket hang up");
+    },
+  });
+  const request = retryRequest("orig", "original");
+
+  const first = await retryError(retryLastMileTest(request, fake.dependencies));
+  const second = await retryError(retryLastMileTest(request, fake.dependencies));
+  assert.equal(first.status, 502);
+  assert.equal(second.status, 502);
+  assert.equal(second.message, first.message);
+  assert.equal(checks, 1);
+});
+
+test("an unexpected pipeline error is saved for the key as a generic 500", async () => {
+  seed("orig");
+  const fake = fakeDependencies({
+    runLastMeters: async () => {
+      throw new Error("OpenAI exploded");
+    },
+  });
+  const request = retryRequest("orig", "fresh");
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  try {
+    const first = await retryError(retryLastMileTest(request, fake.dependencies));
+    assert.equal(first.status, 500);
+    assert.doesNotMatch(first.message, /exploded/);
+    assert.equal((await retryError(retryLastMileTest(request, fake.dependencies))).status, 500);
+  } finally {
+    console.error = originalConsoleError;
+  }
+  assert.equal(memoryRetryRuns.get(request.idempotencyKey)?.status, "failed");
+});
+
+test("a key reused for a different test or mode is refused", async () => {
+  seed("orig");
+  seed("other");
+  const fake = fakeDependencies();
+  const request = retryRequest("orig", "fresh");
+  await retryLastMileTest(request, fake.dependencies);
+
+  const otherMode = await retryError(retryLastMileTest({ ...request, panoramaMode: "original" }, fake.dependencies));
+  assert.equal(otherMode.status, 422);
+  assert.equal(otherMode.code, "idempotency_key_reused");
+  const otherTest = await retryError(retryLastMileTest({ ...request, id: "other" }, fake.dependencies));
+  assert.equal(otherTest.status, 422);
+  assert.equal(fake.pipelineCalls.length, 1);
+});
+
+test("a refusal before the run starts does not use up the key", async () => {
+  seed("orig");
+  delete process.env.OPENAI_API_KEY;
+  const fake = fakeDependencies();
+  const request = retryRequest("orig", "fresh");
+  assert.equal((await retryError(retryLastMileTest(request, fake.dependencies))).status, 503);
+
+  process.env.OPENAI_API_KEY = "test-openai-key";
+  assert.equal((await retryLastMileTest(request, fake.dependencies)).replayed, false);
+});
+
+test("a run cut off by a restart frees its original once the lease runs out", async () => {
+  seed("orig");
+  const staleKey = v7();
+  const longAgo = Date.now() - RETRY_LEASE_MS - 1000;
+  memoryRetryRuns.set(staleKey, {
+    _id: staleKey,
+    requestedId: "orig",
+    originalId: "orig",
+    panoramaMode: "fresh",
+    status: "running",
+    startedAt: new Date(longAgo),
+    leaseExpiresAt: new Date(longAgo + RETRY_LEASE_MS),
+  });
+  const fake = fakeDependencies();
+
+  await retryLastMileTest(retryRequest("orig", "fresh"), fake.dependencies);
+  assert.equal(fake.pipelineCalls.length, 1);
+
+  const stale = await retryError(retryLastMileTest(retryRequest("orig", "fresh", staleKey), fake.dependencies));
+  assert.equal(stale.status, 500);
+  assert.equal(stale.code, "retry_interrupted");
+  assert.equal(fake.pipelineCalls.length, 1);
+});
+
+test("running retries are reported by original while their lease holds", async () => {
+  const now = Date.now();
+  await lastMileRetryRunService.claim({ _id: v7(), requestedId: "r", originalId: "orig", panoramaMode: "original" }, now);
+  const running = await lastMileRetryRunService.running(["orig", "other"], now);
+  assert.deepEqual([...running.keys()], ["orig"]);
+  assert.equal(running.get("orig")?.panoramaMode, "original");
+  assert.equal((await lastMileRetryRunService.running(["orig"], now + RETRY_LEASE_MS)).size, 0);
+});
+
+test("idempotency keys must be UUIDv7", () => {
+  const key = v7();
+  assert.equal(parseIdempotencyKey(` ${key.toUpperCase()} `), key);
+  assert.equal(parseIdempotencyKey(v4()), undefined);
+  assert.equal(parseIdempotencyKey("not-a-key"), undefined);
+  assert.equal(parseIdempotencyKey([key]), undefined);
+  assert.equal(parseIdempotencyKey(undefined), undefined);
 });
 
 test("a retry leaves the original trial unchanged", async () => {
   seed("orig");
   const before = JSON.stringify(memoryLastMileTests.find((row) => (row as { _id?: string })._id === "orig"));
-  await retryLastMileTest("orig", "original", fakeDependencies().dependencies);
+  await retryLastMileTest(retryRequest("orig", "original"), fakeDependencies().dependencies);
   const after = JSON.stringify(memoryLastMileTests.find((row) => (row as { _id?: string })._id === "orig"));
   assert.equal(after, before);
 });
@@ -303,7 +525,7 @@ test("a retry whose result was not saved is a 500", async () => {
   const fake = fakeDependencies({
     runLastMeters: async () => ({ kind: "response", status: 200, body: {} }),
   });
-  const error = await retryError(retryLastMileTest("orig", "fresh", fake.dependencies));
+  const error = await retryError(retryLastMileTest(retryRequest("orig", "fresh"), fake.dependencies));
   assert.equal(error.status, 500);
 });
 
@@ -311,10 +533,15 @@ test("a retry whose result was not saved is a 500", async () => {
 // retry would run the real pipeline.
 
 function fakeExchange(id: string, body: unknown, headers: Record<string, string> = {}) {
+  headers = { "idempotency-key": v7(), ...headers };
   const req = { params: { id }, body, headers, query: {} } as unknown as Request;
   const res = {
     statusCode: 0,
     body: undefined as unknown,
+    headers: {} as Record<string, string>,
+    setHeader(name: string, value: string) {
+      this.headers[name] = value;
+    },
     status(code: number) {
       this.statusCode = code;
       return this;
@@ -340,6 +567,16 @@ test("the retry endpoint requires the admin token", async () => {
   const allowed = fakeExchange("no-photo", { panoramaMode: "fresh" }, { "x-admin-token": "secret" });
   await controller.retry(allowed.req, allowed.res as unknown as Response);
   assert.equal(allowed.res.statusCode, 409);
+});
+
+test("the retry endpoint requires a UUIDv7 idempotency key", async () => {
+  seed("orig");
+  for (const key of ["", v4()]) {
+    const { req, res } = fakeExchange("orig", { panoramaMode: "fresh" }, { "x-admin-token": "secret", "idempotency-key": key });
+    await controller.retry(req, res as unknown as Response);
+    assert.equal(res.statusCode, 400);
+    assert.equal((res.body as { code?: string }).code, "idempotency_key_required");
+  }
 });
 
 test("the retry endpoint rejects an unknown panorama mode", async () => {

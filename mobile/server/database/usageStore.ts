@@ -4,6 +4,7 @@ import { feedbackInterface } from "./models/feedback";
 import { aiRequestLogInterface } from "./models/aiRequestLog";
 import { chatLogInterface, messageInterface } from "./models/chatLog";
 import { lastMileTestLogInterface } from "./models/lastMileTestLog";
+import { lastMileRetryRunInterface } from "./models/lastMileRetryRun";
 
 export interface MemoryChatLog extends chatLogInterface {
   _id: string;
@@ -30,6 +31,8 @@ export const memoryFeedback: feedbackInterface[] = [];
 export const memoryAiRequests: aiRequestLogInterface[] = [];
 export const memoryChatLogs: MemoryChatLog[] = [];
 export const memoryLastMileTests: lastMileTestLogInterface[] = [];
+/** Dashboard retry runs by idempotency key. Small, so not capped. */
+export const memoryRetryRuns = new Map<string, lastMileRetryRunInterface>();
 
 export function pushMemoryEvents(events: telemetryEventInterface[]): void {
   memoryEvents.push(...events);

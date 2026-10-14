@@ -26,6 +26,7 @@ import { isMongoConnected } from "./database/usageStore";
 import { probeUpstreamText } from "./middleware/upstreamProxy";
 import { TranscribeController } from "./controllers/transcribe";
 import lastMileTestLogModel from "./database/models/lastMileTestLog";
+import lastMileRetryRunModel from "./database/models/lastMileRetryRun";
 import { startRenderKeepAlive } from "./utils/keepAlive";
 
 dotenv.config();
@@ -58,6 +59,11 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     await lastMileTestLogModel.collection.createIndex(
       { retryOf: 1, serverTs: 1 },
       { partialFilterExpression: { retryOf: { $exists: true } } }
+    );
+    // One running retry per original, enforced across server instances.
+    await lastMileRetryRunModel.collection.createIndex(
+      { originalId: 1 },
+      { name: "one_running_retry_per_original", unique: true, partialFilterExpression: { status: "running" } }
     );
     console.log("[server] Last Meters dashboard index ready.");
   } catch (error) {
@@ -249,6 +255,15 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     res.set('Cache-Control', 'no-store');
     res.type('html').send(html);
   });
+
+  // The dashboard has no bundler; it loads uuid's browser build from here to
+  // make UUIDv7 idempotency keys for retries.
+  app.use(
+    '/vendor/uuid',
+    express.static(path.join(path.dirname(require.resolve('uuid/package.json')), 'dist', 'esm-browser'), {
+      maxAge: '1d',
+    })
+  );
 
   const rootDir = __dirname.includes('dist') 
   ? path.join(__dirname, '..')       // Production: go up 1 level to /dist
