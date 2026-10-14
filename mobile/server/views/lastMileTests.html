@@ -243,6 +243,20 @@
     .toast.leaving { opacity: 0; transform: translateY(4px); transition: opacity 0.18s ease-in, transform 0.18s ease-in; }
     @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 
+    /* Paid-retry confirmation: the toast's surface and violet edge, as a modal. */
+    .confirm-dialog { width: min(440px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--replay-line); border-left: 3px solid var(--replay); border-radius: 10px; background: #1a1d23; color: var(--text); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6); }
+    .confirm-dialog::backdrop { background: rgba(5, 6, 9, 0.66); }
+    .confirm-dialog[open] { animation: confirm-in 0.16s ease-out; }
+    @keyframes confirm-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
+    .confirm-dialog form { padding: 20px 20px 16px; }
+    .confirm-dialog h2 { margin: 0 0 10px; font-size: 1.05rem; }
+    .confirm-dialog p { margin: 0 0 8px; font-size: 0.9rem; line-height: 1.5; }
+    .confirm-dialog p b { color: var(--replay-text); }
+    .confirm-dialog p.confirm-cost { color: var(--muted); font-size: 0.85rem; }
+    .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+    button.replay { background: var(--replay); border-color: var(--replay); color: #17112e; }
+    button.replay:hover { background: var(--replay-text); border-color: var(--replay-text); }
+
     /* Detail: which run this is, and every run of the same original. */
     .retry-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 16px; padding: 12px 16px; border: 1px solid var(--replay-line); border-left: 3px solid var(--replay); border-radius: 8px; background: var(--replay-soft); line-height: 1.5; }
     .retry-banner b { color: var(--replay-text); }
@@ -286,10 +300,10 @@
     .changed { color: #fcd34d; }
     .history-foot { margin-top: 10px; }
 
-    .retry-trigger:focus-visible, .retry-count:focus-visible, .run-link:focus-visible, .toast button:focus-visible, .retry-banner button:focus-visible, .history-scroll:focus-visible, .history-order button:focus-visible { outline: 2px solid var(--replay); outline-offset: 2px; }
+    .retry-trigger:focus-visible, .retry-count:focus-visible, .run-link:focus-visible, .toast button:focus-visible, .retry-banner button:focus-visible, .history-scroll:focus-visible, .history-order button:focus-visible, .confirm-dialog button:focus-visible { outline: 2px solid var(--replay); outline-offset: 2px; }
     @media (prefers-reduced-motion: reduce) {
       .spinner { animation: none; border-top-color: var(--replay-line); }
-      .toast, .toast.leaving { animation: none; transition: none; }
+      .toast, .toast.leaving, .confirm-dialog[open] { animation: none; transition: none; }
     }
     
     @media (max-width: 768px) {
@@ -425,6 +439,17 @@
 
   <div class="retry-menu" id="retryMenu" role="menu" aria-label="Choose a panorama for the retry" hidden></div>
   <div class="toasts" id="toasts"></div>
+
+  <dialog class="confirm-dialog" id="retryConfirm" aria-labelledby="retryConfirmTitle" aria-describedby="retryConfirmBody">
+    <form method="dialog">
+      <h2 id="retryConfirmTitle">Run a paid retry?</h2>
+      <div id="retryConfirmBody"></div>
+      <div class="confirm-actions">
+        <button class="secondary" value="cancel">Cancel</button>
+        <button class="replay" value="run" autofocus>Run retry</button>
+      </div>
+    </form>
+  </dialog>
 
   <script>
     var TOKEN = '__ADMIN_TOKEN__';
@@ -1157,8 +1182,18 @@
         .then(scheduleRemotePoll);
     }
 
-    function confirmPaidRetry() {
-      return window.confirm('Run a retry with paid Google and OpenAI calls? The original trial is kept, and the result is saved as a dashboard retry, not a field test.');
+    /** Asks before a retry spends money; resolves true when the reviewer runs it. */
+    function confirmPaidRetry(name, panoramaMode) {
+      const dialog = document.getElementById('retryConfirm');
+      const panorama = panoramaMode === 'original' ? 'its original panorama' : 'a fresh panorama';
+      document.getElementById('retryConfirmBody').innerHTML =
+        '<p><b>' + esc(name) + '</b> runs again with ' + panorama + ', from its stored photo and inputs.</p>' +
+        '<p class="confirm-cost">This makes paid Google and OpenAI calls. The original test is kept, and the result is saved as a retry, not a field test.</p>';
+      dialog.returnValue = '';
+      dialog.showModal();
+      return new Promise(function (resolve) {
+        dialog.addEventListener('close', function () { resolve(dialog.returnValue === 'run'); }, { once: true });
+      });
     }
 
     /** Runs a retry, or with resume, re-sends one a reload interrupted under its saved key. */
@@ -1770,13 +1805,22 @@
       if (e.target === this) closeDetail();
     });
 
+    // The dialog has no padding of its own, so a click on it directly is on the backdrop.
+    document.getElementById('retryConfirm').addEventListener('click', function (e) {
+      if (e.target === this) this.close('cancel');
+    });
+
     document.body.addEventListener('click', function (e) {
       // Retry controls are checked before rows, since they sit inside trial rows.
       const option = e.target.closest('.retry-option');
       if (option) {
         const test = menuTest;
+        const mode = option.getAttribute('data-mode');
         closeRetryMenu(true);
-        if (test && confirmPaidRetry()) runRetry(idOf(test), originalIdOf(test), testName(test), option.getAttribute('data-mode'));
+        if (!test) return;
+        confirmPaidRetry(testName(test), mode).then(function (confirmed) {
+          if (confirmed) runRetry(idOf(test), originalIdOf(test), testName(test), mode);
+        });
         return;
       }
       const trigger = e.target.closest('.retry-trigger');
@@ -1791,10 +1835,14 @@
 
       const toastRetry = e.target.closest('.toast-retry');
       if (toastRetry) {
-        if (!confirmPaidRetry()) return;
-        toastRetry.closest('.toast').remove();
-        runRetry(toastRetry.getAttribute('data-id'), toastRetry.getAttribute('data-original-id'),
-          toastRetry.getAttribute('data-name'), toastRetry.getAttribute('data-mode'));
+        const toast = toastRetry.closest('.toast');
+        const name = toastRetry.getAttribute('data-name');
+        const mode = toastRetry.getAttribute('data-mode');
+        confirmPaidRetry(name, mode).then(function (confirmed) {
+          if (!confirmed) return;
+          toast.remove();
+          runRetry(toastRetry.getAttribute('data-id'), toastRetry.getAttribute('data-original-id'), name, mode);
+        });
         return;
       }
       if (e.target.closest('.toast-close')) {
