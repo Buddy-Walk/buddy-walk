@@ -23,6 +23,7 @@ import {
   withRenewedLease,
 } from "../../server/services/lastMileRetryRuns";
 import { parseIdempotencyKey } from "../../server/utils/idempotencyKey";
+import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
 import type { LastMetersRunOptions } from "../../server/services/openAI";
 import { buildReplayInput, replayRequest } from "../../server/utils/lastMileReplay";
 import type { LastMileSensors } from "../../src/utils/lastMileSafety";
@@ -670,4 +671,48 @@ test("the retry endpoint answers refusals with their status and reason", async (
   const unavailable = fakeExchange("no-pano", { panoramaMode: "fresh" }, { "x-admin-token": "secret" });
   await controller.retry(unavailable.req, unavailable.res as unknown as Response);
   assert.equal(unavailable.res.statusCode, 503);
+});
+
+test("every read reports a retry with the photo of the original it ran on", async () => {
+  seed("orig");
+  seed("retry-a", { userPhoto: undefined, retryOf: "orig", retryPanoramaMode: "fresh" });
+
+  assert.equal((await lastMileTestLogService.getById("retry-a"))?.userPhoto, PHOTO);
+  const full = (await lastMileTestLogService.getData(10, undefined, true)).data;
+  assert.equal(full.find((row) => (row as { _id?: string })._id === "retry-a")?.userPhoto, PHOTO);
+  const summary = (await lastMileTestLogService.getSummaries(10, undefined, true)).data.find(
+    (row) => (row as { _id?: string })._id === "retry-a"
+  );
+  assert.equal(summary?.imageStats.userPhoto.stored, true);
+  assert.equal(summary?.userPhotoReplayable, true);
+
+  const list = fakeExchange("", undefined, { "x-admin-token": "secret" });
+  (list.req as unknown as { query: Record<string, string> }).query = { includeRetries: "true" };
+  await controller.list(list.req, list.res as unknown as Response);
+  const rows = (list.res.body as { data: { _id: string; hasUserPhoto: boolean; userPhoto: string }[] }).data;
+  const listed = rows.find((row) => row._id === "retry-a");
+  assert.equal(listed?.hasUserPhoto, true);
+  assert.equal(listed?.userPhoto, `[base64 image ${PHOTO.length} chars]`);
+
+  // The photo is read from the original, never copied onto the retry's log.
+  const stored = memoryLastMileTests.find((row) => (row as { _id?: string })._id === "retry-a");
+  assert.equal(stored?.userPhoto, undefined);
+});
+
+test("the CSV export includes a retry's photo", async () => {
+  seed("orig");
+  seed("retry-a", { userPhoto: undefined, retryOf: "orig", retryPanoramaMode: "fresh" });
+  const { req, res } = fakeExchange("", undefined, { "x-admin-token": "secret" });
+  (req as unknown as { query: Record<string, string> }).query = { includeRetries: "true" };
+  let csv = "";
+  const csvRes = Object.assign(res, {
+    send(payload: string) {
+      csv = payload;
+      return this;
+    },
+  });
+  await controller.exportCsv(req, csvRes as unknown as Response);
+  // One photo placeholder for the original and one for its retry.
+  const placeholder = `[base64 image ${PHOTO.length} chars]`;
+  assert.equal(csv.split(placeholder).length - 1, 2);
 });

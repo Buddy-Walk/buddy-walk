@@ -277,16 +277,11 @@ export class LastMileTestLogController {
     const { originalId, original } = await findOriginal(req.params.id, data);
     const retries = original ? await lastMileTestLogService.getRetries(originalId) : [];
     const running = await lastMileRetryRunService.running([originalId]);
-    // Retries reuse the original's photo instead of storing a copy.
-    const row =
-      data.retryOf && !data.userPhoto && original?.userPhoto
-        ? { ...data, userPhoto: original.userPhoto }
-        : data;
     res.status(200).json({
       source: isMongoConnected() ? "mongo" : "memory",
       retry: retryAvailability(),
       data: {
-        ...toLastMileTestResponse(row, includeImages, includeStreetView),
+        ...toLastMileTestResponse(data, includeImages, includeStreetView),
         replay: replaySummary(original),
         history: {
           originalId,

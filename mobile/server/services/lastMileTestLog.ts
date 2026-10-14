@@ -55,6 +55,29 @@ const IMAGE_STATS_STAGE = {
     },
   },
 };
+/**
+ * Retries reuse their original's stored photo instead of keeping a copy, so
+ * every read fills it in from the original. Runs before IMAGE_STATS_STAGE, so
+ * list views and exports report the photo a retry actually ran on.
+ */
+const RETRY_PHOTO_STAGES = [
+  {
+    $set: {
+      retryOriginalId: { $convert: { input: "$retryOf", to: "objectId", onError: null, onNull: null } },
+    },
+  },
+  {
+    $lookup: {
+      from: lastMileTestLogModel.collection.name,
+      localField: "retryOriginalId",
+      foreignField: "_id",
+      pipeline: [{ $project: { _id: 0, userPhoto: 1 } }],
+      as: "retryOriginal",
+    },
+  },
+  { $set: { userPhoto: { $ifNull: ["$userPhoto", { $first: "$retryOriginal.userPhoto" }] } } },
+  { $unset: ["retryOriginalId", "retryOriginal"] },
+];
 const WITHOUT_IMAGES_STAGE = {
   $project: Object.fromEntries(LAST_MILE_TEST_IMAGE_FIELDS.map((field) => [field, 0] as const)),
 };
@@ -75,6 +98,13 @@ function withoutImages(row: lastMileTestLogInterface): lastMileTestLogInterface 
 
 function rowId(row: lastMileTestLogInterface): string {
   return String((row as StoredLastMileTest)._id ?? "");
+}
+
+/** The in-memory counterpart of RETRY_PHOTO_STAGES; returns a copy, never the stored row. */
+function withRetryPhoto(row: lastMileTestLogInterface): lastMileTestLogInterface {
+  if (!row.retryOf || row.userPhoto !== undefined) return row;
+  const original = memoryLastMileTests.find((entry) => rowId(entry) === row.retryOf);
+  return original?.userPhoto === undefined ? row : { ...row, userPhoto: original.userPhoto };
 }
 
 export async function compressUserPhoto(dataUrl: string): Promise<string> {
@@ -156,11 +186,13 @@ export class LastMileTestLogService {
         ...(includeRetries ? {} : { retryOf: { $exists: false } }),
       };
       const data = await lastMileTestLogModel
-        .find(filter)
-        .sort({ serverTs: -1 })
-        .limit(limit)
-        .allowDiskUse(true)
-        .lean();
+        .aggregate<lastMileTestLogInterface>([
+          { $match: filter },
+          { $sort: { serverTs: -1 } },
+          { $limit: Math.max(1, Math.floor(limit)) },
+          ...RETRY_PHOTO_STAGES,
+        ])
+        .allowDiskUse(true);
       return { source: "mongo", data };
     }
 
@@ -175,7 +207,7 @@ export class LastMileTestLogService {
         return true;
       });
     }
-    return { source: "memory", data: rows.slice(0, limit) };
+    return { source: "memory", data: rows.slice(0, limit).map(withRetryPhoto) };
   }
 
   /** Like getData, but without the base64 images. */
@@ -195,6 +227,7 @@ export class LastMileTestLogService {
           },
           { $sort: { serverTs: -1 } },
           { $limit: Math.max(1, Math.floor(limit)) },
+          ...RETRY_PHOTO_STAGES,
           IMAGE_STATS_STAGE,
           WITHOUT_IMAGES_STAGE,
         ])
@@ -212,15 +245,16 @@ export class LastMileTestLogService {
   ): Promise<lastMileTestLogInterface | null> {
     if (isMongoConnected()) {
       if (!mongoose.isValidObjectId(id)) return null;
-      let query = lastMileTestLogModel.findById(id);
-      if (!options?.includeStreetView) {
-        query = query.select("-panoramaPhoto -destinationPhoto");
-      }
-      const data = await query.lean();
+      const [data] = await lastMileTestLogModel.aggregate<lastMileTestLogInterface>([
+        { $match: { _id: new mongoose.Types.ObjectId(id) } },
+        ...RETRY_PHOTO_STAGES,
+        ...(options?.includeStreetView ? [] : [{ $project: { panoramaPhoto: 0, destinationPhoto: 0 } }]),
+      ]);
       return data ?? null;
     }
-    const row = this.findMemoryRow(id);
-    if (!row) return null;
+    const stored = this.findMemoryRow(id);
+    if (!stored) return null;
+    const row = withRetryPhoto(stored);
     if (options?.includeStreetView) return row;
     const rest = { ...row };
     delete rest.panoramaPhoto;
@@ -238,11 +272,14 @@ export class LastMileTestLogService {
         .map((id) => new mongoose.Types.ObjectId(id));
       return lastMileTestLogModel.aggregate<LastMileTestSummary>([
         { $match: { _id: { $in: valid } } },
+        ...RETRY_PHOTO_STAGES,
         IMAGE_STATS_STAGE,
         WITHOUT_IMAGES_STAGE,
       ]);
     }
-    return memoryLastMileTests.filter((row) => unique.includes(rowId(row))).map(toSummary);
+    return memoryLastMileTests
+      .filter((row) => unique.includes(rowId(row)))
+      .map((row) => toSummary(withRetryPhoto(row)));
   }
 
   /** Every retry of an original test, oldest first, without images. */
