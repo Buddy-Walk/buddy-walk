@@ -25,7 +25,12 @@ import {
 import { parseIdempotencyKey } from "../../server/utils/idempotencyKey";
 import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
 import type { LastMetersRunOptions } from "../../server/services/openAI";
-import { buildReplayInput, replayRequest } from "../../server/utils/lastMileReplay";
+import {
+  LAST_MILE_PIPELINE_VERSION,
+  UPSTREAM_PIPELINE_VERSION,
+  buildReplayInput,
+  replayRequest,
+} from "../../server/utils/lastMileReplay";
 import type { LastMileSensors } from "../../src/utils/lastMileSafety";
 
 // These run against the in-memory log store with stand-ins for OpenAI and
@@ -671,6 +676,8 @@ test("the retry endpoint answers refusals with their status and reason", async (
   const unavailable = fakeExchange("no-pano", { panoramaMode: "fresh" }, { "x-admin-token": "secret" });
   await controller.retry(unavailable.req, unavailable.res as unknown as Response);
   assert.equal(unavailable.res.statusCode, 503);
+  // Names the key the server reads first, not only the fallback.
+  assert.match(String((unavailable.res.body as { error?: string }).error), /GOOGLE_MAPS_API_KEY/);
 });
 
 test("every read reports a retry with the photo of the original it ran on", async () => {
@@ -715,4 +722,52 @@ test("the CSV export includes a retry's photo", async () => {
   // One photo placeholder for the original and one for its retry.
   const placeholder = `[base64 image ${PHOTO.length} chars]`;
   assert.equal(csv.split(placeholder).length - 1, 2);
+});
+
+test("a proxied run is labeled upstream, not with this server's version and commit", async () => {
+  const savedCommits = { RENDER_GIT_COMMIT: process.env.RENDER_GIT_COMMIT, GIT_COMMIT: process.env.GIT_COMMIT };
+  delete process.env.RENDER_GIT_COMMIT;
+  process.env.GIT_COMMIT = "this-server-commit";
+  const log = {
+    destination: request.destination,
+    lat: request.lat,
+    lng: request.lng,
+    userPhoto: "stored-photo",
+    panoramaHeadings: [],
+    steps: [],
+    success: true,
+    latencyMs: 1000,
+  };
+  try {
+    const localId = await lastMileTestLogService.record(log);
+    const proxiedId = await lastMileTestLogService.recordProxied(log);
+    const stored = (id: string | undefined) =>
+      memoryLastMileTests.find((row) => (row as { _id?: string })._id === id);
+
+    assert.equal(stored(localId)?.pipelineVersion, LAST_MILE_PIPELINE_VERSION);
+    assert.equal(stored(localId)?.deployedCommit, "this-server-commit");
+    assert.equal(stored(proxiedId)?.pipelineVersion, UPSTREAM_PIPELINE_VERSION);
+    assert.equal(stored(proxiedId)?.deployedCommit, undefined);
+  } finally {
+    for (const [name, value] of Object.entries(savedCommits)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
+test("the evaluation scores up to the limit in field tests however many retries ran", async () => {
+  seed("field-old");
+  seed("field-new");
+  for (const id of ["retry-1", "retry-2", "retry-3"]) {
+    seed(id, { userPhoto: undefined, retryOf: "field-new", runKind: "replay" });
+  }
+  const { req, res } = fakeExchange("", undefined, { "x-admin-token": "secret" });
+  (req as unknown as { query: Record<string, string> }).query = { limit: "2" };
+  await controller.evaluation(req, res as unknown as Response);
+
+  const body = res.body as { replayCount: number; sampledTrials: number; groups: { trials: number }[] };
+  assert.equal(body.sampledTrials, 2);
+  assert.equal(body.groups.reduce((sum, group) => sum + group.trials, 0), 2);
+  assert.equal(body.replayCount, 3);
 });

@@ -280,7 +280,7 @@ async function recordProxiedLastMileFailure(
   const image = pickString(body.image) ?? '';
   const message = error instanceof Error ? error.message : 'Upstream API unavailable';
   const request = parseLastMetersRequest(body);
-  return lastMileTestLogService.record({
+  return lastMileTestLogService.recordProxied({
     replayInput: request && image ? buildReplayInput(request, image, startedAt) : undefined,
     destination: pickString(body.destination) ?? 'unknown destination',
     lat: pickNumber(body.lat) ?? 0,
@@ -386,7 +386,7 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
         `Upstream text returned ${upstreamRes.status}`;
 
     const request = parseLastMetersRequest(body);
-    const testLogId = await lastMileTestLogService.record({
+    const testLogId = await lastMileTestLogService.recordProxied({
       replayInput: request ? buildReplayInput(request, image, startedAt) : undefined,
       destination,
       lat,

@@ -14,6 +14,9 @@ import { type LastMileSensors, validPoint } from "../../src/utils/lastMileSafety
 /** Bump by hand whenever a change could alter Last Meters results. */
 export const LAST_MILE_PIPELINE_VERSION = "3.0.0-safety-gated";
 
+/** Version label for runs another server handled through the upstream proxy. */
+export const UPSTREAM_PIPELINE_VERSION = "upstream-proxy";
+
 /** Version of the replay input snapshot written by this server. */
 export const REPLAY_INPUT_VERSION = 1;
 

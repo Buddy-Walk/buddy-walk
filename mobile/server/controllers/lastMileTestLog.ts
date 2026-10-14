@@ -167,9 +167,14 @@ export class LastMileTestLogController {
     if (!isAdminAuthorized(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
     try {
       const limit = parseLimit(req, 1000, 5000);
-      // Retries are included so the summary can report how many were left out.
-      const { data } = await lastMileTestLogService.getSummaries(limit, buildDateFilter(req), true);
-      res.json({ ...summarizeFieldEvaluation(data), sampledTrials: data.length, limit, potentiallyTruncated: data.length === limit });
+      const dateFilter = buildDateFilter(req);
+      // The limit applies to field tests only; retries are counted separately
+      // so they never take a field test's place in the sample.
+      const [{ data }, replayCount] = await Promise.all([
+        lastMileTestLogService.getSummaries(limit, dateFilter),
+        lastMileTestLogService.countRetriesInRange(dateFilter),
+      ]);
+      res.json({ ...summarizeFieldEvaluation(data), replayCount, sampledTrials: data.length, limit, potentiallyTruncated: data.length === limit });
     } catch {
       console.error("[last-mile-tests] Evaluation query failed");
       res.status(503).json({ error: "Evaluation data is temporarily unavailable." });

@@ -78,7 +78,8 @@ export function retryAvailability(): { available: boolean; reason?: string } {
   if (!canRunLocalLastMile()) {
     return {
       available: false,
-      reason: "This server is missing OPENAI_API_KEY or GOOGLE_API_KEY, so it cannot run Last Meters.",
+      reason:
+        "Set OPENAI_API_KEY and GOOGLE_MAPS_API_KEY (or GOOGLE_API_KEY) on this server to run Last Meters retries.",
     };
   }
   if (!lastMileRetryRunService.canEnforceOneRunPerOriginal()) {

@@ -18,9 +18,15 @@ import {
   LAST_MILE_PIPELINE_VERSION,
   STORED_PHOTO_JPEG_QUALITY,
   STORED_PHOTO_MAX_WIDTH,
+  UPSTREAM_PIPELINE_VERSION,
   deployedCommit,
   hasReplayablePhoto,
 } from "../utils/lastMileReplay";
+
+type UnstampedLastMileTestLog = Omit<
+  lastMileTestLogInterface,
+  "serverTs" | "pipelineVersion" | "deployedCommit"
+>;
 
 export type LastMileTestSummary = Omit<lastMileTestLogInterface, LastMileTestImageField> &
   LastMileTestImageStats & {
@@ -137,15 +143,43 @@ export async function compressPanoramaPhoto(dataUrl: string): Promise<string> {
   }
 }
 
+/** The in-memory equivalent of a serverTs range filter. */
+function inDateRange(
+  row: lastMileTestLogInterface,
+  dateFilter?: Record<string, unknown>
+): boolean {
+  if (!dateFilter?.serverTs) return true;
+  const range = dateFilter.serverTs as { $gte?: Date; $lte?: Date };
+  const ts = new Date(row.serverTs).getTime();
+  if (range.$gte && ts < range.$gte.getTime()) return false;
+  if (range.$lte && ts > range.$lte.getTime()) return false;
+  return true;
+}
+
 export class LastMileTestLogService {
-  /** Stamps the pipeline version and deployed commit on every log. */
-  async record(
-    input: Omit<lastMileTestLogInterface, "serverTs" | "pipelineVersion" | "deployedCommit">
-  ): Promise<string | undefined> {
-    const doc: lastMileTestLogInterface = {
+  /** Logs a run of this server's pipeline, stamped with its version and deployed commit. */
+  async record(input: UnstampedLastMileTestLog): Promise<string | undefined> {
+    return this.save({
       ...input,
       pipelineVersion: LAST_MILE_PIPELINE_VERSION,
       deployedCommit: deployedCommit(),
+    });
+  }
+
+  /**
+   * Logs a run another server handled through the upstream proxy. This
+   * server's version and commit say nothing about that run, so it gets the
+   * upstream label and no commit.
+   */
+  async recordProxied(input: UnstampedLastMileTestLog): Promise<string | undefined> {
+    return this.save({ ...input, pipelineVersion: UPSTREAM_PIPELINE_VERSION });
+  }
+
+  private async save(
+    input: Omit<lastMileTestLogInterface, "serverTs">
+  ): Promise<string | undefined> {
+    const doc: lastMileTestLogInterface = {
+      ...input,
       userPhoto: input.userPhoto?.startsWith("data:")
         ? await compressUserPhoto(input.userPhoto)
         : input.userPhoto,
@@ -198,16 +232,19 @@ export class LastMileTestLogService {
 
     let rows = [...memoryLastMileTests].reverse();
     if (!includeRetries) rows = rows.filter((row) => !row.retryOf);
-    if (dateFilter?.serverTs) {
-      const range = dateFilter.serverTs as { $gte?: Date; $lte?: Date };
-      rows = rows.filter((row) => {
-        const ts = new Date(row.serverTs).getTime();
-        if (range.$gte && ts < range.$gte.getTime()) return false;
-        if (range.$lte && ts > range.$lte.getTime()) return false;
-        return true;
+    rows = rows.filter((row) => inDateRange(row, dateFilter));
+    return { source: "memory", data: rows.slice(0, limit).map(withRetryPhoto) };
+  }
+
+  /** How many dashboard retries ran in the date range. */
+  async countRetriesInRange(dateFilter?: Record<string, unknown>): Promise<number> {
+    if (isMongoConnected()) {
+      return lastMileTestLogModel.countDocuments({
+        ...(dateFilter ?? {}),
+        retryOf: { $exists: true },
       });
     }
-    return { source: "memory", data: rows.slice(0, limit).map(withRetryPhoto) };
+    return memoryLastMileTests.filter((row) => row.retryOf && inDateRange(row, dateFilter)).length;
   }
 
   /** Like getData, but without the base64 images. */
