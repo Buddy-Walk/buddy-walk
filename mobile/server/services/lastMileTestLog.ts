@@ -12,6 +12,7 @@ import {
   imageStatsOf,
   LAST_MILE_TEST_IMAGE_FIELDS,
   rowId,
+  withOriginalPhoto,
   type LastMileTestImageField,
   type LastMileTestImageStats,
 } from "../utils/lastMileTestRow";
@@ -97,7 +98,7 @@ const USES_ORIGINAL_PHOTO = {
 
 /**
  * Retries reuse their original's stored photo instead of keeping a copy, so
- * reads that return images fill it in from the original.
+ * list reads that return images fill it in from the original.
  */
 const RETRY_PHOTO_STAGES = [
   ...retryOriginalStages({ userPhoto: 1 }),
@@ -143,9 +144,9 @@ function withoutImages(row: lastMileTestLogInterface): lastMileTestLogInterface 
 
 /** The in-memory counterpart of RETRY_PHOTO_STAGES; returns a copy, never the stored row. */
 function withRetryPhoto(row: lastMileTestLogInterface): lastMileTestLogInterface {
-  if (!row.retryOf || row.userPhoto !== undefined) return row;
+  if (!row.retryOf) return row;
   const original = memoryLastMileTests.find((entry) => rowId(entry) === row.retryOf);
-  return original?.userPhoto === undefined ? row : { ...row, userPhoto: original.userPhoto };
+  return withOriginalPhoto(row, original ?? null);
 }
 
 export async function compressUserPhoto(dataUrl: string): Promise<string> {
@@ -311,27 +312,33 @@ export class LastMileTestLogService {
     return { source, data: data.map(toSummary) };
   }
 
+  /**
+   * One trial as stored. A retry has no photo of its own; callers that show
+   * it fill it from the original they load anyway (withOriginalPhoto), so the
+   * photo is read once.
+   */
   async getById(
     id: string,
     options?: { includeStreetView?: boolean }
   ): Promise<lastMileTestLogInterface | null> {
     if (isMongoConnected()) {
       if (!mongoose.isValidObjectId(id)) return null;
-      const [data] = await lastMileTestLogModel.aggregate<lastMileTestLogInterface>([
-        { $match: { _id: new mongoose.Types.ObjectId(id) } },
-        ...RETRY_PHOTO_STAGES,
-        ...(options?.includeStreetView ? [] : [{ $project: { panoramaPhoto: 0, destinationPhoto: 0 } }]),
-      ]);
-      return data ?? null;
+      const projection = options?.includeStreetView ? {} : { panoramaPhoto: 0, destinationPhoto: 0 };
+      return lastMileTestLogModel.findById(id, projection).lean<lastMileTestLogInterface>();
     }
-    const stored = this.findMemoryRow(id);
-    if (!stored) return null;
-    const row = withRetryPhoto(stored);
-    if (options?.includeStreetView) return row;
+    const row = this.findMemoryRow(id);
+    if (!row) return null;
+    if (options?.includeStreetView) return { ...row };
     const rest = { ...row };
     delete rest.panoramaPhoto;
     delete rest.destinationPhoto;
     return rest;
+  }
+
+  /** One trial's summary: what a response without images needs, never the images. */
+  async getSummaryById(id: string): Promise<LastMileTestSummary | null> {
+    const [summary] = await this.getSummariesByIds([id]);
+    return summary ?? null;
   }
 
   /** Summaries of specific trials, such as originals of retries on a list page. */

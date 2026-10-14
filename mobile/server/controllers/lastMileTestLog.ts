@@ -8,6 +8,7 @@ import {
   toLastMileTestResponse,
   toLastMileTestSummaryResponse,
   toRetryHistoryEntry,
+  withOriginalPhoto,
 } from "../utils/lastMileTestRow";
 import {
   ENTRANCE_CORRECTNESS,
@@ -213,7 +214,7 @@ export class LastMileTestLogController {
         testLogId,
         defaultsApplied,
         replayed,
-        data: log ? toLastMileTestResponse(log, false) : null,
+        data: log ? toLastMileTestSummaryResponse(log) : null,
       });
     } catch (error) {
       if (error instanceof LastMileRetryError) {
@@ -284,7 +285,7 @@ export class LastMileTestLogController {
       source: isMongoConnected() ? "mongo" : "memory",
       retry: retryAvailability(),
       data: {
-        ...toLastMileTestResponse(data, includeImages, includeStreetView),
+        ...toLastMileTestResponse(withOriginalPhoto(data, original), includeImages, includeStreetView),
         replay: replaySummary(original),
         history: {
           originalId,

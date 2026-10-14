@@ -201,6 +201,9 @@ test("a fresh retry runs the stored inputs with the normal panorama fetch", asyn
   assert.equal(result.testLogId, "retry-1");
   // The saved log is read after its review panorama is attached.
   assert.equal(result.log?.panoId, "pano-fresh");
+  // It is read without images, but still reports the original's photo.
+  assert.equal(result.log?.imageStats.userPhoto.stored, true);
+  assert.equal("userPhoto" in (result.log ?? {}), false);
 });
 
 test("an original-panorama retry checks and pins the original's panorama", async () => {
@@ -780,7 +783,16 @@ test("every read reports a retry with the photo of the original it ran on", asyn
   seed("orig");
   seed("retry-a", { userPhoto: undefined, retryOf: "orig", retryPanoramaMode: "fresh" });
 
-  assert.equal((await lastMileTestLogService.getById("retry-a"))?.userPhoto, PHOTO);
+  // A single-trial read doesn't copy the photo; the detail fills it from the
+  // original it loads for the history anyway.
+  assert.equal((await lastMileTestLogService.getById("retry-a"))?.userPhoto, undefined);
+  const detail = fakeExchange("retry-a", undefined, { "x-admin-token": "secret" });
+  (detail.req as unknown as { query: Record<string, string> }).query = { includeImages: "true" };
+  await controller.getOne(detail.req, detail.res as unknown as Response);
+  assert.equal((detail.res.body as { data: { userPhoto: string } }).data.userPhoto, PHOTO);
+  const lean = fakeExchange("retry-a", undefined, { "x-admin-token": "secret" });
+  await controller.getOne(lean.req, lean.res as unknown as Response);
+  assert.equal((lean.res.body as { data: { hasUserPhoto: boolean } }).data.hasUserPhoto, true);
   const full = (await lastMileTestLogService.getData(10, undefined, true)).data;
   assert.equal(full.find((row) => (row as { _id?: string })._id === "retry-a")?.userPhoto, PHOTO);
   const summary = (await lastMileTestLogService.getSummaries(10, undefined, true)).data.find(

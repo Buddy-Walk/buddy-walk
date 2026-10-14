@@ -49,6 +49,18 @@ export function imageStatsOf(row: LastMileTestImageFields): LastMileTestImageSta
   };
 }
 
+/**
+ * A retry with the photo of the original it ran on, since retries don't store
+ * their own copy. Callers pass the original they already loaded.
+ */
+export function withOriginalPhoto<T extends LastMileTestImageFields & { retryOf?: string }>(
+  row: T,
+  original: LastMileTestImageFields | null,
+): T {
+  if (!row.retryOf || row.userPhoto !== undefined || original?.userPhoto === undefined) return row;
+  return { ...row, userPhoto: original.userPhoto };
+}
+
 /** The same list-view shape as toLastMileTestResponse(row, false), for rows read without images. */
 export function toLastMileTestSummaryResponse<T extends LastMileTestImageStats>(row: T) {
   const { imageStats, ...rest } = row;

@@ -6,7 +6,7 @@ import type {
 import { assessReplay, replayRequest } from "../utils/lastMileReplay";
 import { rowId } from "../utils/lastMileTestRow";
 import { lastMileRetryRunService, withRenewedLease, type RetryRun } from "./lastMileRetryRuns";
-import { lastMileTestLogService } from "./lastMileTestLog";
+import { lastMileTestLogService, type LastMileTestSummary } from "./lastMileTestLog";
 import { fetchStreetViewPanoramaById, OpenAIService, type StreetViewMetadata } from "./openAI";
 
 /**
@@ -129,7 +129,8 @@ export interface RetryRequest {
 
 export interface RetryResult {
   testLogId: string;
-  log: lastMileTestLogInterface | null;
+  /** The saved log without images, since the retry response leaves them out. */
+  log: LastMileTestSummary | null;
   defaultsApplied: string[];
   /** True when the key had already run and this is its saved result. */
   replayed: boolean;
@@ -188,7 +189,7 @@ async function resultOfRun(run: RetryRun, request: RetryRequest): Promise<RetryR
   }
   return {
     testLogId: run.testLogId,
-    log: await lastMileTestLogService.getById(run.testLogId),
+    log: await lastMileTestLogService.getSummaryById(run.testLogId),
     defaultsApplied: run.defaultsApplied ?? [],
     replayed: true,
   };
@@ -365,7 +366,7 @@ async function runRetry(
 
   return {
     testLogId: result.testLogId,
-    log: await lastMileTestLogService.getById(result.testLogId),
+    log: await lastMileTestLogService.getSummaryById(result.testLogId),
     defaultsApplied: assessment.defaultsApplied,
     replayed: false,
   };
