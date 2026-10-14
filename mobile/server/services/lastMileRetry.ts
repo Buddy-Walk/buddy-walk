@@ -4,6 +4,7 @@ import type {
   RetryPanoramaMode,
 } from "../database/models/lastMileTestLog";
 import { assessReplay, replayRequest } from "../utils/lastMileReplay";
+import { rowId } from "../utils/lastMileTestRow";
 import { lastMileRetryRunService, withRenewedLease, type RetryRun } from "./lastMileRetryRuns";
 import { lastMileTestLogService } from "./lastMileTestLog";
 import { fetchStreetViewPanoramaById, OpenAIService, type StreetViewMetadata } from "./openAI";
@@ -57,7 +58,16 @@ export interface RetryDependencies {
   fetchPanoramaById: typeof fetchStreetViewPanoramaById;
   limiter: RetryLimiter;
   runs: Pick<typeof lastMileRetryRunService, "find" | "claim" | "renew" | "finish">;
+  /** How long a retry may run before it is given up; see RETRY_MAX_RUN_MS. */
+  maxRunMs: number;
 }
+
+/**
+ * A retry normally takes under a minute. One still running after this long
+ * is given up so its test can be retried again, though its calls can't be
+ * cancelled and run on until they settle.
+ */
+export const RETRY_MAX_RUN_MS = 10 * 60_000;
 
 const pipeline = new OpenAIService();
 const realDependencies: RetryDependencies = {
@@ -65,6 +75,7 @@ const realDependencies: RetryDependencies = {
   fetchPanoramaById: fetchStreetViewPanoramaById,
   limiter: new RetryLimiter(),
   runs: lastMileRetryRunService,
+  maxRunMs: RETRY_MAX_RUN_MS,
 };
 
 /** Whether this server can run paid retries at all. */
@@ -94,13 +105,14 @@ export function retryAvailability(): { available: boolean; reason?: string } {
 
 /**
  * A retry replays its original's inputs, so the original is what gets
- * assessed and what a retry of a retry links to.
+ * assessed and what a retry of a retry links to. The id is the stored row's,
+ * not the request's: Mongo finds an ObjectId in any letter case, and the
+ * one-run-per-original lock and retryOf links need a single spelling.
  */
 export async function findOriginal(
-  id: string,
   row: lastMileTestLogInterface,
 ): Promise<{ originalId: string; original: lastMileTestLogInterface | null }> {
-  if (!row.retryOf) return { originalId: id, original: row };
+  if (!row.retryOf) return { originalId: rowId(row), original: row };
   return {
     originalId: row.retryOf,
     original: await lastMileTestLogService.getById(row.retryOf),
@@ -121,6 +133,27 @@ export interface RetryResult {
   defaultsApplied: string[];
   /** True when the key had already run and this is its saved result. */
   replayed: boolean;
+}
+
+/**
+ * Fails with a 504 once maxMs passes without the work settling. The work
+ * itself keeps going, since its outside calls can't be cancelled.
+ */
+function withDeadline<T>(work: Promise<T>, maxMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(
+        new LastMileRetryError(
+          504,
+          `The retry ran for over ${Math.round(maxMs / 60_000)} minutes and was given up. If it finishes later, it shows up in this test's history.`,
+          "retry_timed_out",
+        ),
+      );
+    }, maxMs);
+    timer.unref?.();
+  });
+  return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
 }
 
 /** Shown for any retry failure that has no message of its own. */
@@ -186,7 +219,7 @@ export async function retryLastMileTest(
 
   const row = await lastMileTestLogService.getById(id);
   if (!row) throw new LastMileRetryError(404, "Last Meters test log not found.");
-  const { originalId, original } = await findOriginal(id, row);
+  const { originalId, original } = await findOriginal(row);
   if (!original) {
     throw new LastMileRetryError(404, "The original test this retry belongs to no longer exists.");
   }
@@ -205,6 +238,7 @@ export async function retryLastMileTest(
   }
 
   const release = dependencies.limiter.acquire();
+  let work: Promise<RetryResult> | undefined;
   try {
     const claim = await dependencies.runs.claim({
       _id: idempotencyKey,
@@ -223,9 +257,12 @@ export async function retryLastMileTest(
 
     let outcome: RetryResult;
     try {
-      outcome = await withRenewedLease(dependencies.runs, idempotencyKey, () =>
-        runRetry(original, originalId, panoramaMode, pinnedPanoId, assessment, dependencies),
-      );
+      // Past the deadline the lease stops being renewed and the run is saved
+      // as failed, which frees its original for a new retry.
+      outcome = await withRenewedLease(dependencies.runs, idempotencyKey, () => {
+        work = runRetry(original, originalId, panoramaMode, pinnedPanoId, assessment, dependencies);
+        return withDeadline(work, dependencies.maxRunMs);
+      });
     } catch (error) {
       const failure =
         error instanceof LastMileRetryError
@@ -249,7 +286,10 @@ export async function retryLastMileTest(
     });
     return outcome;
   } finally {
-    release();
+    // A run that was given up still makes paid calls, so it keeps its
+    // capacity slot until they settle.
+    if (work) work.then(release, release);
+    else release();
   }
 }
 

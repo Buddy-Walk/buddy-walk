@@ -5,8 +5,9 @@ import { isMongoConnected, memoryRetryRuns } from "../database/usageStore";
 
 /**
  * How long a run stays "running" without a heartbeat. The server running it
- * renews the lease every RETRY_HEARTBEAT_MS, however long the run takes, so a
- * run whose lease ran out was cut off by a restart or crash.
+ * renews the lease every RETRY_HEARTBEAT_MS until the run ends or is given up
+ * (RETRY_MAX_RUN_MS), so a run whose lease ran out was cut off by a restart
+ * or crash.
  */
 export const RETRY_LEASE_MS = 2 * 60_000;
 export const RETRY_HEARTBEAT_MS = 30_000;

@@ -644,6 +644,14 @@ function maxTokensForFeature(feature?: string): number {
   }
 }
 
+/**
+ * Every call here asks for a short answer, so none should wait the library's
+ * default of 10 minutes with two retries. A stalled call would otherwise hold
+ * a field test, or a dashboard retry's slot, for half an hour.
+ */
+const OPENAI_TIMEOUT_MS = 90_000;
+const OPENAI_MAX_RETRIES = 1;
+
 export class OpenAIService {
   private _client: OpenAI | null = null;
 
@@ -653,7 +661,7 @@ export class OpenAIService {
       if (!apiKey) {
         throw new Error("OPENAI_API_KEY is not configured on the server");
       }
-      this._client = new OpenAI({ apiKey });
+      this._client = new OpenAI({ apiKey, timeout: OPENAI_TIMEOUT_MS, maxRetries: OPENAI_MAX_RETRIES });
     }
     return this._client;
   }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import type { Request, Response } from "express";
+import mongoose from "mongoose";
 import { v4, v7 } from "uuid";
 import { LastMileTestLogController } from "../../server/controllers/lastMileTestLog";
 import type { lastMileTestLogInterface } from "../../server/database/models/lastMileTestLog";
@@ -11,7 +12,9 @@ import {
   pushMemoryLastMileTest,
 } from "../../server/database/usageStore";
 import {
+  findOriginal,
   LastMileRetryError,
+  RETRY_MAX_RUN_MS,
   RetryLimiter,
   retryLastMileTest,
   type RetryDependencies,
@@ -22,9 +25,10 @@ import {
   RETRY_LEASE_MS,
   withRenewedLease,
 } from "../../server/services/lastMileRetryRuns";
+import { asyncRoute } from "../../server/utils/asyncRoute";
 import { parseIdempotencyKey } from "../../server/utils/idempotencyKey";
 import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
-import type { LastMetersRunOptions } from "../../server/services/openAI";
+import { OpenAIService, type LastMetersRunOptions } from "../../server/services/openAI";
 import {
   LAST_MILE_PIPELINE_VERSION,
   UPSTREAM_PIPELINE_VERSION,
@@ -137,6 +141,7 @@ function fakeDependencies(overrides: Partial<RetryDependencies> = {}, maxConcurr
     },
     limiter: new RetryLimiter(maxConcurrent),
     runs: lastMileRetryRunService,
+    maxRunMs: RETRY_MAX_RUN_MS,
     ...overrides,
   };
   return { dependencies, pipelineCalls, panoramaChecks };
@@ -608,6 +613,60 @@ test("a retry whose result was not saved is a 500", async () => {
   assert.equal(error.status, 500);
 });
 
+/** Waits long enough for the fake pipeline to attach its panorama. */
+const pipelineFinishes = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+test("a retry past its deadline is given up and frees its original for a new retry", async () => {
+  seed("orig");
+  const fake = fakeDependencies({ maxRunMs: 30 });
+  const held = holdPipeline(fake);
+  const key = v7();
+
+  const timedOut = await retryError(retryLastMileTest(retryRequest("orig", "fresh", key), fake.dependencies));
+  assert.equal(timedOut.status, 504);
+  assert.equal(timedOut.code, "retry_timed_out");
+
+  const next = retryLastMileTest(retryRequest("orig", "fresh"), fake.dependencies);
+  await settle();
+  held.release();
+  await next;
+  await pipelineFinishes();
+
+  // The given-up run finished late, but its key keeps the saved failure.
+  const resent = await retryError(retryLastMileTest(retryRequest("orig", "fresh", key), fake.dependencies));
+  assert.equal(resent.code, "retry_timed_out");
+  assert.equal(fake.pipelineCalls.length, 2);
+});
+
+test("a given-up retry keeps its capacity slot until its calls end", async () => {
+  seed("orig");
+  seed("other");
+  const fake = fakeDependencies({ maxRunMs: 30 }, 1);
+  const held = holdPipeline(fake);
+
+  await retryError(retryLastMileTest(retryRequest("orig", "fresh"), fake.dependencies));
+  const full = await retryError(retryLastMileTest(retryRequest("other", "fresh"), fake.dependencies));
+  assert.equal(full.code, "retry_capacity");
+
+  held.release();
+  await pipelineFinishes();
+  await retryLastMileTest(retryRequest("other", "fresh"), fake.dependencies);
+});
+
+test("OpenAI calls give up after 90 seconds and one retry instead of the library's half hour", () => {
+  const client = (new OpenAIService() as unknown as { client: { timeout: number; maxRetries: number } }).client;
+  assert.equal(client.timeout, 90_000);
+  assert.equal(client.maxRetries, 1);
+});
+
+test("a retry links to the stored id, however the request spelled it", async () => {
+  // Mongo finds an ObjectId in either letter case, so the request's spelling
+  // must not reach the per-original lock or the retryOf link.
+  const _id = new mongoose.Types.ObjectId();
+  const { originalId } = await findOriginal({ _id } as unknown as lastMileTestLogInterface);
+  assert.equal(originalId, _id.toHexString());
+});
+
 // The endpoint itself. Only refusals are exercised here, since an accepted
 // retry would run the real pipeline.
 
@@ -634,6 +693,38 @@ function fakeExchange(id: string, body: unknown, headers: Record<string, string>
 }
 
 const controller = new LastMileTestLogController();
+
+test("a dashboard request whose handler fails is answered with a 500, not left to crash the server", async () => {
+  const { req, res } = fakeExchange("orig", {});
+  const logged = console.error;
+  console.error = () => {};
+  try {
+    asyncRoute(async () => {
+      throw new Error("database unreachable");
+    })(req, res as unknown as Response);
+    await settle();
+  } finally {
+    console.error = logged;
+  }
+  assert.equal(res.statusCode, 500);
+  assert.deepEqual(res.body, { error: "The request failed. Check the server logs." });
+});
+
+test("a handler that fails after answering is not answered twice", async () => {
+  const { req, res } = fakeExchange("orig", {});
+  const sent = Object.assign(res, { headersSent: true });
+  const logged = console.error;
+  console.error = () => {};
+  try {
+    asyncRoute(async () => {
+      throw new Error("failed after answering");
+    })(req, sent as unknown as Response);
+    await settle();
+  } finally {
+    console.error = logged;
+  }
+  assert.equal(res.statusCode, 0);
+});
 
 test("the retry endpoint requires the admin token", async () => {
   seed("orig");

@@ -275,7 +275,7 @@ export class LastMileTestLogController {
     }
 
     const includeImages = req.query.includeImages === "true";
-    const { originalId, original } = await findOriginal(req.params.id, data);
+    const { originalId, original } = await findOriginal(data);
     const [retries, running] = await Promise.all([
       original ? lastMileTestLogService.getRetries(originalId) : [],
       lastMileRetryRunService.running([originalId]),
