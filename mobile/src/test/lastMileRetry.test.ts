@@ -123,7 +123,7 @@ function fakeDependencies(overrides: Partial<RetryDependencies> = {}, maxConcurr
       const reviewPanorama = new Promise<void>((resolve) =>
         setTimeout(() => {
           const row = memoryLastMileTests.find((r) => (r as { _id?: string })._id === testLogId);
-          if (row) row.panoId = options.pinnedPanoId ?? "pano-fresh";
+          if (row) row.panoId = options.pinnedPanorama?.pano_id ?? "pano-fresh";
           resolve();
         }, 5)
       );
@@ -180,7 +180,7 @@ test("a fresh retry runs the stored inputs with the normal panorama fetch", asyn
   const [call] = fake.pipelineCalls;
   assert.deepEqual(call.input, replayRequest(snapshot));
   assert.equal(call.image, PHOTO);
-  assert.equal(call.options.pinnedPanoId, undefined);
+  assert.equal(call.options.pinnedPanorama, undefined);
   // The original's snapshot travels with the retry, so the safety gate judges
   // sensor freshness as of the original request.
   assert.deepEqual(call.options.retry, {
@@ -201,8 +201,9 @@ test("an original-panorama retry checks and pins the original's panorama", async
   const fake = fakeDependencies();
   await retryLastMileTest(retryRequest("orig", "original"), fake.dependencies);
 
+  // Looked up once, before the pipeline, which then runs on that same metadata.
   assert.deepEqual(fake.panoramaChecks, ["pano-original"]);
-  assert.equal(fake.pipelineCalls[0].options.pinnedPanoId, "pano-original");
+  assert.deepEqual(fake.pipelineCalls[0].options.pinnedPanorama, { status: "OK", pano_id: "pano-original" });
   assert.equal(fake.pipelineCalls[0].options.retry?.panoramaMode, "original");
 });
 

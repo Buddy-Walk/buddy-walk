@@ -4,6 +4,7 @@ import { toCsv } from "../utils/csv";
 import { buildDateFilter, isAdminAuthorized, parseLimit } from "../utils/adminAuth";
 import { isMongoConnected } from "../database/usageStore";
 import {
+  rowId,
   toLastMileTestResponse,
   toLastMileTestSummaryResponse,
   toRetryHistoryEntry,
@@ -23,6 +24,7 @@ import {
   LastMileRetryError,
   retryAvailability,
   retryLastMileTest,
+  UNEXPECTED_RETRY_FAILURE,
 } from "../services/lastMileRetry";
 import { lastMileRetryRunService, type RetryRun } from "../services/lastMileRetryRuns";
 import { parseIdempotencyKey } from "../utils/idempotencyKey";
@@ -106,10 +108,6 @@ function describeCandidatesForCsv(candidates?: PlaceCandidateLog[]): string {
     .join(" | ");
 }
 
-function rowId(row: object): string {
-  return String((row as { _id?: unknown })._id ?? "");
-}
-
 /** The replay assessment the dashboard needs, without the input to run. */
 function replaySummary(original: ReplayableLog | null) {
   if (!original) {
@@ -138,13 +136,13 @@ async function retryFacts<T extends ReplayableLog & { retryOf?: string }>(rows: 
   const missing = rows
     .map((row) => row.retryOf)
     .filter((id): id is string => Boolean(id) && !originals.has(id!));
-  (await lastMileTestLogService.getSummariesByIds(missing)).forEach((row) =>
-    originals.set(rowId(row), row)
-  );
-  const retryCounts = await lastMileTestLogService.countRetries(
-    rows.filter((row) => !row.retryOf).map(rowId)
-  );
-  const running = await lastMileRetryRunService.running(rows.map((row) => row.retryOf ?? rowId(row)));
+  // Independent queries, so they run together.
+  const [offPageOriginals, retryCounts, running] = await Promise.all([
+    lastMileTestLogService.getSummariesByIds(missing),
+    lastMileTestLogService.countRetries(rows.filter((row) => !row.retryOf).map(rowId)),
+    lastMileRetryRunService.running(rows.map((row) => row.retryOf ?? rowId(row))),
+  ]);
+  offPageOriginals.forEach((row) => originals.set(rowId(row), row));
   return (row: T) => ({
     retryCount: retryCounts.get(rowId(row)) ?? 0,
     replay: replaySummary(originals.get(row.retryOf ?? rowId(row)) ?? null),
@@ -223,9 +221,7 @@ export class LastMileTestLogController {
         return;
       }
       console.error("[LastMileTestLog] retry failed:", error);
-      res.status(500).json({
-        error: "The retry failed unexpectedly. Check the server logs. The original trial was not changed.",
-      });
+      res.status(500).json({ error: UNEXPECTED_RETRY_FAILURE });
     }
   }
 
@@ -280,8 +276,10 @@ export class LastMileTestLogController {
 
     const includeImages = req.query.includeImages === "true";
     const { originalId, original } = await findOriginal(req.params.id, data);
-    const retries = original ? await lastMileTestLogService.getRetries(originalId) : [];
-    const running = await lastMileRetryRunService.running([originalId]);
+    const [retries, running] = await Promise.all([
+      original ? lastMileTestLogService.getRetries(originalId) : [],
+      lastMileRetryRunService.running([originalId]),
+    ]);
     res.status(200).json({
       source: isMongoConnected() ? "mongo" : "memory",
       retry: retryAvailability(),

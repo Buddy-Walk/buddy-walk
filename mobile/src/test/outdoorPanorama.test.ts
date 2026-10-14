@@ -71,6 +71,28 @@ test("all sixteen requests use outdoor metadata and the same panorama ID", async
   assert.equal(calls, 5);
 });
 
+test("a pinned panorama downloads its views without looking up its metadata again", async (t) => {
+  const original = process.env.GOOGLE_MAPS_API_KEY;
+  process.env.GOOGLE_MAPS_API_KEY = "unit-test-key";
+  t.after(() => {
+    if (original === undefined) delete process.env.GOOGLE_MAPS_API_KEY;
+    else process.env.GOOGLE_MAPS_API_KEY = original;
+  });
+  const requests: string[] = [];
+  t.mock.method(axios, "get", async (url: string) => {
+    requests.push(url);
+    return { status: 200, data: Buffer.alloc(10_001) };
+  });
+  const result = await processPanoramaTiles(
+    40.7, -74, async () => { throw new Error("A pinned panorama is not reclassified"); },
+    undefined, undefined, metadata,
+  );
+  assert.equal(result.metadata, metadata);
+  assert.equal(result.attempts[0].status, "pinned");
+  assert.equal(requests.length, 16);
+  assert.ok(requests.every(url => !url.includes("/metadata")));
+});
+
 test("visual verdict parsing fails closed", () => {
   assert.equal(parseSceneVerdict("OUTDOOR"), "outdoor");
   assert.equal(parseSceneVerdict(" INDOOR "), "indoor");

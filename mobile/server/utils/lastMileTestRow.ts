@@ -20,6 +20,11 @@ export interface LastMileTestImageStats {
   imageStats: Record<LastMileTestImageField, { length: number; stored: boolean }>;
 }
 
+/** A log row's id as a string, whether Mongo or the in-memory store gave it. */
+export function rowId(row: object): string {
+  return String((row as { _id?: unknown })._id ?? "");
+}
+
 /** Only data URLs are stored images the dashboard can render. */
 export function isStoredImage(value: unknown): value is string {
   return typeof value === "string" && value.startsWith("data:");

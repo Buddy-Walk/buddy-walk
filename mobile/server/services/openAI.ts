@@ -734,7 +734,7 @@ export class OpenAIService {
       compassAccuracyLevel,
       sensors,
     } = request;
-    const { retry, pinnedPanoId } = options;
+    const { retry, pinnedPanorama } = options;
     const startedAt = Date.now();
     // A retry keeps the original's snapshot and judges sensor freshness as of
     // the original request.
@@ -1052,7 +1052,7 @@ export class OpenAIService {
       // while the entrance lookup runs. Approach and aligned trials save it
       // for review after they have already answered.
       const panoramaBudget: PanoramaSearchBudget = { seen: new Set(), deadline: Date.now() + 45_000 };
-      const panoramaDownload = processPanoramaTiles(lat, lng, classifyPanorama, auditPanorama, panoramaBudget, pinnedPanoId);
+      const panoramaDownload = processPanoramaTiles(lat, lng, classifyPanorama, auditPanorama, panoramaBudget, pinnedPanorama);
       panoramaDownload.catch(() => undefined);
 
       let targetLocation: LatLng = verifiedDestination.location;
@@ -1252,7 +1252,7 @@ export class OpenAIService {
       for (let matchingAttempt = 0; matchingAttempt < 3; matchingAttempt++) {
       const tryNextPanorama = async (): Promise<boolean> => {
         // An original-panorama retry must not move on to a different panorama.
-        if (pinnedPanoId || matchingAttempt >= 2 || panoramaBudget.seen.size >= 3 || Date.now() >= panoramaBudget.deadline) return false;
+        if (pinnedPanorama || matchingAttempt >= 2 || panoramaBudget.seen.size >= 3 || Date.now() >= panoramaBudget.deadline) return false;
         auditPanorama({ panoId: panorama.metadata.pano_id, status: "destination_not_visible",
           reason: "Destination matching failed; trying a distinct nearby outdoor panorama." });
         try {
@@ -2935,8 +2935,12 @@ async function resizeDataUrlImage(
 }
 
 export interface LastMetersRunOptions {
-  /** Fetch this user-position panorama instead of searching for one. */
-  pinnedPanoId?: string;
+  /**
+   * Use this user-position panorama instead of searching for one. The caller
+   * has already checked it with fetchStreetViewPanoramaById, so the pipeline
+   * does not look it up again.
+   */
+  pinnedPanorama?: StreetViewMetadata;
   /** Set for dashboard retries: link the log to the original, reuse its photo. */
   retry?: {
     retryOf: string;
@@ -2963,7 +2967,7 @@ export type LastMetersRunResult =
       textRequest: textRequestBody;
     };
 
-interface StreetViewMetadata {
+export interface StreetViewMetadata {
   status: string;
   date?: string;
   pano_id?: string;
@@ -3086,8 +3090,8 @@ export async function fetchStreetViewPanoramaById(
 
 /**
  * Searches for a validated outdoor panorama near the user and downloads its
- * views. A pinned pano ID skips the search: that panorama already passed
- * outdoor validation on the trial being retried.
+ * views. A pinned panorama skips the search: it passed outdoor validation on
+ * the trial being retried, and its metadata was re-checked before the retry.
  */
 export async function processPanoramaTiles(
   lat: number,
@@ -3095,7 +3099,7 @@ export async function processPanoramaTiles(
   classify: SceneClassifier,
   audit?: PanoramaAudit,
   budget?: PanoramaSearchBudget,
-  pinnedPanoId?: string,
+  pinned?: StreetViewMetadata,
 ): Promise<{
   tiles: { heading: number; base64: string }[];
   metadata: StreetViewMetadata;
@@ -3104,8 +3108,8 @@ export async function processPanoramaTiles(
   console.log(`Fetching ${LAST_MILE_HEADINGS.length} outdoor panorama views...`);
   const headings = [...LAST_MILE_HEADINGS];
   const apiKey = getGoogleMapsApiKey();
-  const { metadata, attempts } = pinnedPanoId
-    ? await pinnedPanorama(pinnedPanoId, audit, budget)
+  const { metadata, attempts } = pinned
+    ? pinnedPanorama(pinned, audit, budget)
     : await selectOutdoorPanorama(lat, lng, apiKey, classify, audit, budget);
 
   const panoramaSelector = `pano=${encodeURIComponent(metadata.pano_id!)}`;
@@ -3139,12 +3143,12 @@ export async function processPanoramaTiles(
   return { tiles: tilesData, metadata, attempts };
 }
 
-async function pinnedPanorama(
-  panoId: string,
+function pinnedPanorama(
+  metadata: StreetViewMetadata,
   audit?: PanoramaAudit,
   budget?: PanoramaSearchBudget,
-): Promise<{ metadata: StreetViewMetadata; attempts: PanoramaAttempt[] }> {
-  const metadata = await fetchStreetViewPanoramaById(panoId);
+): { metadata: StreetViewMetadata; attempts: PanoramaAttempt[] } {
+  const panoId = metadata.pano_id!;
   budget?.seen.add(panoId);
   const attempt: PanoramaAttempt = {
     panoId,

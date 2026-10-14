@@ -6,7 +6,7 @@ import type {
 import { assessReplay, replayRequest } from "../utils/lastMileReplay";
 import { lastMileRetryRunService, withRenewedLease, type RetryRun } from "./lastMileRetryRuns";
 import { lastMileTestLogService } from "./lastMileTestLog";
-import { fetchStreetViewPanoramaById, OpenAIService } from "./openAI";
+import { fetchStreetViewPanoramaById, OpenAIService, type StreetViewMetadata } from "./openAI";
 
 /**
  * A retry that could not run; status is the HTTP status to answer with, and
@@ -123,7 +123,8 @@ export interface RetryResult {
   replayed: boolean;
 }
 
-const UNEXPECTED_FAILURE =
+/** Shown for any retry failure that has no message of its own. */
+export const UNEXPECTED_RETRY_FAILURE =
   "The retry failed unexpectedly. Check the server logs. The original trial was not changed.";
 
 /**
@@ -148,7 +149,7 @@ async function resultOfRun(run: RetryRun, request: RetryRequest): Promise<RetryR
   if (run.status === "failed" || !run.testLogId) {
     throw new LastMileRetryError(
       run.errorStatus ?? 500,
-      run.errorMessage ?? UNEXPECTED_FAILURE,
+      run.errorMessage ?? UNEXPECTED_RETRY_FAILURE,
       run.errorCode,
     );
   }
@@ -229,7 +230,7 @@ export async function retryLastMileTest(
       const failure =
         error instanceof LastMileRetryError
           ? error
-          : new LastMileRetryError(500, UNEXPECTED_FAILURE);
+          : new LastMileRetryError(500, UNEXPECTED_RETRY_FAILURE);
       if (!(error instanceof LastMileRetryError)) {
         console.error("[LastMileRetry] retry failed:", error);
       }
@@ -279,9 +280,12 @@ async function runRetry(
   assessment: ReturnType<typeof assessReplay>,
   dependencies: RetryDependencies,
 ): Promise<RetryResult> {
+  // Checked here, before any paid call, and then handed to the pipeline so
+  // it runs on exactly this metadata instead of looking the panorama up again.
+  let pinnedPanorama: StreetViewMetadata | undefined;
   if (pinnedPanoId) {
     try {
-      await dependencies.fetchPanoramaById(pinnedPanoId);
+      pinnedPanorama = await dependencies.fetchPanoramaById(pinnedPanoId);
     } catch (error: any) {
       const retired =
         typeof error?.code === "string" && error.code.startsWith("STREET_VIEW_PANO_");
@@ -298,7 +302,7 @@ async function runRetry(
     replayRequest(assessment.input!),
     original.userPhoto!,
     {
-      pinnedPanoId,
+      pinnedPanorama,
       retry: {
         retryOf: originalId,
         panoramaMode,

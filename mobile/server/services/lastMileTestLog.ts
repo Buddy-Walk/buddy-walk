@@ -11,6 +11,7 @@ import {
 import {
   imageStatsOf,
   LAST_MILE_TEST_IMAGE_FIELDS,
+  rowId,
   type LastMileTestImageField,
   type LastMileTestImageStats,
 } from "../utils/lastMileTestRow";
@@ -34,7 +35,6 @@ export type LastMileTestSummary = Omit<lastMileTestLogInterface, LastMileTestIma
     userPhotoReplayable: boolean;
   };
 
-type StoredLastMileTest = lastMileTestLogInterface & { _id?: unknown };
 
 /**
  * Image lengths and data-URL checks computed inside MongoDB. Each trial carries
@@ -100,10 +100,6 @@ function toSummary(row: lastMileTestLogInterface): LastMileTestSummary {
 function withoutImages(row: lastMileTestLogInterface): lastMileTestLogInterface {
   const { userPhoto, panoramaPhoto, destinationPhoto, ...rest } = row;
   return rest;
-}
-
-function rowId(row: lastMileTestLogInterface): string {
-  return String((row as StoredLastMileTest)._id ?? "");
 }
 
 /** The in-memory counterpart of RETRY_PHOTO_STAGES; returns a copy, never the stored row. */
