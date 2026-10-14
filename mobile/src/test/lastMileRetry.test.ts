@@ -657,10 +657,10 @@ test("a given-up retry keeps its capacity slot until its calls end", async () =>
   await retryLastMileTest(retryRequest("other", "fresh"), fake.dependencies);
 });
 
-test("OpenAI calls give up after 90 seconds and one retry instead of the library's half hour", () => {
+test("OpenAI calls give up after 90 seconds per attempt and two retries instead of the library's half hour", () => {
   const client = (new OpenAIService() as unknown as { client: { timeout: number; maxRetries: number } }).client;
   assert.equal(client.timeout, 90_000);
-  assert.equal(client.maxRetries, 1);
+  assert.equal(client.maxRetries, 2);
 });
 
 test("a retry links to the stored id, however the request spelled it", async () => {
