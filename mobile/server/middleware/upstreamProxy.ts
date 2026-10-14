@@ -6,7 +6,11 @@ import {
   compressUserPhoto,
   lastMileTestLogService,
 } from '../services/lastMileTestLog';
-import { buildReplayInput, parseLastMetersRequest } from '../utils/lastMileReplay';
+import {
+  buildReplayInput,
+  parseLastMetersRequest,
+  type LastMetersRequestInput,
+} from '../utils/lastMileReplay';
 
 function truncate(value: unknown, max = 800): string | undefined {
   if (typeof value !== 'string' || !value.trim()) return undefined;
@@ -267,28 +271,29 @@ function pickString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
-function pickNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+/** The fields a proxied Last Meters log takes from its request, all from one parse. */
+export function proxiedRequestFields(request: LastMetersRequestInput, image: string, startedAt: number) {
+  return {
+    replayInput: buildReplayInput(request, image, startedAt),
+    destination: request.destination,
+    lat: request.lat,
+    lng: request.lng,
+    gpsAccuracyMeters: request.gpsAccuracyMeters,
+    deviceHeading: request.deviceHeading,
+    panoramaHeadings: [],
+  };
 }
 
 async function recordProxiedLastMileFailure(
-  req: Request,
+  request: LastMetersRequestInput,
+  image: string,
   startedAt: number,
   error: unknown
 ): Promise<string | undefined> {
-  const body = asRecord(req.body);
-  const image = pickString(body.image) ?? '';
   const message = error instanceof Error ? error.message : 'Upstream API unavailable';
-  const request = parseLastMetersRequest(body);
   return lastMileTestLogService.recordProxied({
-    replayInput: request && image ? buildReplayInput(request, image, startedAt) : undefined,
-    destination: pickString(body.destination) ?? 'unknown destination',
-    lat: pickNumber(body.lat) ?? 0,
-    lng: pickNumber(body.lng) ?? 0,
-    userPhoto: image ? await compressUserPhoto(image) : 'data:,',
-    panoramaHeadings: [],
-    gpsAccuracyMeters: pickNumber(body.gpsAccuracyMeters),
-    deviceHeading: pickNumber(body.heading),
+    ...proxiedRequestFields(request, image, startedAt),
+    userPhoto: await compressUserPhoto(image),
     steps: [
       {
         name: 'proxied_last_mile',
@@ -329,26 +334,23 @@ function lastMetersTextPrompt(destination: string): string {
  */
 async function forwardLastMileViaText(req: Request, res: Response): Promise<void> {
   const startedAt = Date.now();
-  const body = asRecord(req.body);
-  const destination = pickString(body.destination);
-  const image = pickString(body.image);
-  const lat = pickNumber(body.lat);
-  const lng = pickNumber(body.lng);
+  const request = parseLastMetersRequest(req.body);
+  const image = pickString(asRecord(req.body).image);
 
-  if (!destination || !image || lat === undefined || lng === undefined) {
-    res.status(400).json({ error: 'Missing required fields' });
+  if (!request || !image) {
+    res.status(400).json({ error: 'Missing or invalid required fields' });
     return;
   }
 
   const upstreamRoot = getUpstreamApiRoot();
   const textBody = {
-    text: lastMetersTextPrompt(destination),
+    text: lastMetersTextPrompt(request.destination),
     image: [image],
     coords: {
-      latitude: lat,
-      longitude: lng,
-      accuracy: pickNumber(body.gpsAccuracyMeters) ?? null,
-      heading: pickNumber(body.heading) ?? null,
+      latitude: request.lat,
+      longitude: request.lng,
+      accuracy: request.gpsAccuracyMeters ?? null,
+      heading: request.deviceHeading ?? null,
     },
     analytics: {
       feature: 'last_mile',
@@ -385,16 +387,9 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
       : pickString(asRecord(upstreamRes.data).error) ??
         `Upstream text returned ${upstreamRes.status}`;
 
-    const request = parseLastMetersRequest(body);
     const testLogId = await lastMileTestLogService.recordProxied({
-      replayInput: request ? buildReplayInput(request, image, startedAt) : undefined,
-      destination,
-      lat,
-      lng,
+      ...proxiedRequestFields(request, image, startedAt),
       userPhoto: await compressUserPhoto(image),
-      panoramaHeadings: [],
-      gpsAccuracyMeters: pickNumber(body.gpsAccuracyMeters),
-      deviceHeading: pickNumber(body.heading),
       navigationMode: 'exact',
       finalOutput: output,
       steps: [
@@ -413,7 +408,7 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
     });
 
     await recordProxyMetrics(
-      { ...req, body: { ...textBody, text: destination } } as Request,
+      { ...req, body: { ...textBody, text: request.destination } } as Request,
       upstreamRes,
       startedAt,
       'last_mile'
@@ -441,7 +436,7 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
       await controller.lastMileRequest(req, res);
       return;
     }
-    const localId = await recordProxiedLastMileFailure(req, startedAt, error);
+    const localId = await recordProxiedLastMileFailure(request, image, startedAt, error);
     res.status(502).json({
       error: 'Upstream API unavailable',
       testLogId: localId,

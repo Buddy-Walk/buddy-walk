@@ -759,11 +759,14 @@
       openDetailById(idOf(summary), summary);
     }
 
-    /** includeStreetView adds the saved panorama and destination images. */
-    function fetchDetail(testId, includeStreetView) {
+    /**
+     * withImages adds the user photo and the saved panorama and destination
+     * images; without them the detail is just its fields and history.
+     */
+    function fetchDetail(testId, withImages) {
       const baseUrl = window.location.origin;
-      return fetch(baseUrl + '/api/last-mile-tests/' + encodeURIComponent(testId) + qs(true) +
-        (includeStreetView ? '&includeStreetView=true' : ''), { headers: authHeaders() })
+      return fetch(baseUrl + '/api/last-mile-tests/' + encodeURIComponent(testId) + qs(withImages) +
+        (withImages ? '&includeStreetView=true' : ''), { headers: authHeaders() })
         .then(function (res) {
           if (!res.ok) throw new Error('HTTP ' + res.status);
           return res.json();
@@ -1142,16 +1145,27 @@
       return false;
     }
 
-    /** Syncs every remote run against a fresh list; returns the originals whose run finished. */
+    /**
+     * Syncs remote runs against a fresh list. The list only reports runs of
+     * the originals on it, so runs of other tests, such as one opened from
+     * the history, are left for their detail to report.
+     */
     function syncRemoteRetries(rows) {
+      const listed = {};
       const reported = {};
-      rows.forEach(function (row) { if (row.runningRetry) reported[originalIdOf(row)] = row.runningRetry; });
+      rows.forEach(function (row) {
+        listed[originalIdOf(row)] = true;
+        if (row.runningRetry) reported[originalIdOf(row)] = row.runningRetry;
+      });
       const finished = Object.keys(runningRetries).filter(function (originalId) {
-        return runningRetries[originalId].remote && !reported[originalId];
+        return runningRetries[originalId].remote && listed[originalId] && !reported[originalId];
       });
       finished.forEach(function (originalId) { syncRemoteRetry(originalId, null); });
       Object.keys(reported).forEach(function (originalId) { syncRemoteRetry(originalId, reported[originalId]); });
-      return finished;
+      const unlisted = Object.keys(runningRetries).filter(function (originalId) {
+        return runningRetries[originalId].remote && !listed[originalId];
+      });
+      return { finished: finished, unlisted: unlisted };
     }
 
     function hasRemoteRetries() {
@@ -1162,21 +1176,31 @@
       if (!remotePollTimer && hasRemoteRetries()) remotePollTimer = setTimeout(pollRemoteRetries, REMOTE_POLL_MS);
     }
 
-    /** Checks whether retries started elsewhere have finished, and reloads when one has. */
+    /**
+     * Checks whether retries started elsewhere have finished, and shows the
+     * fresh list when one has. A run of a test that is not on the list is
+     * checked through its open detail, and forgotten once nothing shows it.
+     */
     function pollRemoteRetries() {
       remotePollTimer = null;
       if (!hasRemoteRetries()) return;
-      fetch(window.location.origin + '/api/last-mile-tests' + qs(false), { headers: authHeaders() })
-        .then(function (res) {
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          return res.json();
-        })
+      const loadAtStart = latestLoad;
+      fetchList()
         .then(function (payload) {
-          const finished = syncRemoteRetries(payload.data || []);
-          if (finished.length) {
-            load();
-            finished.forEach(refreshHistory);
+          // A load started after this poll asked later, so its answer wins.
+          if (latestLoad !== loadAtStart) return;
+          const synced = syncRemoteRetries(payload.data || []);
+          if (synced.finished.length) {
+            // This answer is newer than any load still in flight.
+            latestLoad += 1;
+            showList(payload);
+            synced.finished.forEach(refreshHistory);
           }
+          synced.unlisted.forEach(function (originalId) {
+            const open = currentDetail && currentDetail.history && currentDetail.history.originalId === originalId;
+            if (open) refreshHistory(originalId);
+            else delete runningRetries[originalId];
+          });
         })
         .catch(function () { /* Try again on the next poll. */ })
         .then(scheduleRemotePoll);
@@ -1248,7 +1272,7 @@
     function refreshHistory(originalId) {
       if (!currentDetail || !currentDetail.history || currentDetail.history.originalId !== originalId) return;
       const testId = currentDetailId;
-      fetchDetail(testId).then(function (data) {
+      fetchDetail(testId, false).then(function (data) {
         if (currentDetailId !== testId || !currentDetail || !data) return;
         currentDetail.history = data.history;
         currentDetail.replay = data.replay;
@@ -1727,23 +1751,38 @@
     }
 
     // --- API Interactions ---
-    function load() {
-      var baseUrl = window.location.origin;
-      document.getElementById('download').href = baseUrl + '/api/last-mile-tests/export.csv' + qs(false);
+    /** Counts loads; a response is shown only while its load is the latest. */
+    let latestLoad = 0;
 
-      fetch(baseUrl + '/api/last-mile-tests' + qs(false), { headers: authHeaders() })
+    function fetchList() {
+      return fetch(window.location.origin + '/api/last-mile-tests' + qs(false), { headers: authHeaders() })
         .then(function (res) {
           if (!res.ok) throw new Error('HTTP ' + res.status);
           return res.json();
-        })
+        });
+    }
+
+    function showList(payload) {
+      showError('');
+      if (payload.retry) setRetryInfo(payload.retry);
+      allTests = payload.data || [];
+      applyFilters();
+    }
+
+    /** Reloads the list. Loads can overlap, so only the newest one is shown. */
+    function load() {
+      document.getElementById('download').href = window.location.origin + '/api/last-mile-tests/export.csv' + qs(false);
+      const thisLoad = ++latestLoad;
+
+      fetchList()
         .then(function (payload) {
-          showError('');
-          if (payload.retry) setRetryInfo(payload.retry);
-          allTests = payload.data || [];
-          syncRemoteRetries(allTests);
-          applyFilters();
+          if (thisLoad !== latestLoad) return;
+          const synced = syncRemoteRetries(payload.data || []);
+          showList(payload);
+          synced.finished.forEach(refreshHistory);
         })
         .catch(function (error) {
+          if (thisLoad !== latestLoad) return;
           showError('Could not load tests. Check token and logs. ' + error.message);
           document.getElementById('lmTestsList').innerHTML = '<tr><td colspan="' + TABLE_COLUMNS + '" class="empty">Failed to load data.</td></tr>';
         });

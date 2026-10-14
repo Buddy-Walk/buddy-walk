@@ -1,5 +1,7 @@
 /** Shapes Last Meters test log rows for the admin API and dashboard. */
 
+import type { lastMileTestLogInterface } from "../database/models/lastMileTestLog";
+
 export interface LastMileTestImageFields {
   userPhoto?: string;
   panoramaPhoto?: string;
@@ -93,29 +95,31 @@ export function toLastMileTestResponse<T extends LastMileTestImageFields>(
   };
 }
 
-/** The facts the retry history shows for one run. */
-export interface RetryHistoryFields {
-  _id?: unknown;
-  serverTs?: Date | string;
-  retryOf?: string;
-  retryPanoramaMode?: string;
-  retryDefaultsApplied?: string[];
-  panoId?: string;
-  panoramaDate?: string;
-  panoramaSource?: string;
-  panoramaStatus?: string;
-  navigationMode?: string;
-  testScenario?: string;
-  success?: boolean;
-  error?: string;
-  finalOutput?: string;
-  reviewerStatus?: string;
-  reviewOutcome?: string;
-  pipelineVersion?: string;
-  deployedCommit?: string;
-  safetyReasons?: string[];
-  latencyMs?: number;
-}
+/** The facts the retry history shows for one run, typed from the log model. */
+export type RetryHistoryFields = { _id?: unknown } & Partial<
+  Pick<
+    lastMileTestLogInterface,
+    | "serverTs"
+    | "retryOf"
+    | "retryPanoramaMode"
+    | "retryDefaultsApplied"
+    | "panoId"
+    | "panoramaDate"
+    | "panoramaSource"
+    | "panoramaStatus"
+    | "navigationMode"
+    | "testScenario"
+    | "success"
+    | "error"
+    | "finalOutput"
+    | "reviewerStatus"
+    | "reviewOutcome"
+    | "pipelineVersion"
+    | "deployedCommit"
+    | "safetyReasons"
+    | "latencyMs"
+  >
+>;
 
 /** One history entry: the original test or one of its retries, without images. */
 export function toRetryHistoryEntry(row: RetryHistoryFields) {

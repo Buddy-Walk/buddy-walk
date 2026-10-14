@@ -41,47 +41,86 @@ export type LastMileTestSummary = Omit<lastMileTestLogInterface, LastMileTestIma
  * about 1 MB of base64 images, and pulling them for a whole list exhausts the
  * Render free instance's memory and CPU.
  */
+function imageStatsOfField(field: string) {
+  const value = { $ifNull: [field, ""] };
+  return {
+    length: { $strLenCP: value },
+    stored: { $eq: [{ $substrCP: [value, 0, 5] }, "data:"] },
+  };
+}
+
+/** Mirrors hasReplayablePhoto. */
+function photoReplayable(field: string) {
+  return { $regexMatch: { input: { $ifNull: [field, ""] }, regex: "^data:image/[\\w.+-]+;base64,." } };
+}
+
 const IMAGE_STATS_STAGE = {
   $addFields: {
     imageStats: Object.fromEntries(
-      LAST_MILE_TEST_IMAGE_FIELDS.map((field) => {
-        const value = { $ifNull: [`$${field}`, ""] };
-        return [
-          field,
-          {
-            length: { $strLenCP: value },
-            stored: { $eq: [{ $substrCP: [value, 0, 5] }, "data:"] },
-          },
-        ] as const;
-      })
+      LAST_MILE_TEST_IMAGE_FIELDS.map((field) => [field, imageStatsOfField(`$${field}`)] as const)
     ),
-    // Mirrors hasReplayablePhoto.
-    userPhotoReplayable: {
-      $regexMatch: { input: { $ifNull: ["$userPhoto", ""] }, regex: "^data:image/[\\w.+-]+;base64,." },
-    },
+    userPhotoReplayable: photoReplayable("$userPhoto"),
   },
 };
+
+/**
+ * Looks up a retry's original into retryOriginal, keeping only `project` of
+ * it. Rows that are not retries match nothing.
+ */
+function retryOriginalStages(project: Record<string, unknown>) {
+  return [
+    {
+      $set: {
+        retryOriginalId: { $convert: { input: "$retryOf", to: "objectId", onError: null, onNull: null } },
+      },
+    },
+    {
+      $lookup: {
+        from: lastMileTestLogModel.collection.name,
+        localField: "retryOriginalId",
+        foreignField: "_id",
+        pipeline: [{ $project: { _id: 0, ...project } }],
+        as: "retryOriginal",
+      },
+    },
+    { $set: { retryOriginal: { $first: "$retryOriginal" } } },
+  ];
+}
+
+/** A retry keeps no photo of its own and runs on its original's. */
+const USES_ORIGINAL_PHOTO = {
+  $and: [
+    { $eq: [{ $ifNull: ["$userPhoto", null] }, null] },
+    { $ne: [{ $type: "$retryOriginal" }, "missing"] },
+  ],
+};
+
 /**
  * Retries reuse their original's stored photo instead of keeping a copy, so
- * every read fills it in from the original. Runs before IMAGE_STATS_STAGE, so
- * list views and exports report the photo a retry actually ran on.
+ * reads that return images fill it in from the original.
  */
 const RETRY_PHOTO_STAGES = [
+  ...retryOriginalStages({ userPhoto: 1 }),
+  { $set: { userPhoto: { $ifNull: ["$userPhoto", "$retryOriginal.userPhoto"] } } },
+  { $unset: ["retryOriginalId", "retryOriginal"] },
+];
+
+/**
+ * The image-free counterpart of RETRY_PHOTO_STAGES, run after
+ * IMAGE_STATS_STAGE: a retry reports its original's photo stats, measured
+ * inside the lookup so the photo itself is never copied.
+ */
+const RETRY_PHOTO_STATS_STAGES = [
+  ...retryOriginalStages({
+    stats: imageStatsOfField("$userPhoto"),
+    replayable: photoReplayable("$userPhoto"),
+  }),
   {
     $set: {
-      retryOriginalId: { $convert: { input: "$retryOf", to: "objectId", onError: null, onNull: null } },
+      "imageStats.userPhoto": { $cond: [USES_ORIGINAL_PHOTO, "$retryOriginal.stats", "$imageStats.userPhoto"] },
+      userPhotoReplayable: { $cond: [USES_ORIGINAL_PHOTO, "$retryOriginal.replayable", "$userPhotoReplayable"] },
     },
   },
-  {
-    $lookup: {
-      from: lastMileTestLogModel.collection.name,
-      localField: "retryOriginalId",
-      foreignField: "_id",
-      pipeline: [{ $project: { _id: 0, userPhoto: 1 } }],
-      as: "retryOriginal",
-    },
-  },
-  { $set: { userPhoto: { $ifNull: ["$userPhoto", { $first: "$retryOriginal.userPhoto" }] } } },
   { $unset: ["retryOriginalId", "retryOriginal"] },
 ];
 const WITHOUT_IMAGES_STAGE = {
@@ -220,7 +259,7 @@ export class LastMileTestLogService {
           { $match: filter },
           { $sort: { serverTs: -1 } },
           { $limit: Math.max(1, Math.floor(limit)) },
-          ...RETRY_PHOTO_STAGES,
+          ...(includeRetries ? RETRY_PHOTO_STAGES : []),
         ])
         .allowDiskUse(true);
       return { source: "mongo", data };
@@ -260,8 +299,8 @@ export class LastMileTestLogService {
           },
           { $sort: { serverTs: -1 } },
           { $limit: Math.max(1, Math.floor(limit)) },
-          ...RETRY_PHOTO_STAGES,
           IMAGE_STATS_STAGE,
+          ...(includeRetries ? RETRY_PHOTO_STATS_STAGES : []),
           WITHOUT_IMAGES_STAGE,
         ])
         .allowDiskUse(true);
@@ -305,8 +344,8 @@ export class LastMileTestLogService {
         .map((id) => new mongoose.Types.ObjectId(id));
       return lastMileTestLogModel.aggregate<LastMileTestSummary>([
         { $match: { _id: { $in: valid } } },
-        ...RETRY_PHOTO_STAGES,
         IMAGE_STATS_STAGE,
+        ...RETRY_PHOTO_STATS_STAGES,
         WITHOUT_IMAGES_STAGE,
       ]);
     }

@@ -25,6 +25,7 @@ import {
   RETRY_LEASE_MS,
   withRenewedLease,
 } from "../../server/services/lastMileRetryRuns";
+import { proxiedRequestFields } from "../../server/middleware/upstreamProxy";
 import { asyncRoute } from "../../server/utils/asyncRoute";
 import { parseIdempotencyKey } from "../../server/utils/idempotencyKey";
 import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
@@ -33,6 +34,7 @@ import {
   LAST_MILE_PIPELINE_VERSION,
   UPSTREAM_PIPELINE_VERSION,
   buildReplayInput,
+  parseLastMetersRequest,
   replayRequest,
 } from "../../server/utils/lastMileReplay";
 import type { LastMileSensors } from "../../src/utils/lastMileSafety";
@@ -814,6 +816,18 @@ test("the CSV export includes a retry's photo", async () => {
   // One photo placeholder for the original and one for its retry.
   const placeholder = `[base64 image ${PHOTO.length} chars]`;
   assert.equal(csv.split(placeholder).length - 1, 2);
+});
+
+test("a proxied log's fields and its replay input come from the same parsed request", () => {
+  const parsed = parseLastMetersRequest({ destination: "  CVS  ", lat: 40.7128, lng: -74.006, heading: 92.5, gpsAccuracyMeters: 6 });
+  assert.ok(parsed);
+  const fields = proxiedRequestFields(parsed, PHOTO, RECEIVED_AT);
+  assert.equal(fields.destination, "CVS");
+  assert.equal(fields.replayInput.destination, fields.destination);
+  assert.equal(fields.replayInput.lat, fields.lat);
+  assert.equal(fields.replayInput.lng, fields.lng);
+  assert.equal(fields.replayInput.heading, fields.deviceHeading);
+  assert.equal(fields.replayInput.gpsAccuracyMeters, fields.gpsAccuracyMeters);
 });
 
 test("a proxied run is labeled upstream, not with this server's version and commit", async () => {
