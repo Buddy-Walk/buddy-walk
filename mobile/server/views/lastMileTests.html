@@ -1249,9 +1249,9 @@
             payload.testLogId ? '<button class="secondary open-history" data-id="' + esc(payload.testLogId) + '">Open history</button>' : '');
         })
         .catch(function (error) {
-          // A retired or unreachable original panorama does not stop a fresh retry.
-          // Coded refusals, such as another retry of this test running, are not about the panorama.
-          const offerFresh = panoramaMode === 'original' && !error.code && (error.status === 409 || error.status === 502);
+          // Only a retired original panorama is fixed by a fresh one. Other refusals,
+          // and Street View being unreachable, would stop a fresh retry too.
+          const offerFresh = panoramaMode === 'original' && error.code === 'original_panorama_retired';
           showToast(true, 'Retry did not run',
             '<b>' + esc(name) + '</b>, ' + esc(modeText) + '<br>' + esc(error.message),
             offerFresh

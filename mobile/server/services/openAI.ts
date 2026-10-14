@@ -42,7 +42,7 @@ import {
   type ReplayInput,
 } from "../utils/lastMileReplay";
 import type { RetryPanoramaMode } from "../database/models/lastMileTestLog";
-import { outdoorPanoramaRejection } from "../utils/outdoorPanorama";
+import { outdoorPanoramaRejection, panoramaIsGone } from "../utils/outdoorPanorama";
 import { selectOutdoorPanorama, parseSceneVerdict, SceneClassifier, PanoramaAudit, PanoramaAttempt, PanoramaSearchBudget } from "./outdoorPanoramaSelection";
 import {
   appendConversationHistory,
@@ -3072,7 +3072,8 @@ export async function classifyPanoramaScene(client: OpenAI, images: string[], ti
 /**
  * Metadata for one specific panorama. Throws with a STREET_VIEW_PANO_* code
  * when Google no longer serves it as a Google outdoor panorama, so a pinned
- * retry never silently falls back to a different panorama.
+ * retry never silently falls back to a different panorama. A refused or
+ * failed request, such as a key or quota error, throws without that code.
  */
 export async function fetchStreetViewPanoramaById(
   panoId: string,
@@ -3086,6 +3087,9 @@ export async function fetchStreetViewPanoramaById(
   );
   const metadata = { ...response.data, pano_id: response.data.pano_id ?? panoId };
   const rejection = outdoorPanoramaRejection(metadata);
+  if (rejection && !panoramaIsGone(rejection)) {
+    throw new Error(`Street View metadata returned ${rejection}`);
+  }
   if (rejection) {
     const panoError = new Error(
       `Street View panorama ${panoId} is no longer available: metadata returned ${rejection}.`,

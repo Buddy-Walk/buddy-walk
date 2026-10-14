@@ -303,6 +303,7 @@ test("a retired original panorama is reported, never swapped for a fresh one", a
   });
   const error = await retryError(retryLastMileTest(retryRequest("orig", "original"), fake.dependencies));
   assert.equal(error.status, 409);
+  assert.equal(error.code, "original_panorama_retired");
   assert.match(error.message, /no longer available.*fresh panorama/);
   assert.equal(fake.pipelineCalls.length, 0);
 });
@@ -316,7 +317,8 @@ test("Street View being unreachable is a 502, not a retired panorama", async () 
   });
   const error = await retryError(retryLastMileTest(retryRequest("orig", "original"), fake.dependencies));
   assert.equal(error.status, 502);
-  assert.match(error.message, /Could not reach Google Street View.*socket hang up/);
+  assert.equal(error.code, undefined);
+  assert.match(error.message, /Could not check the original panorama.*socket hang up/);
   assert.equal(fake.pipelineCalls.length, 0);
 });
 

@@ -329,11 +329,16 @@ async function runRetry(
     } catch (error: any) {
       const retired =
         typeof error?.code === "string" && error.code.startsWith("STREET_VIEW_PANO_");
+      if (retired) {
+        throw new LastMileRetryError(
+          409,
+          `${error.message} Retry with a fresh panorama instead.`,
+          "original_panorama_retired",
+        );
+      }
       throw new LastMileRetryError(
-        retired ? 409 : 502,
-        retired
-          ? `${error.message} Retry with a fresh panorama instead.`
-          : `Could not reach Google Street View to check the original panorama: ${error?.message ?? "unknown error"}.`,
+        502,
+        `Could not check the original panorama with Google Street View: ${error?.message ?? "unknown error"}.`,
       );
     }
   }
