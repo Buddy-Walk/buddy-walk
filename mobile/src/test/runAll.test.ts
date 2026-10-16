@@ -22,3 +22,4 @@ import '../utils/trainLine.test.ts';
 import '../utils/webAudioUnlock.test.ts';
 import '../utils/briefAiInstruction.test.ts';
 import '../api/companion.test.ts';
+import './mobileReviewPanorama.test.ts';
