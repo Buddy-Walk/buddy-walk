@@ -78,14 +78,14 @@ const realDependencies: RetryDependencies = {
   maxRunMs: RETRY_MAX_RUN_MS,
 };
 
-/**
- * Whether this server can run paid retries at all.
- *
- * TODO: Refuse retries again while ADMIN_TOKEN is unset, since the dashboard
- * is open to anyone then. The gate is off until the prod secrets move to
- * Infisical and ADMIN_TOKEN is set there.
- */
+/** Whether this server can run paid retries at all. */
 export function retryAvailability(): { available: boolean; reason?: string } {
+  if (!process.env.ADMIN_TOKEN?.trim()) {
+    return {
+      available: false,
+      reason: "Set ADMIN_TOKEN on this server before enabling retries, which make paid API calls.",
+    };
+  }
   if (!canRunLocalLastMile()) {
     return {
       available: false,
