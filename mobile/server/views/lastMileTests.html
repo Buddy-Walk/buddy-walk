@@ -249,10 +249,7 @@
     .confirm-dialog[open] { animation: confirm-in 0.16s ease-out; }
     @keyframes confirm-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
     .confirm-dialog form { padding: 20px 20px 16px; }
-    .confirm-dialog h2 { margin: 0 0 10px; font-size: 1.05rem; }
-    .confirm-dialog p { margin: 0 0 8px; font-size: 0.9rem; line-height: 1.5; }
-    .confirm-dialog p b { color: var(--replay-text); }
-    .confirm-dialog p.confirm-cost { color: var(--muted); font-size: 0.85rem; }
+    .confirm-dialog h2 { margin: 0; font-size: 1.05rem; }
     .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
     button.replay { background: var(--replay); border-color: var(--replay); color: #17112e; }
     button.replay:hover { background: var(--replay-text); border-color: var(--replay-text); }
@@ -440,10 +437,9 @@
   <div class="retry-menu" id="retryMenu" role="menu" aria-label="Choose a panorama for the retry" hidden></div>
   <div class="toasts" id="toasts"></div>
 
-  <dialog class="confirm-dialog" id="retryConfirm" aria-labelledby="retryConfirmTitle" aria-describedby="retryConfirmBody">
+  <dialog class="confirm-dialog" id="retryConfirm" aria-labelledby="retryConfirmTitle">
     <form method="dialog">
-      <h2 id="retryConfirmTitle">Run a paid retry?</h2>
-      <div id="retryConfirmBody"></div>
+      <h2 id="retryConfirmTitle">Are you sure?</h2>
       <div class="confirm-actions">
         <button class="secondary" value="cancel">Cancel</button>
         <button class="replay" value="run" autofocus>Run retry</button>
@@ -1207,12 +1203,8 @@
     }
 
     /** Asks before a retry spends money; resolves true when the reviewer runs it. */
-    function confirmPaidRetry(name, panoramaMode) {
+    function confirmPaidRetry() {
       const dialog = document.getElementById('retryConfirm');
-      const panorama = panoramaMode === 'original' ? 'its original panorama' : 'a fresh panorama';
-      document.getElementById('retryConfirmBody').innerHTML =
-        '<p><b>' + esc(name) + '</b> runs again with ' + panorama + ', from its stored photo and inputs.</p>' +
-        '<p class="confirm-cost">This makes paid Google and OpenAI calls. The original test is kept, and the result is saved as a retry, not a field test.</p>';
       dialog.returnValue = '';
       dialog.showModal();
       return new Promise(function (resolve) {
@@ -1857,7 +1849,7 @@
         const mode = option.getAttribute('data-mode');
         closeRetryMenu(true);
         if (!test) return;
-        confirmPaidRetry(testName(test), mode).then(function (confirmed) {
+        confirmPaidRetry().then(function (confirmed) {
           if (confirmed) runRetry(idOf(test), originalIdOf(test), testName(test), mode);
         });
         return;
@@ -1877,7 +1869,7 @@
         const toast = toastRetry.closest('.toast');
         const name = toastRetry.getAttribute('data-name');
         const mode = toastRetry.getAttribute('data-mode');
-        confirmPaidRetry(name, mode).then(function (confirmed) {
+        confirmPaidRetry().then(function (confirmed) {
           if (!confirmed) return;
           toast.remove();
           runRetry(toastRetry.getAttribute('data-id'), toastRetry.getAttribute('data-original-id'), name, mode);
