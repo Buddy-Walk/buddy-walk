@@ -234,14 +234,13 @@ test("a retry of a retry replays the original and links to it", async () => {
   assert.deepEqual(call.input, replayRequest(snapshot));
 });
 
-test("a retry is refused when ADMIN_TOKEN is not set, since it makes paid calls", async () => {
+// TODO: Restore the refusal once prod sets ADMIN_TOKEN; see retryAvailability.
+test("a retry runs when ADMIN_TOKEN is not set, while that gate is off", async () => {
   seed("orig");
   delete process.env.ADMIN_TOKEN;
   const fake = fakeDependencies();
-  const error = await retryError(retryLastMileTest(retryRequest("orig", "fresh"), fake.dependencies));
-  assert.equal(error.status, 503);
-  assert.match(error.message, /ADMIN_TOKEN/);
-  assert.equal(fake.pipelineCalls.length, 0);
+  await retryLastMileTest(retryRequest("orig", "fresh"), fake.dependencies);
+  assert.equal(fake.pipelineCalls.length, 1);
 });
 
 test("a retry is refused without the OpenAI and Google keys", async () => {

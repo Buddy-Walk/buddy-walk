@@ -194,16 +194,17 @@
     }
     .field label.toggle { display: flex; margin: 0; align-items: center; gap: 8px; height: 36px; color: var(--text); font-size: 0.88rem; cursor: pointer; }
     .field label.toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--replay); }
-    .retry-off { display: none; margin: 0 0 14px; color: var(--muted); font-size: 0.85rem; }
-    .retry-off b { color: var(--text); }
+    .retry-off { display: none; margin: 0 0 16px; padding: 10px 14px; border: 1px solid rgba(252, 211, 77, 0.35); border-left: 3px solid #fcd34d; border-radius: 8px; background: rgba(252, 211, 77, 0.08); color: var(--text); font-size: 0.88rem; line-height: 1.5; }
+    .retry-off b { color: #fcd34d; }
 
     button.retry-trigger { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px 6px 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
     button.retry-trigger::after { content: ""; width: 10px; height: 10px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23a9b1be' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center / 10px 10px; }
     button.retry-trigger:hover:not(:disabled), button.retry-trigger[aria-expanded="true"] { border-color: var(--replay); }
     button.retry-trigger.running { border-color: var(--replay-line); background: var(--replay-soft); color: var(--replay-text); opacity: 1; cursor: progress; }
     button.retry-trigger.running::after { display: none; }
-    .retry-cell { min-width: 140px; }
-    .retry-reason { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 200px; margin-top: 6px; color: var(--quiet); font-size: 0.76rem; line-height: 1.35; }
+    .retry-cell { min-width: 200px; }
+    .retry-reason { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; max-width: 220px; margin-top: 6px; color: var(--muted); font-size: 0.78rem; line-height: 1.4; }
+    .retry-reason b { display: block; color: #fcd34d; }
     .retry-fills { max-width: 200px; margin-top: 6px; color: #fcd34d; font-size: 0.76rem; line-height: 1.35; }
 
     .spinner { width: 12px; height: 12px; flex: none; border: 2px solid var(--replay-line); border-top-color: var(--replay); border-radius: 50%; animation: spin 0.8s linear infinite; }
@@ -894,14 +895,22 @@
         (blocked ? ' disabled title="' + esc(blocked) + '"' : '') + '>Retry</button>';
     }
 
+    /** Labels a reason as the cause of a disabled Retry, so it doesn't read as notes on the test. */
+    function retryReasonHtml(text, title, style) {
+      return '<div class="retry-reason"' + (title ? ' title="' + esc(title) + '"' : '') + (style ? ' style="' + style + '"' : '') + '>' +
+        '<b>Can\'t retry</b>' + esc(text) + '</div>';
+    }
+
     /** List cell: the trigger, plus why it is off or which values a replay fills in. */
     function retryCellHtml(test) {
       const replay = test.replay || {};
       const fills = replay.defaultsApplied || [];
-      // A server-wide reason is shown once above the list, not on every row.
-      const reason = retryInfo.available ? retryBlockedReason(test) : '';
+      // The column sits off-screen past the table's scroll, so every disabled button says why.
+      const reason = runningRetries[originalIdOf(test)] ? '' : retryBlockedReason(test);
+      // A server-wide reason is spelled out once in the banner above the list.
+      const shown = retryInfo.available ? reason : 'Retries are off on this server. See the note above the list.';
       return '<div class="retry-cell">' + retryTriggerHtml(test) +
-        (reason ? '<div class="retry-reason" title="' + esc(reason) + '">' + esc(reason) + '</div>' : '') +
+        (reason ? retryReasonHtml(shown, reason) : '') +
         (!reason && fills.length
           ? '<div class="retry-fills" title="' + esc(fills.join('; ')) + '">Fills in ' + fills.length + (fills.length === 1 ? ' value' : ' values') + '</div>'
           : '') +
@@ -1362,7 +1371,7 @@
         '<div class="history-head"><div><h3>Retry history</h3><div class="small">' + esc(subtitle) + '</div></div>' +
           '<div class="history-tools">' + (retries.length > 1 || (retries.length && running) ? historyOrderHtml() : '') +
             retryTriggerHtml(test) + '</div></div>' +
-        (blocked && !running ? '<div class="retry-reason" style="max-width:none;-webkit-line-clamp:unset;margin:-4px 0 12px">' + esc(blocked) + '</div>' : '') +
+        (blocked && !running ? retryReasonHtml(blocked, '', 'max-width:none;-webkit-line-clamp:unset;margin:-4px 0 12px') : '') +
         '<div class="history-scroll" tabindex="0" role="region" aria-label="Retry runs"><table class="history-table"><thead><tr>' +
           '<th>Run</th><th>Ran at</th><th>Panorama</th><th>Result and final output</th><th>Review</th><th>Pipeline</th>' +
         '</tr></thead><tbody>' + originalHtml + runs.join('') + '</tbody></table></div>' +

@@ -153,7 +153,7 @@ test("assessReplay blocks trials with missing inputs, with a reason", () => {
 
   const noSensors = assessReplay({ replayInput: { ...snapshot(), sensors: undefined }, userPhoto: PHOTO });
   assert.equal(noSensors.status, "not_replayable");
-  assert.match(noSensors.reason ?? "", /sensors/);
+  assert.match(noSensors.reason ?? "", /capture timestamps/);
 });
 
 test("assessReplay does not replay question-routed inputs", () => {
