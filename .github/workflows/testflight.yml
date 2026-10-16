@@ -4,6 +4,12 @@ name: Build and Submit iOS to TestFlight
 # Requires EXPO_TOKEN in repo secrets.
 on:
   workflow_dispatch:
+    inputs:
+      inspect_build_id:
+        description: "Inspect an existing EAS build without starting or submitting another build"
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: testflight-production
@@ -35,6 +41,7 @@ jobs:
         run: npm install --global eas-cli
 
       - name: Build and submit production iOS app
+        if: ${{ inputs.inspect_build_id == '' }}
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
@@ -43,3 +50,37 @@ jobs:
             exit 1
           fi
           eas build --platform ios --profile production --auto-submit --non-interactive
+
+      - name: Inspect existing EAS build
+        if: ${{ inputs.inspect_build_id != '' }}
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_INSPECT_BUILD_ID: ${{ inputs.inspect_build_id }}
+        run: |
+          eas build:view "$EAS_INSPECT_BUILD_ID" --json > "$RUNNER_TEMP/eas-build.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const build = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/eas-build.json`, 'utf8'));
+          console.log(`Build ${build.id}: ${build.status}`);
+          console.log(JSON.stringify({ error: build.error, buildNumber: build.appBuildVersion }));
+          const relevant = [];
+          const clean = value => String(value)
+            .replace(/\u001b\[[0-9;]*m/g, '')
+            .replace(/https?:\/\/[^\s"'<>]+/g, url => url.split('?')[0])
+            .replaceAll(process.env.EXPO_TOKEN || '\u0000', '[REDACTED]');
+          for (const entry of build.logFiles || []) {
+            const response = await fetch(typeof entry === 'string' ? entry : entry.url);
+            if (!response.ok) throw new Error(`Build log download returned HTTP ${response.status}`);
+            const log = await response.text();
+            for (const raw of log.split('\n')) {
+              let event;
+              try { event = JSON.parse(raw); } catch { event = { msg: raw }; }
+              const message = event.msg ?? event.message ?? raw;
+              if (/INSTALL_DEPENDENCIES/i.test(event.phase || '') ||
+                  /npm (?:error|ERR!)|ERESOLVE|EUSAGE|EBADENGINE|lock ?file|error:|error |requires|expected|could not resolve|npm ci|yarn install/i.test(message)) {
+                relevant.push(clean(message));
+              }
+            }
+          }
+          console.log(relevant.slice(-100).join('\n'));
+          NODE
