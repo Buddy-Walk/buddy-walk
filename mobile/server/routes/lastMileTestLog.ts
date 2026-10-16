@@ -7,7 +7,8 @@ const lastMileTestLogController = new LastMileTestLogController();
 route.get("/", (req, res) => lastMileTestLogController.list(req, res));
 route.get("/export.csv", (req, res) => lastMileTestLogController.exportCsv(req, res));
 route.get("/evaluation", (req, res) => lastMileTestLogController.evaluation(req, res));
-route.post("/:id/replay", (req, res) => lastMileTestLogController.replay(req, res));
+// Mykael (#35, mykael-dashboard-retry-test): register POST /:id/retry here
+// with his controller/service. The duplicate /:id/replay route was removed.
 route.get("/:id", (req, res) => lastMileTestLogController.getOne(req, res));
 route.patch("/:id/review", (req, res) => lastMileTestLogController.updateReview(req, res));
 

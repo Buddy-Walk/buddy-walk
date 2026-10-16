@@ -29,6 +29,8 @@ export interface lastMileTestStepInterface {
 export interface lastMileTestLogInterface {
   pipelineVersion?: string;
   deployedCommit?: string;
+  // Retain stored lineage and input snapshots for existing rows and Mykael's
+  // retry integration (#35); the field pipeline only writes runKind "field".
   runKind?: "field" | "replay";
   retryOf?: string;
   replayInput?: ReplayInput;

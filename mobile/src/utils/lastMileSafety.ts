@@ -55,3 +55,22 @@ export function sensorSafetyReasons(
 }
 
 export const RECAPTURE_MESSAGE = "I cannot verify your current position and orientation well enough for a precise turn. Stay in a safe place, hold the phone steady, and take a new photo. Make sure the app is updated and precise location is enabled.";
+
+export function buildSensorRecaptureMessage(reasons: readonly string[]): string {
+  if (reasons.includes("capture_metadata_missing")) {
+    return "This photo is missing capture-time sensor information. Update Buddy Walk, reopen the app, and take a new photo before using Last Meters. I cannot provide a precise turn from this capture.";
+  }
+  if (reasons.includes("gps_uncertain") || reasons.includes("current_gps_unavailable")) {
+    return "Your phone has not provided a fresh, precise location reading. Stay in a safe place, enable precise location for Buddy Walk, wait for GPS to settle, and take a new photo. I cannot provide a precise turn yet.";
+  }
+  if (reasons.includes("true_north_unavailable") || reasons.includes("current_heading_unavailable") || reasons.includes("compass_not_high_accuracy")) {
+    return "Your phone compass is unavailable or not calibrated well enough for a precise turn. Stay in a safe place, move the phone in a slow figure eight to recalibrate it, then hold it steady and take a new photo.";
+  }
+  if (reasons.includes("moved_since_capture") || reasons.includes("turned_since_capture")) {
+    return "Your phone moved or turned since the photo was taken. Stay in a safe place, hold the phone steady, and take a new photo before requesting a turn.";
+  }
+  if (reasons.includes("photo_stale") || reasons.includes("capture_gps_stale") || reasons.includes("capture_heading_stale")) {
+    return "The photo or its capture-time sensor readings are too old for a precise turn. Stay in a safe place and take a new photo, then request Last Meters promptly.";
+  }
+  return RECAPTURE_MESSAGE;
+}

@@ -31,7 +31,7 @@ import {
   pedestrianRampInterface,
 } from "../database/models/features";
 import sharp from "sharp";
-import { LastMileSensors, sensorSafetyReasons, RECAPTURE_MESSAGE } from "../../src/utils/lastMileSafety";
+import { LastMileSensors, sensorSafetyReasons, buildSensorRecaptureMessage, validPoint } from "../../src/utils/lastMileSafety";
 import { evaluateWalkingLeg, preciseTurnReasons, WalkingEvidence } from "../utils/lastMilePolicy";
 import { LAST_MILE_PIPELINE_VERSION, photoHash, ReplayInput } from "../utils/lastMileReplay";
 import { outdoorPanoramaRejection } from "../utils/outdoorPanorama";
@@ -695,6 +695,9 @@ export class OpenAIService {
   }
 
   // --- LAST METERS NAVIGATION PIPELINE ---
+  // Mykael (#35): extract shared execution into his runLastMeters pipeline
+  // when integrating retries. This mobile entry point uses live receipt time;
+  // stored input snapshots below remain available without a replay endpoint.
   async lastMileRequest(
     ctx: AppContext,
     lat: number,
@@ -705,16 +708,13 @@ export class OpenAIService {
     gpsAccuracyMeters?: number,
     compassAccuracyLevel?: number,
     sensors?: LastMileSensors,
-    execution?: { retryOf: string; evaluationTime: number },
   ) {
     const { res } = ctx;
     const startedAt = Date.now();
-    const evaluationTime = execution?.evaluationTime ?? startedAt;
-    const safetyNow = () => evaluationTime + Date.now() - startedAt;
     let safetyReasons: string[] = [];
     let walkingEvidence: WalkingEvidence = { verified: false, reason: "walking_route_not_checked" };
     let panoramaTargetHeading: number | undefined;
-    const replayInput: ReplayInput = { schemaVersion: 1, receivedAt: evaluationTime, lat, lng, destination,
+    const replayInput: ReplayInput = { schemaVersion: 1, receivedAt: startedAt, lat, lng, destination,
       heading: deviceHeading, gpsAccuracyMeters, compassAccuracyLevel, sensors,
       originalPhotoSha256: photoHash(image), photoRepresentation: "stored-compressed" };
     let activeStage = "destination proximity check";
@@ -736,6 +736,7 @@ export class OpenAIService {
     let panoramaPhoto: string | undefined;
     let panoramaDate: string | undefined;
     let panoramaStatus: string | undefined;
+    let panoramaSource: "pipeline" | "background" | undefined;
     const panoramaValidation: PanoramaAttempt[] = [];
     const auditPanorama: PanoramaAudit = attempt => panoramaValidation.push(attempt);
     const classifyPanorama: SceneClassifier = (images, timeoutMs) => classifyPanoramaScene(this.client, images, timeoutMs);
@@ -777,8 +778,7 @@ export class OpenAIService {
     const trialContext = () => ({
       pipelineVersion: LAST_MILE_PIPELINE_VERSION,
       deployedCommit: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || "local-unversioned",
-      runKind: execution ? "replay" as const : "field" as const,
-      retryOf: execution?.retryOf,
+      runKind: "field" as const,
       replayInput,
       safetyReasons,
       walkingEvidence,
@@ -792,7 +792,7 @@ export class OpenAIService {
       panoramaDate,
       panoramaStatus,
       panoramaValidation,
-      panoramaSource: panoramaPhoto ? ("pipeline" as const) : undefined,
+      panoramaSource: panoramaSource ?? (panoramaPhoto ? ("pipeline" as const) : undefined),
       panoId,
       panoramaCopyright,
       panoramaAgeYears,
@@ -850,16 +850,15 @@ export class OpenAIService {
         ...outcome,
       });
 
-    const withhold = async (reasons: string[], message = RECAPTURE_MESSAGE) => {
+    const withhold = async (reasons: string[], message = buildSensorRecaptureMessage(reasons)) => {
       safetyReasons = [...new Set(reasons)];
       testSteps.push({ name: "turn_safety_gate", prompt: "Require sufficient evidence before any precise turn.",
         response: safetyReasons.join("; "), model: "deterministic-safety-policy", success: false });
       const testLogId = await recordTrial({ finalOutput: message, success: false, error: "turn_withheld" });
       res.status(200).json({ output: message, testLogId, warning: "turn_withheld", safetyReasons,
         guidanceKind: "withheld", targetHeading: null, pipelineVersion: LAST_MILE_PIPELINE_VERSION });
+      return testLogId;
     };
-    const initialSensorReasons = sensorSafetyReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow());
-    if (initialSensorReasons.length) { await withhold(initialSensorReasons); return; }
 
     console.log("\n==================================================");
     console.log("📥 [BACKEND] HIT RECEIVED ON /api/last-mile route!");
@@ -923,6 +922,19 @@ export class OpenAIService {
       success: true,
     });
 
+    const initialSensorReasons = sensorSafetyReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, Date.now());
+    if (initialSensorReasons.length) {
+      // Missing capture evidence prevents guidance, but must not prevent a
+      // validated panorama from being saved for review of this mobile trial.
+      const reviewLocationAvailable = validPoint({ lat, lng });
+      if (reviewLocationAvailable) panoramaSource = "background";
+      const testLogId = await withhold(initialSensorReasons);
+      if (reviewLocationAvailable && testLogId) {
+        void saveBackgroundPanorama(testLogId, processPanoramaTiles(lat, lng, classifyPanorama, auditPanorama));
+      }
+      return;
+    }
+
     try {
       const proximityPrompt =
         `Resolve "${destinationQuery}" near the user's coordinates and use exact ` +
@@ -982,6 +994,7 @@ export class OpenAIService {
           testLogId,
           testScenario,
           warning: "destination_not_verified",
+          guidanceKind: "withheld",
         });
         return;
       }
@@ -1195,7 +1208,7 @@ export class OpenAIService {
           "Stay in a safe place and use your primary navigation or ask for assistance." + closedNotice + buildLastMileSourceNote(null);
         const testLogId = await recordTrial({ finalOutput, success: false, error: "no_validated_outdoor_panorama" });
         res.status(200).json({ output: finalOutput, testLogId, mode: navigationMode, testScenario,
-          currentHeading, targetHeading: null, warning: "no_validated_outdoor_panorama" });
+          currentHeading, targetHeading: null, warning: "no_validated_outdoor_panorama", guidanceKind: "withheld" });
         return;
       }
       let targetHeading: number | null = null;
@@ -1378,6 +1391,7 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
           mode: navigationMode,
           testScenario,
           warning: "compass_heading_unavailable",
+          guidanceKind: "withheld",
         });
         return;
       }
@@ -1403,6 +1417,7 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
           currentHeading,
           confidenceLevel: "low",
           warning: "heading_sources_disagree",
+          guidanceKind: "withheld",
         });
         return;
       }
@@ -1690,7 +1705,7 @@ Use VISIBLE only when the storefront, sign, or entrance clearly corresponds to t
         compassAccuracy: compassAccuracyLevel, gpsAccuracy: gpsAccuracyMeters, distanceMeters,
         entranceListed: entranceSource === "geocoding_entrance",
         visualTargetMatched: visualMatchAgreesWithMap || signTextMatched === true || destinationReferenceUsed,
-        walking: walkingEvidence, sensorReasons: sensorSafetyReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime) });
+        walking: walkingEvidence, sensorReasons: sensorSafetyReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, Date.now(), startedAt) });
       if (turnReasons.length) { await withhold(turnReasons, "I cannot verify the entrance and your orientation well enough for a precise turn. Stay in a safe place and use your primary walking navigation or ask for assistance. Entrance accessibility has not been verified."); return; }
       // Visual bearings remain camera-origin evidence. Guidance uses phone-origin geometry.
       targetHeading = destinationBearing;
@@ -1783,7 +1798,7 @@ Keep the response to two short sentences and do not repeat the turn instruction.
       );
       console.log("=========================================\n");
 
-      const lateReasons = sensorSafetyReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime);
+      const lateReasons = sensorSafetyReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, Date.now(), startedAt);
       if (lateReasons.length) { await withhold(lateReasons); return; }
       const finalOutput =
         `${turnInstruction} ${distanceSentence} Landmarks: ${landmarksGuidance}` +
@@ -1804,6 +1819,7 @@ Keep the response to two short sentences and do not repeat the turn instruction.
         targetHeading,
         confidenceLevel,
         confidenceScore,
+        guidanceKind: "orientation",
       });
     } catch (error: any) {
       const upstreamStatus = error?.status ?? error?.response?.status;
@@ -2935,8 +2951,8 @@ async function fetchSignCloseUps(
 }
 
 /**
- * Approach and aligned trials answer before any panorama is needed; this
- * saves one afterwards so reviewers can still judge the scene.
+ * Approach, aligned, and sensor-blocked mobile trials answer before a panorama
+ * is needed; save one afterwards for review, never as turn evidence.
  */
 async function saveBackgroundPanorama(
   testLogId: string | undefined,

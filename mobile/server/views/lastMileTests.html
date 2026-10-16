@@ -814,12 +814,8 @@
         renderModuleBlock(modules.moduleE) +
         finalGuidanceHtml +
         reviewHtml;
-      var replay = test.replayCompatibility;
-      if (replay) {
-        document.getElementById('lmDetailBody').insertAdjacentHTML('beforeend',
-          '<p>' + esc(replay.reason) + '</p><button type="button" class="replay-btn" data-id="' + esc(idOf(test)) + '"' +
-          (replay.replayable ? '' : ' disabled') + '>Run replay</button><p class="replay-result" role="status"></p>');
-      }
+      // Mykael (#35): append his Retry action/history here once getOne exposes
+      // his assessment. His controls use POST /:id/retry, not a second replay flow.
     }
 
     // --- Row Facts ---
@@ -1029,24 +1025,8 @@
     });
 
     document.body.addEventListener('click', function (e) {
-      if (e.target.classList.contains('replay-btn')) {
-        if (!window.confirm('Run a new replay using paid Google/OpenAI calls? The original trial is preserved. This is not a field test.')) return;
-        var replayButton = e.target;
-        replayButton.disabled = true;
-        var replayStatus = document.querySelector('.replay-result');
-        replayStatus.textContent = 'Running replay...';
-        fetch(window.location.origin + '/api/last-mile-tests/' + encodeURIComponent(replayButton.getAttribute('data-id')) + '/replay' + qs(false), {
-          method: 'POST', headers: authHeaders()
-        }).then(function(res) { return res.json().then(function(payload) {
-          if (!res.ok) throw new Error(payload.error || 'HTTP ' + res.status);
-          return payload;
-        }); }).then(function(payload) {
-          replayStatus.textContent = 'Replay trial: ' + (payload.result.testLogId || 'not persisted') + '. ' + payload.result.output;
-          load();
-        }).catch(function(error) { replayStatus.textContent = 'Replay failed: ' + error.message; })
-          .finally(function() { replayButton.disabled = false; });
-        return;
-      }
+      // Mykael (#35): dispatch his retry controls before row-detail clicks,
+      // using his confirmation and idempotency flow for POST /:id/retry.
       // Clicking anywhere on a trial row opens its detail, same as the View button.
       // Any other control placed in a row keeps its own behavior, and a click that
       // ends a drag-selection is ignored so addresses can still be copied.

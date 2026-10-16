@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
-import { LastMileSensors, sensorSafetyReasons, RECAPTURE_MESSAGE } from "../utils/lastMileSafety";
+import { LastMileSensors, sensorSafetyReasons, buildSensorRecaptureMessage, validPoint } from "../utils/lastMileSafety";
 import {
   View,
   ScrollView,
@@ -1425,12 +1425,15 @@ export default function MainScreen({ navigation }: Props) {
       const position = { lat: loc?.coords.latitude ?? NaN, lng: loc?.coords.longitude ?? NaN };
       const captureHeading = capturedPhotoHeadingRef.current ?? undefined;
       const sensors = makeSensors();
-      if (!loc || sensorSafetyReasons(sensors, position, captureHeading, loc.coords.accuracy ?? undefined).length) {
-        setAiResponse(RECAPTURE_MESSAGE);
-        speak(RECAPTURE_MESSAGE, { preferDevice: true });
+      if (!loc || !validPoint(position)) {
+        const message = buildSensorRecaptureMessage(["current_gps_unavailable"]);
+        setAiResponse(message);
+        speak(message, { preferDevice: true });
         return;
       }
 
+      // Send the actual capture metadata even if a sensor is stale or missing.
+      // The API records the reason, withholds the turn, and saves review imagery.
       const data = await sendLastMileRequest(
         {
           lat: loc.coords.latitude,
@@ -1447,9 +1450,11 @@ export default function MainScreen({ navigation }: Props) {
       );
 
       if (controller.signal.aborted || lastMileAbortRef.current !== controller) return;
-      if (sensorSafetyReasons(makeSensors(), position, captureHeading, loc.coords.accuracy ?? undefined).length) {
-        setAiResponse(RECAPTURE_MESSAGE);
-        speak(RECAPTURE_MESSAGE, { preferDevice: true });
+      const liveSensorReasons = sensorSafetyReasons(makeSensors(), position, captureHeading, loc.coords.accuracy ?? undefined);
+      if (data.guidanceKind !== "withheld" && liveSensorReasons.length) {
+        const message = buildSensorRecaptureMessage(liveSensorReasons);
+        setAiResponse(message);
+        speak(message, { preferDevice: true });
         return;
       }
       if (data.output) {

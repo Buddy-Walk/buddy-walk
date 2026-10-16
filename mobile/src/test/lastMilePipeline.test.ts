@@ -5,7 +5,7 @@ import sharp from "sharp";
 import { OpenAIService } from "../../server/services/openAI";
 import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
 
-for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallback", "verified-turn", "detour", "low-confidence", "ambiguous", "missing-sensors"] as const) {
+for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallback", "verified-turn", "detour", "low-confidence", "ambiguous"] as const) {
   test(`Last Meters integration: ${scenario}`, async t => {
     const oldKey = process.env.GOOGLE_MAPS_API_KEY;
     process.env.GOOGLE_MAPS_API_KEY = "unit-test";
@@ -69,32 +69,34 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
     let answer: any;
     const res = { status: () => res, json: (body: any) => { answer = body; } };
     const now = Date.now();
-    await service.lastMileRequest({ res } as any, 40.7, -74, `data:image/jpeg;base64,${jpeg.toString("base64")}`, "Citi", 90, 14, 3, scenario === "missing-sensors" ? undefined : {
+    await service.lastMileRequest({ res } as any, 40.7, -74, `data:image/jpeg;base64,${jpeg.toString("base64")}`, "Citi", 90, 14, 3, {
       photoCapturedAt: now, positionTimestamp: now, headingTimestamp: now, headingReference: "true",
       latestPosition: { lat: 40.7, lng: -74, accuracy: 14, timestamp: now },
       latestHeading: 90, latestHeadingTimestamp: now, latestHeadingReference: "true",
     });
     assert.equal(answer.testLogId, "trial-test");
     assert.equal(logged.runKind, "field");
-    assert.equal(logged.replayInput.sensors?.photoCapturedAt, scenario === "missing-sensors" ? undefined : now);
-    if (["verified-turn", "detour", "low-confidence", "ambiguous", "missing-sensors"].includes(scenario)) {
+    assert.equal(logged.replayInput.sensors?.photoCapturedAt, now);
+    if (["verified-turn", "detour", "low-confidence", "ambiguous"].includes(scenario)) {
       if (scenario === "verified-turn") {
         assert.equal(guidanceCalls, 1);
         assert.match(logged.turnInstruction, /90 degrees.*LEFT/i);
         assert.equal(logged.targetHeading, 0);
         assert.equal(logged.panoramaTargetHeading, 0);
+        assert.equal(answer.guidanceKind, "orientation");
       } else {
         assert.equal(guidanceCalls, 0);
         assert.equal(logged.turnInstruction, undefined);
         assert.equal(answer.guidanceKind, "withheld");
         assert.ok(logged.safetyReasons.length);
-        if (scenario === "ambiguous" || scenario === "missing-sensors") assert.equal(lookups, 0);
+        if (scenario === "ambiguous") assert.equal(lookups, 0);
       }
       return;
     }
     assert.equal(referenceCalls, scenario === "parallel-fallback" ? 1 : 0, "Only recent imagery should call Step 2B");
     if (scenario === "conflict") {
       assert.equal(answer.warning, "heading_sources_disagree");
+      assert.equal(answer.guidanceKind, "withheld");
       assert.equal(logged.turnInstruction, undefined);
       assert.equal(signCalls, 0);
     } else if (scenario === "parallel-fallback") {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { LastMileTestLogController } from "../../server/controllers/lastMileTestLog";
 import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
-import { OpenAIService } from "../../server/services/openAI";
+import lastMileTestLogRoute from "../../server/routes/lastMileTestLog";
 import model from "../../server/database/models/lastMileTestLog";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -10,42 +10,19 @@ import vm from "node:vm";
 function response() {
   return { code: 200, body: undefined as any, status(code: number) { this.code = code; return this; }, json(body: any) { this.body = body; return this; } };
 }
-test("replay endpoint authenticates, rejects legacy inputs, limits paid runs, and preserves source", async t => {
-  const env = { ADMIN_TOKEN: process.env.ADMIN_TOKEN, OPENAI_API_KEY: process.env.OPENAI_API_KEY, GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY };
-  Object.assign(process.env, { ADMIN_TOKEN: "unit-token", OPENAI_API_KEY: "unit-test", GOOGLE_MAPS_API_KEY: "unit-test" });
-  t.after(() => { for (const [k, v] of Object.entries(env)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
-  const controller = new LastMileTestLogController();
-  const req = { headers: { "x-admin-token": "unit-token" }, query: {}, params: { id: "source-trial" } } as any;
-  const unauthorized = response();
-  await controller.replay({ ...req, headers: {} }, unauthorized as any);
-  assert.equal(unauthorized.code, 401);
-  let row: any = {};
-  t.mock.method(lastMileTestLogService, "getById", async () => row);
-  const legacy = response();
-  await controller.replay(req, legacy as any);
-  assert.equal(legacy.code, 422);
-  row = { userPhoto: "data:image/jpeg;base64,test", replayInput: { schemaVersion: 1, lat: 40.7, lng: -74,
-    destination: "Citi", receivedAt: 1000, sensors: {}, heading: 90 } };
-  const unchanged = JSON.stringify(row);
-  let calls = 0;
-  t.mock.method(OpenAIService.prototype, "lastMileRequest", async (...args: any[]) => {
-    calls++;
-    assert.deepEqual(args[9], { retryOf: "source-trial", evaluationTime: 1000 });
-    assert.equal(args[3], row.userPhoto);
-    args[0].res.json({ testLogId: "new-replay-trial", output: "Withheld" });
+test("removed replay endpoint falls through without loading or executing a trial", async t => {
+  t.mock.method(lastMileTestLogService, "getById", async () => { assert.fail("The retired route must not load a trial"); });
+  const res = response();
+  const req = { method: "POST", url: "/source-trial/replay", headers: { "x-admin-token": "unit-token" } };
+  await new Promise<void>((resolve, reject) => {
+    (lastMileTestLogRoute as any).handle(req, res, (error: unknown) => {
+      if (error) { reject(error); return; }
+      res.status(404);
+      resolve();
+    });
   });
-  for (let i = 0; i < 3; i++) {
-    const result = response();
-    await controller.replay(req, result as any);
-    assert.equal(result.code, 200);
-    assert.equal(result.body.replay, true);
-    assert.equal(result.body.result.testLogId, "new-replay-trial");
-  }
-  const limited = response();
-  await controller.replay(req, limited as any);
-  assert.equal(limited.code, 429);
-  assert.equal(calls, 3);
-  assert.equal(JSON.stringify(row), unchanged);
+  assert.equal(res.code, 404);
+  assert.equal(res.body, undefined);
 });
 test("evaluation endpoint returns a controlled error on database failure", async t => {
   const token = process.env.ADMIN_TOKEN;
@@ -81,6 +58,7 @@ test("trial detail opts into saved Street View blobs without changing list behav
   assert.deepEqual(requested, { includeStreetView: true });
   assert.equal(res.body.data.panoramaPhoto, photo);
   assert.equal(res.body.data.destinationPhoto, photo);
+  assert.equal("replayCompatibility" in res.body.data, false);
 });
 
 test("dashboard renders saved panoramas, decimal headings and missing-image explanations", () => {
