@@ -51,9 +51,11 @@ jobs:
           cache-dependency-path: mobile/package-lock.json
 
       - name: Install dependencies
+        if: ${{ inputs.operation != 'inspect-submission' }}
         run: npm ci
 
       - name: Install EAS CLI
+        if: ${{ inputs.operation != 'inspect-submission' }}
         run: npm install --global eas-cli
 
       - name: Build and submit production iOS app
@@ -79,7 +81,7 @@ jobs:
           EAS_SUBMIT_BUILD_ID: ${{ inputs.build_id }}
         run: |
           test -n "$EAS_SUBMIT_BUILD_ID"
-          eas submit --platform ios --profile production --id "$EAS_SUBMIT_BUILD_ID" --non-interactive --wait
+          eas submit --platform ios --profile production --id "$EAS_SUBMIT_BUILD_ID" --non-interactive --wait --verbose
 
       - name: Inspect existing EAS build
         if: ${{ inputs.operation == 'inspect' }}
@@ -135,7 +137,7 @@ jobs:
               query: `query InspectSubmission($submissionId: ID!) {
                 submissions {
                   byId(submissionId: $submissionId) {
-                    id status error { errorCode message } logFiles
+                    id status createdAt completedAt error { errorCode message } logFiles
                   }
                 }
               }`,
@@ -152,7 +154,9 @@ jobs:
           if (result.errors?.length) throw new Error(clean(JSON.stringify(result.errors)));
           const submission = result.data?.submissions?.byId;
           if (!submission) throw new Error('Submission was not found');
-          console.log(clean(JSON.stringify({ id: submission.id, status: submission.status, error: submission.error })));
+          console.log(clean(JSON.stringify({ id: submission.id, status: submission.status,
+            createdAt: submission.createdAt, completedAt: submission.completedAt,
+            error: submission.error, logFileCount: submission.logFiles?.length ?? 0 })));
           const relevant = [];
           for (const entry of submission.logFiles || []) {
             const logResponse = await fetch(typeof entry === 'string' ? entry : entry.url);
