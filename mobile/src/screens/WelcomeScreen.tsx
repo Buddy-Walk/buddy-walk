@@ -7,6 +7,7 @@ import { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Welcome'>;
 
+/** Present the introductory mobile screen and its accessible entry into account onboarding. */
 export default function WelcomeScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container}>
@@ -21,7 +22,7 @@ export default function WelcomeScreen({ navigation }: Props) {
 
         <Button
           mode="contained"
-          onPress={() => navigation.navigate('Auth')}
+          onPress={/* Start onboarding by opening the authentication screen. */ () => navigation.navigate('Auth')}
           style={styles.button}
           contentStyle={styles.buttonContent}
           labelStyle={styles.buttonLabel}

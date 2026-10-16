@@ -19,20 +19,30 @@ const CHATLOG_CSV_COLUMNS = [
 ];
 
 export class ChatLogController {
+  /**
+   * Create a conversation log from the request body and return the service response through the
+   * HTTP context.
+   */
   async createChatLog(req: Request, res: Response): Promise<void> {
     const body: chatLogInterface = req.body;
     await chatLogService.newChatLog({req,res}, body);
   }
 
+  /** Append a message to an existing conversation using the service-level validation and response. */
   async updateChatLog(req: Request, res: Response): Promise<void> {
     const body: {chat: messageInterface, id: string} = req.body;
     await chatLogService.addChat({req,res}, body);
   }
+  /** Record the reported message and reason through the chat-log service. */
   async flagMessage(req: Request, res: Response): Promise<void> {
     const body: {messageId: string, flagReason:string, chatlogId:string} = req.body;
     await chatLogService.flagMessage({req,res}, body);
   }
 
+  /**
+   * Require admin access, bound the requested date-filtered export, and return chat rows as a CSV
+   * download.
+   */
   async exportCsv(req: Request, res: Response): Promise<void> {
     if (!isAdminAuthorized(req)) {
       res.status(401).json({ error: "Unauthorized" });

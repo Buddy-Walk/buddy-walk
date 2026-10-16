@@ -33,6 +33,10 @@ interface LocalClock {
   minuteOfDay: number;
 }
 
+/**
+ * Resolve the venue's local weekday and minute using its UTC offset, falling back to the New York
+ * timezone when no offset is supplied.
+ */
 function localClock(now: Date, utcOffsetMinutes?: number): LocalClock {
   if (typeof utcOffsetMinutes === "number" && Number.isFinite(utcOffsetMinutes)) {
     const shifted = new Date(now.getTime() + utcOffsetMinutes * 60_000);
@@ -48,7 +52,8 @@ function localClock(now: Date, utcOffsetMinutes?: number): LocalClock {
     minute: "2-digit",
     hourCycle: "h23",
   }).formatToParts(now);
-  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  /** Read one formatted local-clock part, using an empty string when the formatter omitted it. */
+  const get = (type: string) => parts.find(/* Locate the requested weekday, hour, or minute component in the timezone-aware formatter output. */ (part) => part.type === type)?.value ?? "";
   const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday"));
   return {
     day: day < 0 ? now.getUTCDay() : day,
@@ -56,12 +61,14 @@ function localClock(now: Date, utcOffsetMinutes?: number): LocalClock {
   };
 }
 
+/** Parse a four-digit Maps opening time into minutes after midnight, rejecting unsupported formats. */
 function parseHhmm(time: string): number | null {
   const match = /^(\d{2})(\d{2})$/.exec(time);
   if (!match) return null;
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
+/** Normalize a minute-of-day value and format it as a spoken twelve-hour clock time. */
 export function formatClockTime(minuteOfDay: number): string {
   const normalized = ((minuteOfDay % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
   const hours24 = Math.floor(normalized / 60);
@@ -76,6 +83,10 @@ interface WeekInterval {
   end: number;
 }
 
+/**
+ * Convert opening periods into week-relative intervals, handling overnight/week-wrap periods and
+ * the always-open sentinel.
+ */
 function toIntervals(periods: OpeningPeriod[]): WeekInterval[] | "always" {
   if (
     periods.length === 1 &&
@@ -131,6 +142,10 @@ export function describeOpeningStatus(input: PlaceHoursInput, now = new Date()):
   }
 
   const containing = intervals.find(
+    /**
+     * Check the current minute against an opening interval, including an interval carried across
+     * the week boundary.
+     */
     ({ start, end }) =>
       (nowMinute >= start && nowMinute < end) ||
       (nowMinute + MINUTES_PER_WEEK >= start && nowMinute + MINUTES_PER_WEEK < end)
@@ -158,8 +173,8 @@ export function describeOpeningStatus(input: PlaceHoursInput, now = new Date()):
   }
 
   const upcoming = intervals
-    .map(({ start }) => (start > nowMinute ? start : start + MINUTES_PER_WEEK))
-    .sort((a, b) => a - b)[0];
+    .map(/* Move each opening time to its next occurrence after the current local minute. */ ({ start }) => (start > nowMinute ? start : start + MINUTES_PER_WEEK))
+    .sort(/* Sort upcoming opening times so the nearest occurrence can be reported. */ (a, b) => a - b)[0];
   const opensSentence =
     upcoming === undefined || containing
       ? ""

@@ -26,12 +26,20 @@ interface EventBatch {
 
 const MAX_EVENTS_PER_BATCH = 200;
 
+/**
+ * Read an event's explicit feature label, falling back to unknown for missing or unusable
+ * properties.
+ */
 function featureFromProps(props?: Record<string, unknown>): string {
   if (props && typeof props.feature === "string" && props.feature) return props.feature;
   return "unknown";
 }
 
 export class TelemetryService {
+  /**
+   * Bound and validate the event batch, add installation/session/server metadata, and persist
+   * accepted events in the active store.
+   */
   async recordEvents(ctx: AppContext, body: EventBatch) {
     const { res } = ctx;
     try {
@@ -40,8 +48,8 @@ export class TelemetryService {
         : [];
 
       const docs: telemetryEventInterface[] = events
-        .filter((e) => e && typeof e.name === "string" && e.name.length > 0)
-        .map((e) => ({
+        .filter(/* Ignore null or unnamed events before preparing telemetry documents. */ (e) => e && typeof e.name === "string" && e.name.length > 0)
+        .map(/* Attach batch identity, platform, version, and server receipt time to one valid client event. */ (e) => ({
           installId: body.installId,
           sessionId: body.sessionId,
           name: e.name,
@@ -91,6 +99,7 @@ export class TelemetryService {
     if (dateFilter?.serverTs) {
       const range = dateFilter.serverTs as { $gte?: Date; $lte?: Date };
       rows = rows.filter((row) => {
+        // Apply inclusive server-time bounds to a fallback telemetry event.
         const ts = new Date(row.serverTs).getTime();
         if (range.$gte && ts < range.$gte.getTime()) return false;
         if (range.$lte && ts > range.$lte.getTime()) return false;
@@ -100,6 +109,10 @@ export class TelemetryService {
     return { source: "memory", data: rows.slice(0, limit) };
   }
 
+  /**
+   * Combine event counts, unique installations, feature usage, answer latency, and AI request
+   * statistics for an admin summary.
+   */
   async summary(ctx: AppContext, dateFilter?: Record<string, unknown>) {
     const { res } = ctx;
     try {
@@ -133,8 +146,8 @@ export class TelemetryService {
           source: "mongo",
           totalEvents,
           uniqueInstalls: installIds.length,
-          byEvent: byEvent.map((row: any) => ({ name: row._id, count: row.count })),
-          byFeature: byFeature.map((row: any) => ({
+          byEvent: byEvent.map(/* Normalize a Mongo event-count group into the public summary shape. */ (row: any) => ({ name: row._id, count: row.count })),
+          byFeature: byFeature.map(/* Normalize a Mongo feature group, explicitly labeling a missing feature. */ (row: any) => ({
             feature: row._id || "unknown",
             count: row.count,
           })),
@@ -157,6 +170,7 @@ export class TelemetryService {
       if (dateFilter?.serverTs) {
         const range = dateFilter.serverTs as { $gte?: Date; $lte?: Date };
         rows = rows.filter((row) => {
+          // Restrict fallback summary events to the requested server-time range.
           const ts = new Date(row.serverTs).getTime();
           if (range.$gte && ts < range.$gte.getTime()) return false;
           if (range.$lte && ts > range.$lte.getTime()) return false;
@@ -178,8 +192,8 @@ export class TelemetryService {
       }
 
       const byEvent = [...counts.entries()]
-        .map(([name, count]) => ({ name, count }))
-        .sort((a, b) => b.count - a.count);
+        .map(/* Convert an event-count map entry into the summary response shape. */ ([name, count]) => ({ name, count }))
+        .sort(/* Show the most frequent event names first. */ (a, b) => b.count - a.count);
 
       res.status(200).json({
         source: "memory",
@@ -187,8 +201,8 @@ export class TelemetryService {
         uniqueInstalls: installs.size,
         byEvent,
         byFeature: [...featureCounts.entries()]
-          .map(([feature, count]) => ({ feature, count }))
-          .sort((a, b) => b.count - a.count),
+          .map(/* Convert a feature-count map entry into the summary response shape. */ ([feature, count]) => ({ feature, count }))
+          .sort(/* Show the most frequently used features first. */ (a, b) => b.count - a.count),
         answerMetrics: {
           count: answerCount,
           avgLatencyMs: answerCount ? Math.round(answerLatencySum / answerCount) : 0,

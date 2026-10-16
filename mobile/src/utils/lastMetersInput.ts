@@ -19,6 +19,10 @@ const STATION_WORD = /\b(?:station|stop|entrance|platform)\b/i;
 /** "2 train", "the A train", "Q": a line, not a place. */
 const BARE_TRAIN_LINE = /^(?:the\s+)?[a-z0-9]{1,2}\s+(?:train|line)$/i;
 
+/**
+ * Strip conversational filler, terminal punctuation, and entrance prefixes while preserving the
+ * destination name used for place lookup.
+ */
 function cleanDestination(value: string): string {
   return value
     .replace(/[?.!]+\s*$/g, "")
@@ -29,6 +33,10 @@ function cleanDestination(value: string): string {
     .trim();
 }
 
+/**
+ * Classify Last Meters input as a destination or a general/transit question so question text is
+ * not searched as a place name.
+ */
 export function parseLastMetersInput(input: string): LastMetersInput {
   const text = input.trim().replace(/\s+/g, " ");
 

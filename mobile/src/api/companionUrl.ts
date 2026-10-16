@@ -1,3 +1,7 @@
+/**
+ * Build the shareable viewer URL with an encoded session token, adding the API origin only when
+ * the viewer is hosted elsewhere.
+ */
 export function buildCompanionShareUrl(
   token: string,
   baseUrl: string,

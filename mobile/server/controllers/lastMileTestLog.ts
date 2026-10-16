@@ -82,9 +82,17 @@ const LAST_MILE_TEST_CSV_COLUMNS = [
   "destinationPhoto",
 ];
 
+/**
+ * Flatten candidate names, addresses, distances, selection outcomes, and sources into a readable
+ * CSV cell.
+ */
 function describeCandidatesForCsv(candidates?: PlaceCandidateLog[]): string {
   return (candidates ?? [])
     .map(
+      /**
+       * Describe one selected or rejected candidate without discarding its source or rejection
+       * reason.
+       */
       (candidate) =>
         `${candidate.name} (${candidate.address}) ${candidate.distanceMeters} m ` +
         `${candidate.relevant ? "kept" : "rejected"} via ${candidate.source}`
@@ -92,6 +100,7 @@ function describeCandidatesForCsv(candidates?: PlaceCandidateLog[]): string {
     .join(" | ");
 }
 
+/** Allow omitted review fields while rejecting supplied values outside their supported enum. */
 function optionalEnum<T extends string>(
   value: unknown,
   allowed: readonly T[]
@@ -103,6 +112,10 @@ function optionalEnum<T extends string>(
 }
 
 export class LastMileTestLogController {
+  /**
+   * Require admin access and summarize bounded field trials, reporting truncation or storage
+   * failure explicitly.
+   */
   async evaluation(req: Request, res: Response): Promise<void> {
     if (!isAdminAuthorized(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
     try {
@@ -118,6 +131,10 @@ export class LastMileTestLogController {
   // Mykael (#35, mykael-dashboard-retry-test): add retry(req, res) here using
   // his LastMileRetry service. Keep paid execution out of list/getOne.
 
+  /**
+   * Require admin access and return bounded date-filtered trials, defaulting to lightweight image
+   * statistics and candidate counts unless full images are explicitly requested.
+   */
   async list(req: Request, res: Response): Promise<void> {
     if (!isAdminAuthorized(req)) {
       res.status(401).json({ error: "Unauthorized" });
@@ -128,12 +145,12 @@ export class LastMileTestLogController {
     const dateFilter = buildDateFilter(req);
     if (req.query.includeImages === "true") {
       const { source, data } = await lastMileTestLogService.getData(limit, dateFilter);
-      res.status(200).json({ source, data: data.map((row) => toLastMileTestResponse(row, true)) });
+      res.status(200).json({ source, data: data.map(/* Shape explicitly requested full-image trial rows for the admin list response. */ (row) => toLastMileTestResponse(row, true)) });
       return;
     }
 
     const { source, data } = await lastMileTestLogService.getSummaries(limit, dateFilter);
-    const rows = data.map(({ placeCandidates, ...row }) => ({
+    const rows = data.map(/* Shape lightweight trial summaries while retaining candidate counts instead of their full audit arrays. */ ({ placeCandidates, ...row }) => ({
       ...toLastMileTestSummaryResponse(row),
       // The candidate list is only needed in the detail view.
       placeCandidateCount: placeCandidates?.length ?? 0,
@@ -164,6 +181,10 @@ export class LastMileTestLogController {
     });
   }
 
+  /**
+   * Require admin access and export bounded Last Meters trials, including images only when the
+   * request explicitly opts in.
+   */
   async exportCsv(req: Request, res: Response): Promise<void> {
     if (!isAdminAuthorized(req)) {
       res.status(401).json({ error: "Unauthorized" });
@@ -179,7 +200,7 @@ export class LastMileTestLogController {
             toLastMileTestSummaryResponse
           );
     const csv = toCsv(
-      data.map((row) => ({
+      data.map(/* Flatten one trial into CSV-compatible cells while retaining pipeline, candidate, sensor, and review evidence. */ (row) => ({
         ...row,
         serverTs: row.serverTs ? new Date(row.serverTs).toISOString() : "",
         reviewedAt: row.reviewedAt ? new Date(row.reviewedAt).toISOString() : "",
@@ -203,6 +224,10 @@ export class LastMileTestLogController {
     res.status(200).send(csv);
   }
 
+  /**
+   * Validate reviewer enums and note length before updating a trial, distinguishing invalid input
+   * from a missing trial.
+   */
   async updateReview(req: Request, res: Response): Promise<void> {
     if (!isAdminAuthorized(req)) {
       res.status(401).json({ error: "Unauthorized" });

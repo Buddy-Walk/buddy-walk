@@ -41,9 +41,10 @@ export function parseStepsFromText(text: string): NavRoute | null {
   if (collected.length === 0) {
     const sentences = text
       .split(/(?<=[.!?])\s+/)
-      .map((s) => s.trim())
-      .filter((s) => s && looksLikeDirectionLine(s));
+      .map(/* Trim each candidate sentence before testing whether it describes a navigation step. */ (s) => s.trim())
+      .filter(/* Keep nonempty sentences that contain a recognizable direction instruction. */ (s) => s && looksLikeDirectionLine(s));
     sentences.forEach((s, i) => {
+      // Preserve sentence order when unnumbered directions are converted into route steps.
       collected.push({ idx: i, instruction: s });
     });
   }
@@ -52,12 +53,14 @@ export function parseStepsFromText(text: string): NavRoute | null {
 
   // De-duplicate by index, sort, and renumber so consumers can iterate by position.
   const byIdx = new Map<number, string>();
-  collected.forEach((s) => byIdx.set(s.idx, s.instruction));
+  collected.forEach(/* Deduplicate instructions by their parsed step number before sorting the route. */ (s) => byIdx.set(s.idx, s.instruction));
   const ordered = Array.from(byIdx.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([, instruction], i) => ({ index: i, instruction }));
+    .sort(/* Restore the numerical order of the extracted instructions. */ (a, b) => a[0] - b[0])
+    .map(/* Replace source step labels with contiguous zero-based route indexes. */ ([, instruction], i) => ({ index: i, instruction }));
 
   const steps: NavStep[] = ordered.map((s) => {
+    // Build a navigation-step object from one instruction, extracting distance and maneuver
+    // while marking unmapped coordinates as unavailable.
     const { instruction, distanceMeters } = parseInstructionAndDistance(s.instruction);
     return {
       index: s.index,
@@ -113,15 +116,19 @@ export function extractDestinationQuery(query: string): string | null {
   return null;
 }
 
+/**
+ * Remove markup and extract a trailing distance phrase, converting supported units to meters while
+ * leaving the spoken maneuver text intact.
+ */
 function parseInstructionAndDistance(raw: string): { instruction: string; distanceMeters: number } {
   let distanceMeters = 0;
   let text = raw.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 
   const patterns: { re: RegExp; toMeters: (n: number) => number }[] = [
-    { re: /\s+for\s+([\d.]+)\s*(?:ft|feet)\b\.?$/i, toMeters: (n) => n * 0.3048 },
-    { re: /\s+for\s+([\d.]+)\s*(?:m|meters?)\b\.?$/i, toMeters: (n) => n },
-    { re: /\s+for\s+([\d.]+)\s*(?:mi|miles?)\b\.?$/i, toMeters: (n) => n * 1609.34 },
-    { re: /\s+for\s+([\d.]+)\s*(?:km|kilometers?)\b\.?$/i, toMeters: (n) => n * 1000 },
+    { re: /\s+for\s+([\d.]+)\s*(?:ft|feet)\b\.?$/i, toMeters: /* Convert a distance expressed in feet to meters. */ (n) => n * 0.3048 },
+    { re: /\s+for\s+([\d.]+)\s*(?:m|meters?)\b\.?$/i, toMeters: /* Keep a distance already expressed in meters unchanged. */ (n) => n },
+    { re: /\s+for\s+([\d.]+)\s*(?:mi|miles?)\b\.?$/i, toMeters: /* Convert a distance expressed in miles to meters. */ (n) => n * 1609.34 },
+    { re: /\s+for\s+([\d.]+)\s*(?:km|kilometers?)\b\.?$/i, toMeters: /* Convert a distance expressed in kilometers to meters. */ (n) => n * 1000 },
   ];
 
   for (const { re, toMeters } of patterns) {
@@ -136,6 +143,7 @@ function parseInstructionAndDistance(raw: string): { instruction: string; distan
   return { instruction: text, distanceMeters };
 }
 
+/** Remove HTML and normalize whitespace before attempting to recognize a direction line. */
 function normalizeLine(raw: string): string {
   return raw.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 }
@@ -143,6 +151,7 @@ function normalizeLine(raw: string): string {
 const DIRECTION_HINT =
   /\b(turn|head|continue|proceed|walk|go|cross|bear|merge|take|arrive|destination|north|south|east|west|left|right)\b/i;
 
+/** Reject long or non-directional prose when collecting fallback navigation steps. */
 function looksLikeDirectionLine(s: string): boolean {
   return DIRECTION_HINT.test(s) && s.length < 240;
 }

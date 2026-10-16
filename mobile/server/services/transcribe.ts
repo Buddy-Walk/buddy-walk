@@ -1,5 +1,6 @@
 import axios from 'axios';
 
+/** Require Azure Speech configuration and obtain a short-lived token for server-side transcription. */
 async function fetchSpeechToken(): Promise<{ token: string; region: string }> {
   const subscriptionKey = process.env.AZURE_SUBSCRIPTION_KEY;
   const region = process.env.AZURE_REGION;
@@ -22,6 +23,10 @@ async function fetchSpeechToken(): Promise<{ token: string; region: string }> {
   return { token: response.data as string, region };
 }
 
+/**
+ * Send nonempty audio to Azure using its original media type and return the best transcript or
+ * explicit recognition status.
+ */
 export async function transcribeAudioBuffer(
   audio: Buffer,
   contentType: string

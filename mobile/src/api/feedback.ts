@@ -12,6 +12,10 @@ export interface FeedbackInput {
   context?: Record<string, string | number | boolean | null>;
 }
 
+/**
+ * Submit a feedback report with installation and session metadata; return undefined when the
+ * optional request fails.
+ */
 export async function submitFeedback(input: FeedbackInput) {
   try {
     const installId = await getInstallId();

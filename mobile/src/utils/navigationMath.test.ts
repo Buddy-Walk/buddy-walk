@@ -13,10 +13,15 @@ import {
 } from './navigationMath.ts';
 import type { NavRoute, NavStep } from '../types';
 
+/** Create a minimal route with the requested destination for destination-validation cases. */
 function routeWithDestination(destination: NavRoute['destination']): NavRoute {
   return { destination, steps: [] };
 }
 
+/**
+ * Create a neutral walking step with controllable endpoints for coordinate and duration policy
+ * tests.
+ */
 function navStep(startLocation: NavStep['startLocation'], endLocation: NavStep['endLocation']): NavStep {
   return {
     index: 0,
@@ -30,7 +35,9 @@ function navStep(startLocation: NavStep['startLocation'], endLocation: NavStep['
 }
 
 describe('navigationMath', () => {
+  // Group regression cases for: navigationMath.
   it('calculates nearby distances in meters', () => {
+    // Regression test: calculates nearby distances in meters.
     assert.equal(haversineMeters({ lat: 40, lng: -73 }, { lat: 40, lng: -73 }), 0);
 
     const oneLatitudeDegree = haversineMeters({ lat: 40, lng: -73 }, { lat: 41, lng: -73 });
@@ -39,6 +46,7 @@ describe('navigationMath', () => {
   });
 
   it('formats distance recaps for speech', () => {
+    // Regression test: formats distance recaps for speech.
     assert.equal(metersToFeetText(Number.NaN), '');
     assert.equal(metersToFeetText(3), 'a few feet');
     assert.equal(metersToFeetText(10), '35 feet');
@@ -46,6 +54,7 @@ describe('navigationMath', () => {
   });
 
   it('recognizes placeholder route coordinates', () => {
+    // Regression test: recognizes placeholder route coordinates.
     assert.equal(stepHasUsableCoords(undefined), false);
     assert.equal(
       stepHasUsableCoords(navStep({ lat: 0, lng: 0 }, { lat: 0, lng: 0 })),
@@ -58,6 +67,7 @@ describe('navigationMath', () => {
   });
 
   it('recognizes a usable destination coordinate', () => {
+    // Regression test: recognizes a usable destination coordinate.
     assert.equal(hasUsableDestination(null), false);
     assert.equal(hasUsableDestination(undefined), false);
     assert.equal(hasUsableDestination(routeWithDestination({ lat: 0, lng: 0 })), false);
@@ -72,6 +82,7 @@ describe('navigationMath', () => {
   });
 
   it('estimates slower auto-step timing for blind navigation', () => {
+    // Regression test: estimates slower auto-step timing for blind navigation.
     const fromDuration = estimateStepDurationMs(
       navStep({ lat: 0, lng: 0 }, { lat: 0, lng: 0 })
     );

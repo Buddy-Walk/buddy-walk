@@ -11,15 +11,25 @@ if (typeof g.Event === 'undefined') {
     cancelable = false;
     defaultPrevented = false;
 
+    /**
+     * Initialize the minimal event type needed by dependencies that expect a browser-like Event on
+     * native.
+     */
     constructor(type: string) {
       this.type = type;
     }
 
+    /** Record cancellation on the lightweight native event shim. */
     preventDefault(): void {
       this.defaultPrevented = true;
     }
 
+    /** Preserve the Event interface where native consumers have no DOM propagation tree to stop. */
     stopPropagation(): void {}
+    /**
+     * Preserve the Event interface where native consumers have no immediate DOM propagation to
+     * stop.
+     */
     stopImmediatePropagation(): void {}
   }
 

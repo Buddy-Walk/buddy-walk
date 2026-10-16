@@ -1,5 +1,9 @@
 import { treeInterface, TreeModel, sidewalkMaterialInterface, pedestrianRampInterface, SidewalkMaterialModel, PedestrianRampModel } from "../database/models/features";
 
+/**
+ * Query nearby trees, sidewalk materials, and pedestrian ramps within the radius in miles,
+ * returning the available feature collections.
+ */
 export async function getNearbyFeatures(latitude: number, longitude: number, radius: number = 0.5) {
     console.log("Fetching nearby features for coordinates:", latitude, longitude);
     let features = {

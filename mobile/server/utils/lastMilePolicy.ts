@@ -2,21 +2,30 @@ import { angularDifference, bearingBetween, distanceBetween, validPoint } from "
 
 export interface WalkingEvidence { verified: boolean; reason: string; firstBearing?: number; distanceMeters?: number }
 
+/**
+ * Check walking-route endpoints, step validity, first direction, and detour length before using
+ * the route as supporting evidence; this does not verify accessibility.
+ */
 export function evaluateWalkingLeg(leg: any, origin: { lat: number; lng: number }, target: { lat: number; lng: number }): WalkingEvidence {
+  /** Return a consistent unverified walking-evidence result with the specific rejection reason. */
   const failed = (reason: string): WalkingEvidence => ({ verified: false, reason });
   if (!leg || !validPoint(leg.start_location) || !validPoint(leg.end_location)) return failed("walking_route_unavailable");
   if (distanceBetween(origin, leg.start_location) > 25 || distanceBetween(target, leg.end_location) > 25) return failed("walking_route_endpoint_mismatch");
   if (!Number.isFinite(leg.distance?.value) || leg.distance.value <= 0) return failed("walking_route_invalid");
   const steps = leg.steps;
-  if (!Array.isArray(steps) || !steps.length || steps.some(s => s.travel_mode !== "WALKING" || !validPoint(s.start_location) || !validPoint(s.end_location))) return failed("walking_route_invalid");
+  if (!Array.isArray(steps) || !steps.length || steps.some(/* Reject any route step that is not walking or has unusable endpoints. */ s => s.travel_mode !== "WALKING" || !validPoint(s.start_location) || !validPoint(s.end_location))) return failed("walking_route_invalid");
   // Do not convert a route around a corner/barrier into a direct turn toward a pin.
-  const segment = steps.find(s => distanceBetween(s.start_location, s.end_location) >= 3);
+  const segment = steps.find(/* Find the first segment long enough to provide a meaningful initial walking bearing. */ s => distanceBetween(s.start_location, s.end_location) >= 3);
   if (!segment) return failed("walking_route_too_short");
   const firstBearing = bearingBetween(segment.start_location, segment.end_location);
   if (angularDifference(firstBearing, bearingBetween(origin, target)) > 30 || leg.distance.value > distanceBetween(origin, target) * 1.5 + 10) return failed("walking_route_requires_detour");
   return { verified: true, reason: "walking_route_consistent_not_accessibility_verified", firstBearing, distanceMeters: leg.distance.value };
 }
 
+/**
+ * Collect every unmet precise-turn requirement across sensors, visual confirmation, entrance data,
+ * route evidence, and bearing uncertainty.
+ */
 export function preciseTurnReasons(input: {
   confidenceLevel: string; photoMatched: boolean; headingAgrees: boolean | undefined;
   compassAccuracy?: number; gpsAccuracy?: number; distanceMeters: number;

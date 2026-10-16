@@ -7,14 +7,18 @@ import { summarizeFieldEvaluation } from "../../server/utils/lastMileEvaluation"
 const now = 1_800_000_000_000;
 const origin = { lat: 40.7, lng: -74 };
 const target = { lat: 40.70045, lng: -74 };
+/** Create fresh, accurate capture-time and live sensor evidence for each safety-policy test. */
 const sensors = (): LastMileSensors => ({ photoCapturedAt: now, positionTimestamp: now, headingTimestamp: now,
   headingReference: "true", latestPosition: { ...origin, accuracy: 5, timestamp: now },
   latestHeading: 359, latestHeadingTimestamp: now, latestHeadingReference: "true" });
 
 test("fresh true-north sensors support wraparound comparison", () => {
+  // Regression test: fresh true-north sensors support wraparound comparison.
   assert.deepEqual(sensorSafetyReasons(sensors(), origin, 1, 5, now), []);
 });
 test("sensor gate rejects missing, old, future, magnetic, moved and rotated readings", () => {
+  // Regression test: sensor gate rejects missing, old, future, magnetic, moved and rotated
+  // readings.
   assert.deepEqual(sensorSafetyReasons(undefined, origin, 1, 5, now), ["capture_metadata_missing"]);
   for (const [patch, reason] of [
     [{ photoCapturedAt: now - 61_000 }, "photo_stale"],
@@ -28,13 +32,20 @@ test("sensor gate rejects missing, old, future, magnetic, moved and rotated read
   ] as const) assert.ok(sensorSafetyReasons({ ...sensors(), ...patch } as LastMileSensors, origin, 1, 5, now).includes(reason));
 });
 test("server checks snapshot at receipt, client checks live sensors before speech", () => {
+  // Regression test: server checks snapshot at receipt, client checks live sensors before
+  // speech.
   assert.deepEqual(sensorSafetyReasons(sensors(), origin, 1, 5, now + 30_000, now), []);
   assert.ok(sensorSafetyReasons(sensors(), origin, 1, 5, now + 30_000).includes("current_gps_unavailable"));
   assert.ok(sensorSafetyReasons(sensors(), origin, 1, 5, now + 61_000, now).includes("photo_stale"));
 });
+/**
+ * Create a direct walking-leg fixture whose endpoints and first segment can be altered to exercise
+ * route rejection.
+ */
 const leg = () => ({ start_location: origin, end_location: target, distance: { value: 50 },
   steps: [{ travel_mode: "WALKING", start_location: origin, end_location: target }] });
 test("walking route requires matching endpoints and consistent walking geometry", () => {
+  // Regression test: walking route requires matching endpoints and consistent walking geometry.
   assert.equal(evaluateWalkingLeg(leg(), origin, target).verified, true);
   assert.match(evaluateWalkingLeg(leg(), origin, target).reason, /not_accessibility_verified/);
   assert.equal(evaluateWalkingLeg(undefined, origin, target).verified, false);
@@ -44,6 +55,7 @@ test("walking route requires matching endpoints and consistent walking geometry"
   assert.equal(evaluateWalkingLeg({ ...leg(), steps: [{ travel_mode: "WALKING", start_location: origin, end_location: { lat: 40.7, lng: -73.9995 } }] }, origin, target).reason, "walking_route_requires_detour");
 });
 test("precise turns require every independent prerequisite", () => {
+  // Regression test: precise turns require every independent prerequisite.
   const good = { confidenceLevel: "high", photoMatched: true, headingAgrees: true, compassAccuracy: 3,
     gpsAccuracy: 5, distanceMeters: 50, entranceListed: true, visualTargetMatched: true,
     walking: evaluateWalkingLeg(leg(), origin, target), sensorReasons: [] };
@@ -54,10 +66,13 @@ test("precise turns require every independent prerequisite", () => {
     { sensorReasons: ["moved_since_capture"] }]) assert.ok(preciseTurnReasons({ ...good, ...patch }).length);
 });
 test("camera-origin bearings are different evidence from user-origin bearings", () => {
+  // Regression test: camera-origin bearings are different evidence from user-origin bearings.
   assert.equal(bearingBetween(origin, target), 0);
   assert.equal(bearingBetween({ lat: 40.7009, lng: -74 }, target), 180);
 });
 test("evaluation separates versions, excludes replays and does not infer field success", () => {
+  // Regression test: evaluation separates versions, excludes replays and does not infer field
+  // success.
   const base = { serverTs: new Date("2026-10-07"), destination: "Citi", pipelineVersion: "v3" };
   const result = summarizeFieldEvaluation([
     { ...base, reviewOutcome: "got_there", turnCorrectness: "wrong", entranceCorrectness: "correct" },
@@ -66,7 +81,7 @@ test("evaluation separates versions, excludes replays and does not infer field s
     { ...base, pipelineVersion: "v2", reviewOutcome: "would_not_get_there" },
   ]);
   assert.equal(result.replayCount, 1);
-  const group = result.groups.find(g => g.pipelineVersion === "v3")!;
+  const group = result.groups.find(/* Locate the current pipeline's field-only evaluation group for outcome assertions. */ g => g.pipelineVersion === "v3")!;
   assert.equal(group.week, "2026-10-05");
   assert.equal(group.trials, 3);
   assert.equal(group.unscored, 1);

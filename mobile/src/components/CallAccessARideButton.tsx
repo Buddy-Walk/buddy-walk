@@ -5,7 +5,12 @@ import { tapMedium } from '../utils/haptics';
 
 const AAR_NUMBER = '8773372017';
 
+/**
+ * Render the accessible Access-A-Ride call shortcut with tactile confirmation and the system
+ * telephone handoff.
+ */
 export default function CallAccessARideButton() {
+  /** Announce the call action and open the system dialer with the Access-A-Ride number. */
   function handlePress() {
     Speech.speak('Calling Access-A-Ride.');
     Linking.openURL(`tel:${AAR_NUMBER}`);
@@ -13,9 +18,9 @@ export default function CallAccessARideButton() {
 
   return (
     <Pressable
-      onPressIn={() => tapMedium()}
+      onPressIn={/* Confirm the initial touch with a tactile cue before the phone call action runs. */ () => tapMedium()}
       onPress={handlePress}
-      style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+      style={/* Display the call shortcut's pressed appearance. */ ({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
       accessibilityLabel="Call Access-A-Ride"
       accessibilityRole="button"
       accessibilityHint="Calls Access-A-Ride at 877-337-2017"

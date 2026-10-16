@@ -5,6 +5,10 @@ import Constants from 'expo-constants';
 import defaultApi from '../../buddy-walk-default-api.json';
 import { applyOwnedApiHostGuardrail } from '../config/apiHosts';
 
+/**
+ * Recognize local, private-network, and Tailscale addresses that may be used by development
+ * backends.
+ */
 export function isPrivateDevHost(url: string): boolean {
   return /localhost|127\.|192\.168\.|10\.|100\.|\b172\.(1[6-9]|2\d|3[01])\./i.test(url);
 }
@@ -15,10 +19,15 @@ export function isLocalCompanionApi(): boolean {
   return isPrivateDevHost(resolveCompanionApiRoot());
 }
 
+/**
+ * Detect loopback hosts, which refer to the phone itself and are usually unsuitable for a
+ * physical-device backend.
+ */
 function isLoopbackHost(url: string): boolean {
   return /localhost|127\.0\.0\.1/i.test(url);
 }
 
+/** Remove trailing separators and a preexisting /api suffix before constructing an Axios base URL. */
 function normalizeApiRoot(raw: string): string {
   return raw.replace(/\/+$/, '').replace(/\/api$/i, '');
 }
@@ -42,6 +51,7 @@ function applyPhysicalDeviceApiRootFix(root: string): string {
   return PRODUCTION_API_ROOT;
 }
 
+/** Read and normalize an optional API override while treating empty environment values as unset. */
 function readEnvRoot(name: string): string | undefined {
   const raw = process.env[name];
   if (typeof raw === 'string' && raw.trim().length > 0) {

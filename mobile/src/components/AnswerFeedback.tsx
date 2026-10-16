@@ -19,11 +19,17 @@ export default function AnswerFeedback({
   const [rated, setRated] = useState<number | null>(null);
 
   useEffect(() => {
+    // Reset the rating when a different answer is displayed so each answer can receive its own
+    // feedback.
     setRated(null);
   }, [answer]);
 
   if (!answer) return null;
 
+  /**
+   * Submit one helpful/unhelpful rating, announce the result, and prevent duplicate ratings for
+   * the displayed answer.
+   */
   async function rate(value: 1 | -1) {
     if (rated !== null) return;
     tap();
@@ -54,7 +60,7 @@ export default function AnswerFeedback({
     <View style={styles.row} accessibilityRole="radiogroup">
       <Text style={styles.label}>Was this helpful?</Text>
       <Pressable
-        onPress={() => rate(1)}
+        onPress={/* Record that the displayed answer was helpful. */ () => rate(1)}
         style={styles.button}
         accessibilityRole="button"
         accessibilityLabel="Yes, this answer was helpful"
@@ -62,7 +68,7 @@ export default function AnswerFeedback({
         <Text style={styles.icon}>👍</Text>
       </Pressable>
       <Pressable
-        onPress={() => rate(-1)}
+        onPress={/* Record that the displayed answer was not helpful. */ () => rate(-1)}
         style={styles.button}
         accessibilityRole="button"
         accessibilityLabel="No, this answer was not helpful"

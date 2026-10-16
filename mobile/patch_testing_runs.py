@@ -12,20 +12,24 @@ MD = ROOT / "USER_TESTING_TEMPLATE.md"
 HTML = ROOT / "exports" / "USER_TESTING_TEMPLATE.html"
 
 
+# Build a Markdown table header with a centered run-number column and left-aligned data columns.
 def md_table_header(*headers: str) -> str:
     line = "| " + " | ".join(headers) + " |"
     sep = "|" + "|".join(":---:" if i == 0 else ":---" for i in range(len(headers))) + "|"
     return f"{line}\n{sep}"
 
 
+# Create blank Markdown run rows with the standard pass/fail/partial checkbox choices.
 def md_pass_fail_rows() -> str:
     return "\n".join(f"| {n} | | ☐ | ☐ | ☐ | |" for n in range(1, RUNS + 1))
 
 
+# Create Markdown landmark-test rows with the additional outcome checkbox column.
 def md_landmark_rows() -> str:
     return "\n".join(f"| {n} | | ☐ | ☐ | ☐ | ☐ | |" for n in range(1, RUNS + 1))
 
 
+# Create repeated Markdown voice-question rows seeded with representative location prompts.
 def md_voice_questions() -> str:
     samples = [
         '*"What street am I on?"*',
@@ -41,6 +45,7 @@ def md_voice_questions() -> str:
     return "\n".join(rows)
 
 
+# Create Markdown VoiceOver flow rows with representative app interactions to exercise.
 def md_voiceover_flows() -> str:
     samples = [
         "Test 1A (storefront photo)",
@@ -56,6 +61,7 @@ def md_voiceover_flows() -> str:
     return "\n".join(rows)
 
 
+# Create Markdown saved-place test rows with sample aliases and matching voice questions.
 def md_saved_places() -> str:
     samples = [
         ("e.g. `test-home`", '*"How do I get to test-home?"*'),
@@ -69,14 +75,18 @@ def md_saved_places() -> str:
     return "\n".join(rows)
 
 
+# Create blank numbered Markdown destination rows for the configured run count.
 def md_destinations() -> str:
     return "\n".join(f"| {n} | |" for n in range(1, RUNS + 1))
 
 
+# Create numbered Markdown transit-test rows with inputs and outcome checkboxes.
 def md_mta_rows() -> str:
     return "\n".join(f"| {n} | | | ☐ | ☐ | ☐ | |" for n in range(1, RUNS + 1))
 
 
+# Replace one identified Markdown table through the next section boundary, failing explicitly if
+# the expected table is absent.
 def replace_table(text: str, table_start: str, new_block: str) -> str:
     pattern = table_start + r".*?(?=\n---\n|\n## |\n### |\Z)"
     text, n = re.subn(pattern, new_block.rstrip(), text, count=1, flags=re.DOTALL)
@@ -85,6 +95,8 @@ def replace_table(text: str, table_start: str, new_block: str) -> str:
     return text
 
 
+# Update the Markdown test instructions and category tables to the configured number of repeated
+# runs.
 def patch_md(text: str) -> str:
     text = re.sub(
         r"\*\*Run each test category \d+ times\.\*\*",
@@ -172,6 +184,7 @@ def patch_md(text: str) -> str:
     return text
 
 
+# Create editable HTML run rows with the requested standard or skip-capable outcome controls.
 def html_simple_rows(skip: bool = False) -> str:
     lines = []
     for n in range(1, RUNS + 1):
@@ -195,6 +208,7 @@ def html_simple_rows(skip: bool = False) -> str:
     return "\n".join(lines)
 
 
+# Create editable HTML voice-question rows seeded with representative prompts.
 def html_voice_rows() -> str:
     samples = [
         "What street am I on?",
@@ -217,6 +231,7 @@ def html_voice_rows() -> str:
     return "\n".join(lines)
 
 
+# Create editable HTML VoiceOver flow rows with the sample accessibility tasks.
 def html_voiceover_rows() -> str:
     samples = [
         "Test 1A (storefront photo)",
@@ -238,6 +253,7 @@ def html_voiceover_rows() -> str:
     return "\n".join(lines)
 
 
+# Create editable HTML saved-place rows with sample aliases and matching spoken requests.
 def html_saved_rows() -> str:
     samples = [
         ("test-home", "How do I get to test-home?"),
@@ -263,6 +279,7 @@ def html_saved_rows() -> str:
     return "\n".join(lines)
 
 
+# Create numbered HTML destination inputs for the configured run count.
 def html_destinations() -> str:
     return "\n".join(
         f'  <tr><td>{n}</td><td><input type="text" placeholder="destination {n}" /></td></tr>'
@@ -270,6 +287,7 @@ def html_destinations() -> str:
     )
 
 
+# Create editable HTML transit rows with route/question inputs and result checkboxes.
 def html_mta_rows() -> str:
     return "\n".join(
         f'  <tr><td>{n}</td><td><input type="text" /></td><td><input type="text" /></td>'
@@ -281,6 +299,8 @@ def html_mta_rows() -> str:
     )
 
 
+# Update the HTML template's run-count instructions and replace each affected category table
+# body.
 def patch_html(text: str) -> str:
     text = re.sub(
         r"<strong>Run each category \d+ times</strong>",
@@ -354,6 +374,8 @@ def patch_html(text: str) -> str:
     return text
 
 
+# Write matching Markdown and HTML testing templates and exports, then regenerate the printable
+# artifact.
 def main() -> None:
     md_text = patch_md(MD.read_text(encoding="utf-8"))
     MD.write_text(md_text, encoding="utf-8")

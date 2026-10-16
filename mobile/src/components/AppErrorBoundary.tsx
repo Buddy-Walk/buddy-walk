@@ -17,14 +17,20 @@ interface State {
 export default class AppErrorBoundary extends React.Component<Props, State> {
   state: State = { error: null };
 
+  /** Capture a render failure in boundary state so the app can show an accessible recovery screen. */
   static getDerivedStateFromError(error: Error): State {
     return { error };
   }
 
+  /**
+   * Record the caught error and component stack for diagnosis without rethrowing into the app
+   * root.
+   */
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('AppErrorBoundary caught:', error, info.componentStack);
   }
 
+  /** Render the child app normally, or an accessible recovery view after a component error. */
   render() {
     if (!this.state.error) return this.props.children;
     return (
@@ -41,8 +47,8 @@ export default class AppErrorBoundary extends React.Component<Props, State> {
           happening, let us know what you were doing when it occurred.
         </Text>
         <Pressable
-          onPress={() => this.setState({ error: null })}
-          style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+          onPress={/* Clear the captured error so React can try rendering the child application again. */ () => this.setState({ error: null })}
+          style={/* Show the recovery button's pressed state without changing its accessible label. */ ({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
           accessibilityRole="button"
           accessibilityLabel="Try again"
         >

@@ -13,6 +13,10 @@ export interface TextResponse {
   route?: NavRoute | null;
 }
 
+/**
+ * Send a text or photo question to the owned API with conversation and telemetry context; return
+ * no request for blank input and propagate request failures.
+ */
 export async function sendTextRequest(data: RequestData): Promise<TextResponse | undefined> {
   if (!data.text.trim()) return undefined;
   try {
@@ -32,7 +36,7 @@ export async function sendTextRequest(data: RequestData): Promise<TextResponse |
     const start = Date.now();
     // Render owns verified local routing. Text requests must never fall back to
     // the legacy AI host, even when location is unavailable.
-    const res = await withNetworkRetry(() =>
+    const res = await withNetworkRetry(/* Issue one text request attempt with the longer timeout required by multimodal answers. */ () =>
       apiClient.post('/text', payload, { timeout: 120_000 })
     );
     console.log(`Text request completed in ${Date.now() - start}ms`);
@@ -45,6 +49,10 @@ export async function sendTextRequest(data: RequestData): Promise<TextResponse |
 /** A normal Last Meters answer takes seconds; past this the user should get the app back. */
 export const LAST_MILE_TIMEOUT_MS = 60_000;
 
+/**
+ * Submit a Last Meters photo with its original sensor evidence to the mobile API, preserving
+ * cancellation and surfacing a useful backend error message.
+ */
 export async function sendLastMileRequest(
   data: {
     lat: number;
@@ -70,6 +78,7 @@ export async function sendLastMileRequest(
   // buddywalk.app /api/text upstream.
   try {
     const res = await withNetworkRetry(
+      /** Issue one cancellable Last Meters request using the photo's original sensor snapshot. */
       () =>
         apiClient.post('/last-mile', data, {
           timeout: LAST_MILE_TIMEOUT_MS,
@@ -94,6 +103,10 @@ export async function sendLastMileRequest(
     throw error;
   }
 }
+/**
+ * Request synthesized MP3 speech, trying the direct speech host first and the owned backend if
+ * that request fails.
+ */
 export async function sendAudioRequest(text: string): Promise<ArrayBuffer | undefined> {
   if (!text.trim()) return undefined;
   try {

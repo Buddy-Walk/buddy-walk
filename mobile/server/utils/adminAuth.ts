@@ -10,17 +10,26 @@ export function isAdminAuthorized(req: Request): boolean {
   return provided === expected;
 }
 
+/**
+ * Read a positive query limit, cap it for admin queries, and use the caller's default for invalid
+ * input.
+ */
 export function parseLimit(req: Request, fallback: number, max: number): number {
   const raw = Number(req.query.limit);
   return Number.isFinite(raw) && raw > 0 ? Math.min(raw, max) : fallback;
 }
 
+/** Parse a nonblank query date, returning undefined for an absent or invalid date. */
 export function parseDateQuery(value: unknown): Date | undefined {
   if (typeof value !== "string" || !value.trim()) return undefined;
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
+/**
+ * Build inclusive Mongo date bounds for the requested timestamp field, omitting the filter when
+ * neither bound is valid.
+ */
 export function buildDateFilter(
   req: Request,
   field = "serverTs"

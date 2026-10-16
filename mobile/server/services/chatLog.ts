@@ -8,8 +8,13 @@ import {
   memoryChatLogs,
 } from "../database/usageStore";
 
+/**
+ * Preserve existing message IDs and assign local IDs to messages stored without Mongo-generated
+ * subdocument identifiers.
+ */
 function withMessageIds(messages: messageInterface[]): (messageInterface & { _id: string })[] {
   return messages.map((msg) => {
+    // Copy a message and generate an identifier only when it does not already have one.
     const existing = msg as messageInterface & { _id?: string };
     return {
       ...msg,
@@ -19,6 +24,10 @@ function withMessageIds(messages: messageInterface[]): (messageInterface & { _id
 }
 
 export class ChatLogService {
+  /**
+   * Create a conversation in Mongo or fallback memory and return the stored record for later
+   * message/feedback references.
+   */
   async newChatLog(ctx: AppContext, body: chatLogInterface) {
     const {res} = ctx;
     try {
@@ -51,6 +60,10 @@ export class ChatLogService {
     }
   }
 
+  /**
+   * Append a message to an existing conversation in the active store, reporting a missing fallback
+   * conversation explicitly.
+   */
   async addChat(ctx: AppContext, body: { chat: messageInterface, id: string }) {
     const {res} = ctx
     try {
@@ -84,6 +97,10 @@ export class ChatLogService {
     }
   }
 
+  /**
+   * Flag the identified message and reason in the active store without creating a replacement
+   * conversation or message.
+   */
   async flagMessage(ctx:AppContext, body: {flagReason?: string, messageId: string, chatlogId: string}) {
     const {res} = ctx
     try{
@@ -154,6 +171,7 @@ export class ChatLogService {
     if (dateFilter?.date) {
       const range = dateFilter.date as { $gte?: Date; $lte?: Date };
       logs = logs.filter((log) => {
+        // Keep only fallback conversations within the requested creation-date range.
         const ts = new Date(log.date).getTime();
         if (range.$gte && ts < range.$gte.getTime()) return false;
         if (range.$lte && ts > range.$lte.getTime()) return false;

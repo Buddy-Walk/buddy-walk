@@ -17,6 +17,10 @@ let activeWebAudio: HTMLAudioElement | null = null;
 /** Bumps when a new speak starts or stopSpeaking() runs — stale async work exits early. */
 let speakGeneration = 0;
 
+/**
+ * Stop the active browser audio element and release its source without allowing cleanup failures
+ * to interrupt the UI.
+ */
 function stopWebAudio(): void {
   if (!activeWebAudio) return;
   const audio = activeWebAudio;
@@ -29,6 +33,7 @@ function stopWebAudio(): void {
   }
 }
 
+/** Cancel platform text-to-speech using the browser or Expo speech implementation as appropriate. */
 function stopDeviceSpeech(): void {
   if (isWeb && typeof window !== 'undefined' && 'speechSynthesis' in window) {
     window.speechSynthesis.cancel();
@@ -37,6 +42,10 @@ function stopDeviceSpeech(): void {
   Speech.stop();
 }
 
+/**
+ * Stop and release the active MP3 player so a new utterance or microphone recording can take over
+ * the audio session.
+ */
 async function stopPlayback(): Promise<void> {
   stopWebAudio();
   if (!activeSound) return;
@@ -50,6 +59,7 @@ async function stopPlayback(): Promise<void> {
   }
 }
 
+/** Encode binary audio as base64 in bounded chunks to avoid exceeding JavaScript's argument limit. */
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = '';
@@ -60,6 +70,10 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
+/**
+ * Play generated MP3 audio in the browser only for the current speech generation, cleaning up the
+ * object URL and reporting whether playback completed.
+ */
 async function playMp3BufferWeb(buffer: ArrayBuffer, generation: number): Promise<boolean> {
   if (generation !== speakGeneration || typeof window === 'undefined') return false;
 
@@ -73,7 +87,13 @@ async function playMp3BufferWeb(buffer: ArrayBuffer, generation: number): Promis
   activeWebAudio = audio;
 
   return new Promise((resolve) => {
+    // Resolve browser playback after completion or failure and connect the player's terminal
+    // events to one shared cleanup path.
     let settled = false;
+    /**
+     * Finalize browser playback once, revoke its object URL, and reject completion from an
+     * obsolete speech generation.
+     */
     const finish = (ok: boolean) => {
       if (settled) return;
       settled = true;
@@ -82,12 +102,16 @@ async function playMp3BufferWeb(buffer: ArrayBuffer, generation: number): Promis
       resolve(ok && generation === speakGeneration);
     };
 
-    audio.onended = () => finish(true);
-    audio.onerror = () => finish(false);
-    void audio.play().then(() => undefined).catch(() => finish(false));
+    audio.onended = /* Mark the browser audio playback as successfully completed. */ () => finish(true);
+    audio.onerror = /* Mark browser playback as failed so speech can use its fallback path. */ () => finish(false);
+    void audio.play().then(/* Acknowledge that browser playback started; completion is handled by the audio element's events. */ () => undefined).catch(/* Finish the browser audio attempt when the browser refuses to start playback. */ () => finish(false));
   });
 }
 
+/**
+ * Play generated MP3 audio through the native speaker using a temporary cached file, while
+ * honoring cancellation generations and a bounded playback wait.
+ */
 async function playMp3Buffer(buffer: ArrayBuffer, generation: number): Promise<boolean> {
   if (generation !== speakGeneration) return false;
 
@@ -112,7 +136,10 @@ async function playMp3Buffer(buffer: ArrayBuffer, generation: number): Promise<b
   sound.muted = false;
 
   await new Promise<void>((resolve) => {
+    // Wait for native audio completion and ensure its timer, listener, and player are eventually
+    // released.
     let settled = false;
+    /** Finish native playback once and release the completion timer, subscription, and player. */
     const finish = () => {
       if (settled) return;
       settled = true;
@@ -131,6 +158,8 @@ async function playMp3Buffer(buffer: ArrayBuffer, generation: number): Promise<b
 
     const timeout = setTimeout(finish, 120_000);
     const subscription = sound.addListener('playbackStatusUpdate', (status) => {
+      // End the native playback wait only when the audio player reports that the utterance
+      // finished.
       if (settled) return;
       if (status.didJustFinish) finish();
     });
@@ -140,8 +169,14 @@ async function playMp3Buffer(buffer: ArrayBuffer, generation: number): Promise<b
   return generation === speakGeneration;
 }
 
+/**
+ * Speak through browser speech synthesis, waiting for voice availability and guarding against
+ * Safari stalls and obsolete utterances.
+ */
 function speakWithWebSpeech(text: string, generation: number): Promise<void> {
   return new Promise((resolve) => {
+    // Settle browser speech on completion, error, or cancellation while waiting for an
+    // appropriate voice if needed.
     if (generation !== speakGeneration) {
       resolve();
       return;
@@ -154,6 +189,10 @@ function speakWithWebSpeech(text: string, generation: number): Promise<void> {
     const synth = window.speechSynthesis;
     const safari = isSafariBrowser();
 
+    /**
+     * Start the current browser utterance with an English voice and install workarounds for
+     * browsers that pause or delay speech.
+     */
     const start = () => {
       if (generation !== speakGeneration) {
         resolve();
@@ -170,11 +209,15 @@ function speakWithWebSpeech(text: string, generation: number): Promise<void> {
 
       const voices = synth.getVoices();
       const voice =
-        voices.find((v) => v.lang.startsWith('en-US')) ??
-        voices.find((v) => v.lang.startsWith('en'));
+        voices.find(/* Prefer an installed US English voice for spoken app content. */ (v) => v.lang.startsWith('en-US')) ??
+        voices.find(/* Fall back to another English voice when no US English voice is available. */ (v) => v.lang.startsWith('en'));
       if (voice) utterance.voice = voice;
 
       let resumeTimer: ReturnType<typeof setInterval> | null = null;
+      /**
+       * Release the browser speech keep-alive interval after the utterance ends or becomes
+       * obsolete.
+       */
       const cleanup = () => {
         if (resumeTimer) {
           clearInterval(resumeTimer);
@@ -183,16 +226,20 @@ function speakWithWebSpeech(text: string, generation: number): Promise<void> {
       };
 
       utterance.onend = () => {
+        // Complete the active browser utterance and stop its keep-alive timer.
         cleanup();
         if (generation === speakGeneration) resolve();
       };
       utterance.onerror = () => {
+        // Release browser speech resources and settle the wait when synthesis reports an error.
         cleanup();
         resolve();
       };
 
       if (safari) {
         resumeTimer = setInterval(() => {
+          // Resume a stalled browser speech engine while this utterance is still the active
+          // generation.
           if (generation !== speakGeneration) {
             cleanup();
             return;
@@ -205,6 +252,8 @@ function speakWithWebSpeech(text: string, generation: number): Promise<void> {
       synth.speak(utterance);
 
       window.setTimeout(() => {
+        // Nudge delayed browser synthesis only if the current utterance has not started or
+        // entered the pending queue.
         if (generation !== speakGeneration) return;
         if (!synth.speaking && !synth.pending) {
           synth.resume();
@@ -214,6 +263,10 @@ function speakWithWebSpeech(text: string, generation: number): Promise<void> {
     };
 
     if (synth.getVoices().length === 0) {
+      /**
+       * Remove the one-time voice-availability listener and start speaking with the newly
+       * available voices.
+       */
       const onVoices = () => {
         synth.removeEventListener('voiceschanged', onVoices);
         start();
@@ -226,9 +279,14 @@ function speakWithWebSpeech(text: string, generation: number): Promise<void> {
   });
 }
 
+/**
+ * Use platform text-to-speech as the audio fallback, settling the request on completion, stop, or
+ * error.
+ */
 function speakWithExpoSpeech(text: string, generation: number): Promise<void> {
   if (isWeb) return speakWithWebSpeech(text, generation);
   return new Promise((resolve) => {
+    // Connect Expo speech lifecycle events to the promise awaited by the calling answer flow.
     if (generation !== speakGeneration) {
       resolve();
       return;
@@ -238,10 +296,13 @@ function speakWithExpoSpeech(text: string, generation: number): Promise<void> {
       rate: 1.0,
       pitch: 1.05,
       volume: NATIVE_TTS_VOLUME,
+      /** Complete the speech request only if it still belongs to the active utterance generation. */
       onDone: () => {
         if (generation === speakGeneration) resolve();
       },
+      /** Release the speech wait when the user or platform stops synthesis. */
       onStopped: () => resolve(),
+      /** Release the speech wait when device synthesis fails so the UI is not left busy. */
       onError: () => resolve(),
     });
   });
@@ -313,6 +374,7 @@ export async function speakText(text: string, options?: { preferDevice?: boolean
   await speakWithExpoSpeech(trimmed, generation);
 }
 
+/** Invalidate pending utterances and stop both synthesized speech and downloaded-audio playback. */
 export async function stopSpeaking(): Promise<void> {
   speakGeneration += 1;
   stopDeviceSpeech();

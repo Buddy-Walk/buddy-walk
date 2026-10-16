@@ -2,6 +2,10 @@ import type { Request, Response } from 'express';
 import { transcribeAudioBuffer } from '../services/transcribe';
 
 export class TranscribeController {
+  /**
+   * Validate the raw audio content type and body, transcribe supported binary input, and return a
+   * structured error for invalid uploads or service failure.
+   */
   async transcribe(req: Request, res: Response): Promise<void> {
     const contentType = req.headers['content-type'];
     if (!contentType || typeof contentType !== 'string') {

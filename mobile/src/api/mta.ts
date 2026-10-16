@@ -1,6 +1,10 @@
 import { aiClient, apiClient } from './client';
 import { withNetworkRetry } from './retry';
 
+/**
+ * Fetch live nearby arrivals for one subway line, falling back to the owned API and rejecting
+ * responses without usable arrival text.
+ */
 export async function fetchMtaArrivals(
   routeId: string,
   latitude: number,
@@ -11,7 +15,7 @@ export async function fetchMtaArrivals(
     res = await aiClient.post('/mta', { routeId, lat: latitude, lon: longitude }, { timeout: 15_000 });
   } catch (directError) {
     console.warn('fetchMtaArrivals: direct AI host failed, falling back to Render', directError);
-    res = await withNetworkRetry(() =>
+    res = await withNetworkRetry(/* Repeat the owned-backend MTA request when the network retry wrapper permits another attempt. */ () =>
       apiClient.post('/mta', { routeId, lat: latitude, lon: longitude }, { timeout: 30_000 })
     );
   }

@@ -10,11 +10,16 @@ export interface LastMileSensors {
   latestHeadingReference: "true" | "magnetic" | "unknown";
 }
 
+/**
+ * Accept only finite latitude/longitude values inside geographic bounds before using a sensor or
+ * map point.
+ */
 export function validPoint(point: { lat: number; lng: number }): boolean {
   return Number.isFinite(point?.lat) && Math.abs(point.lat) <= 90 &&
     Number.isFinite(point?.lng) && Math.abs(point.lng) <= 180;
 }
 
+/** Measure great-circle separation in meters for capture-to-current-position displacement checks. */
 export function distanceBetween(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
   const rad = Math.PI / 180;
   const h = Math.sin((b.lat - a.lat) * rad / 2) ** 2 +
@@ -22,6 +27,10 @@ export function distanceBetween(a: { lat: number; lng: number }, b: { lat: numbe
   return 6371000 * 2 * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+/**
+ * Calculate the true-north bearing from one geographic point to another, normalized to 0 through
+ * 359 degrees.
+ */
 export function bearingBetween(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
   const rad = Math.PI / 180;
   const d = (b.lng - a.lng) * rad;
@@ -29,16 +38,26 @@ export function bearingBetween(a: { lat: number; lng: number }, b: { lat: number
     Math.cos(a.lat * rad) * Math.sin(b.lat * rad) - Math.sin(a.lat * rad) * Math.cos(b.lat * rad) * Math.cos(d)) / rad + 360) % 360;
 }
 
+/** Measure the smaller angle between two headings, correctly handling the 359/0-degree wraparound. */
 export function angularDifference(a: number, b: number): number {
   return Math.abs(((b - a + 540) % 360 + 360) % 360 - 180);
 }
 
+/**
+ * Return every reason a photo's sensor evidence cannot support a precise turn. Check capture
+ * freshness, true north, movement, rotation, and GPS uncertainty; snapshotTime lets the server
+ * assess request-time readings while the phone checks live readings.
+ */
 export function sensorSafetyReasons(
   sensors: LastMileSensors | undefined, position: { lat: number; lng: number },
   heading: number | undefined, accuracy: number | undefined, now = Date.now(), snapshotTime = now,
 ): string[] {
   if (!sensors) return ["capture_metadata_missing"];
   const reasons: string[] = [];
+  /**
+   * Reject missing, stale, or implausibly future sensor timestamps against the appropriate capture
+   * or request reference time.
+   */
   const fresh = (time: number, age: number, reference = now) => Number.isFinite(time) && time <= reference + 2000 && reference - time <= age;
   if (!fresh(sensors.photoCapturedAt, 60_000)) reasons.push("photo_stale");
   if (!fresh(sensors.positionTimestamp, 60_000) || Math.abs(sensors.photoCapturedAt - sensors.positionTimestamp) > 10_000) reasons.push("capture_gps_stale");
@@ -56,6 +75,10 @@ export function sensorSafetyReasons(
 
 export const RECAPTURE_MESSAGE = "I cannot verify your current position and orientation well enough for a precise turn. Stay in a safe place, hold the phone steady, and take a new photo. Make sure the app is updated and precise location is enabled.";
 
+/**
+ * Choose an actionable spoken explanation for the highest-priority sensor failure without
+ * inventing missing capture information.
+ */
 export function buildSensorRecaptureMessage(reasons: readonly string[]): string {
   if (reasons.includes("capture_metadata_missing")) {
     return "This photo is missing capture-time sensor information. Update Buddy Walk, reopen the app, and take a new photo before using Last Meters. I cannot provide a precise turn from this capture.";

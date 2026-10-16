@@ -18,6 +18,7 @@ const FEEDBACK_CSV_COLUMNS = [
 ];
 
 export class FeedbackController {
+  /** Require an installation identity and usable rating or message before saving feedback. */
   async create(req: Request, res: Response): Promise<void> {
     const body = req.body;
     if (!body || typeof body.installId !== "string") {
@@ -34,6 +35,7 @@ export class FeedbackController {
     await feedbackService.create({ req, res }, body);
   }
 
+  /** Require admin access and cap the number of feedback records returned for review. */
   async list(req: Request, res: Response): Promise<void> {
     if (!isAdminAuthorized(req)) {
       res.status(401).json({ error: "Unauthorized" });
@@ -44,6 +46,7 @@ export class FeedbackController {
     await feedbackService.list({ req, res }, limit);
   }
 
+  /** Require admin access and export a bounded, date-filtered set of feedback records as CSV. */
   async exportCsv(req: Request, res: Response): Promise<void> {
     if (!isAdminAuthorized(req)) {
       res.status(401).json({ error: "Unauthorized" });

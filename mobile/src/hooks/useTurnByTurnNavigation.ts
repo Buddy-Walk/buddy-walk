@@ -90,19 +90,26 @@ export function useTurnByTurnNavigation(): UseTurnByTurnResult {
 
   // Keep refs in sync so the location callback always reads fresh values.
   useEffect(() => {
+    // Keep the route available to long-lived location and timer callbacks without closing over
+    // an older render.
     routeRef.current = route;
   }, [route]);
   useEffect(() => {
+    // Keep asynchronous navigation callbacks synchronized with the displayed step index.
     stepIndexRef.current = stepIndex;
   }, [stepIndex]);
   useEffect(() => {
+    // Expose the latest arrival state to callbacks that may outlive the current render.
     arrivedRef.current = arrived;
   }, [arrived]);
   useEffect(() => {
+    // Expose the latest off-route state to the active location watcher.
     offRouteRef.current = offRoute;
   }, [offRoute]);
 
   const speakStep = useCallback((step: NavStep, prefix?: string) => {
+    // Speak a step with an optional prefix while enforcing the minimum gap between repeated
+    // instructions.
     const now = Date.now();
     if (now - lastSpokenAtRef.current < MIN_RESPEAK_GAP_MS) return;
     lastSpokenAtRef.current = now;
@@ -111,16 +118,21 @@ export function useTurnByTurnNavigation(): UseTurnByTurnResult {
   }, []);
 
   const fireStepCue = useCallback(
+    /**
+     * Play the maneuver's tactile pattern, then speak the instruction after the vibration unless
+     * only a haptic cue was requested.
+     */
     (step: NavStep, prefix?: string, options?: { hapticOnly?: boolean }) => {
       cancelPulse();
       pulse(patternForManeuver(step.maneuver));
       if (options?.hapticOnly) return;
-      setTimeout(() => speakStep(step, prefix), 380);
+      setTimeout(/* Delay speech briefly so the tactile maneuver cue can be perceived first. */ () => speakStep(step, prefix), 380);
     },
     [speakStep]
   );
 
   const maneuverPreview = useCallback((step: NavStep): string => {
+    // Translate a maneuver token into a brief phrase used by advance turn announcements.
     const m = step.maneuver;
     if (m.includes('uturn')) return 'make a U-turn';
     if (m.includes('sharp-left')) return 'turn sharp left';
@@ -134,6 +146,7 @@ export function useTurnByTurnNavigation(): UseTurnByTurnResult {
   }, []);
 
   const logArrival = useCallback(() => {
+    // Record arrival telemetry at most once for the active navigation session.
     if (arrivalLoggedRef.current) return;
     arrivalLoggedRef.current = true;
     void track(Events.NavigationArrived, {
@@ -143,6 +156,7 @@ export function useTurnByTurnNavigation(): UseTurnByTurnResult {
   }, []);
 
   const clearManualTimer = useCallback(() => {
+    // Cancel the pending manual-step timer before changing steps or stopping navigation.
     if (manualTimerRef.current) {
       clearTimeout(manualTimerRef.current);
       manualTimerRef.current = null;
@@ -151,14 +165,18 @@ export function useTurnByTurnNavigation(): UseTurnByTurnResult {
 
   // Self-rescheduling timer that walks the user through a coordinate-free route
   // hands-off. Held in a ref so it never needs to be a hook dependency.
-  const runManualAdvanceRef = useRef<() => void>(() => {});
+  const runManualAdvanceRef = useRef<() => void>(() => { /* Provide an initialized callable ref before the manual-step scheduler is assigned. */ });
   runManualAdvanceRef.current = () => {
+    // Schedule progress for text-only steps while retaining GPS as the arrival authority when
+    // destination coordinates exist.
     const r = routeRef.current;
     if (!r || arrivedRef.current) return;
     const idx = stepIndexRef.current;
     const cur = r.steps[idx];
     const isLast = idx >= r.steps.length - 1;
     manualTimerRef.current = setTimeout(() => {
+      // Advance a timed fallback step or announce proximity to the mapped destination without
+      // inventing GPS-confirmed arrival.
       if (arrivedRef.current) return;
       if (isLast) {
         // When we know the destination coordinate, the GPS watcher is the
@@ -198,6 +216,10 @@ export function useTurnByTurnNavigation(): UseTurnByTurnResult {
   };
 
   const stop = useCallback(
+    /**
+     * Stop navigation, release location/timer/haptic resources, and reset all session state;
+     * silent mode preserves a replacement session's speech.
+     */
     async (silent = false) => {
       try {
         subRef.current?.remove();
@@ -234,6 +256,8 @@ export function useTurnByTurnNavigation(): UseTurnByTurnResult {
   );
 
   const onLocationUpdate = useCallback((loc: Location.LocationObject) => {
+    // Update route progress from a GPS fix, check arrival and off-route evidence, and emit
+    // eligible step or approach cues.
     const r = routeRef.current;
     if (!r || arrivedRef.current) return;
     const idx = stepIndexRef.current;
@@ -368,6 +392,10 @@ export function useTurnByTurnNavigation(): UseTurnByTurnResult {
   }, [clearManualTimer, fireStepCue, maneuverPreview]);
 
   const start = useCallback(
+    /**
+     * Replace the current navigation session, initialize mapped or timed step tracking, announce
+     * the first step, and subscribe to location changes.
+     */
     async (r: NavRoute) => {
       if (!r?.steps?.length) return;
       // Clear any prior session quietly (don't TTS-stop the new step we're about to say).
@@ -423,6 +451,7 @@ export function useTurnByTurnNavigation(): UseTurnByTurnResult {
   );
 
   const repeatCurrent = useCallback(() => {
+    // Replay the current step on demand, bypassing the normal automatic-repeat timing gate.
     const r = routeRef.current;
     if (!r) return;
     const cur = r.steps[stepIndexRef.current];
@@ -432,6 +461,7 @@ export function useTurnByTurnNavigation(): UseTurnByTurnResult {
   }, [fireStepCue]);
 
   const advanceManually = useCallback(() => {
+    // Move to the next available step and immediately play its maneuver cue.
     const r = routeRef.current;
     if (!r) return;
     const max = r.steps.length - 1;
@@ -447,6 +477,7 @@ export function useTurnByTurnNavigation(): UseTurnByTurnResult {
   }, [fireStepCue]);
 
   const goBack = useCallback(() => {
+    // Move to the previous available step and immediately replay its maneuver cue.
     const r = routeRef.current;
     if (!r) return;
     const newIdx = Math.max(stepIndexRef.current - 1, 0);
@@ -461,7 +492,9 @@ export function useTurnByTurnNavigation(): UseTurnByTurnResult {
 
   // Tear down on unmount.
   useEffect(() => {
+    // Install teardown for the location watcher, manual step timer, and repeating vibration.
     return () => {
+      // Release navigation resources when the hook unmounts.
       try {
         subRef.current?.remove();
       } catch {

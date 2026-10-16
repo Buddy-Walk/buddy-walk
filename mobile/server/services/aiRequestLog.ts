@@ -27,6 +27,10 @@ export interface AiRequestLogInput {
 }
 
 export class AiRequestLogService {
+  /**
+   * Normalize request metadata and save it to Mongo or bounded memory; logging failures must not
+   * fail the user's request.
+   */
   async record(input: AiRequestLogInput): Promise<void> {
     const doc: aiRequestLogInterface = {
       ...input,
@@ -46,6 +50,10 @@ export class AiRequestLogService {
     }
   }
 
+  /**
+   * Return newest-first AI request records with a limit and optional inclusive date bounds from
+   * the active store.
+   */
   async getData(
     limit: number,
     dateFilter?: Record<string, unknown>
@@ -62,6 +70,7 @@ export class AiRequestLogService {
     if (dateFilter?.serverTs) {
       const range = dateFilter.serverTs as { $gte?: Date; $lte?: Date };
       rows = rows.filter((row) => {
+        // Apply the requested server timestamp range to an in-memory request record.
         const ts = new Date(row.serverTs).getTime();
         if (range.$gte && ts < range.$gte.getTime()) return false;
         if (range.$lte && ts > range.$lte.getTime()) return false;
@@ -71,6 +80,10 @@ export class AiRequestLogService {
     return { source: "memory", data: rows.slice(0, limit) };
   }
 
+  /**
+   * Aggregate request totals, success rate, latency, features, and tools consistently across Mongo
+   * and fallback memory.
+   */
   async summary(dateFilter?: Record<string, unknown>) {
     if (isMongoConnected()) {
       const match = dateFilter ?? {};
@@ -101,12 +114,12 @@ export class AiRequestLogService {
         totalRequests: t.total,
         successRate: t.total ? Math.round((t.success / t.total) * 100) : 0,
         avgLatencyMs: Math.round(t.avgLatency ?? 0),
-        byFeature: byFeature.map((r: any) => ({
+        byFeature: byFeature.map(/* Normalize one Mongo feature aggregate and round its average latency for reporting. */ (r: any) => ({
           feature: r._id || "unknown",
           count: r.count,
           avgLatencyMs: Math.round(r.avgLatency ?? 0),
         })),
-        byTool: byTool.map((r: any) => ({ tool: r._id || "none", count: r.count })),
+        byTool: byTool.map(/* Normalize one Mongo tool aggregate, labeling missing tools explicitly. */ (r: any) => ({ tool: r._id || "none", count: r.count })),
       };
     }
 
@@ -114,6 +127,7 @@ export class AiRequestLogService {
     if (dateFilter?.serverTs) {
       const range = dateFilter.serverTs as { $gte?: Date; $lte?: Date };
       rows = rows.filter((row) => {
+        // Restrict in-memory request-summary input to the requested timestamp range.
         const ts = new Date(row.serverTs).getTime();
         if (range.$gte && ts < range.$gte.getTime()) return false;
         if (range.$lte && ts > range.$lte.getTime()) return false;
@@ -141,15 +155,15 @@ export class AiRequestLogService {
       successRate: rows.length ? Math.round((success / rows.length) * 100) : 0,
       avgLatencyMs: rows.length ? Math.round(latencySum / rows.length) : 0,
       byFeature: [...featureCounts.entries()]
-        .map(([feature, v]) => ({
+        .map(/* Convert an in-memory feature accumulator into its count and mean-latency report. */ ([feature, v]) => ({
           feature,
           count: v.count,
           avgLatencyMs: Math.round(v.latency / v.count),
         }))
-        .sort((a, b) => b.count - a.count),
+        .sort(/* Show the most frequently requested features first. */ (a, b) => b.count - a.count),
       byTool: [...toolCounts.entries()]
-        .map(([tool, count]) => ({ tool, count }))
-        .sort((a, b) => b.count - a.count),
+        .map(/* Convert a tool-count map entry into the summary response shape. */ ([tool, count]) => ({ tool, count }))
+        .sort(/* Show the most frequently used tools first. */ (a, b) => b.count - a.count),
     };
   }
 }

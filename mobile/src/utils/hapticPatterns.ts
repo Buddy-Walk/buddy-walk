@@ -30,6 +30,10 @@ export const PATTERN_LEGEND: { key: PatternKey; description: string }[] = [
   { key: 'OFF_ROUTE', description: 'Alternating buzzes - possibly off route' },
 ];
 
+/**
+ * Translate a route maneuver into its tactile vibration pattern, defaulting unknown maneuvers to
+ * the continue-straight cue.
+ */
 export function patternForManeuver(maneuver: string | null | undefined): readonly number[] {
   if (!maneuver) return PATTERNS.STRAIGHT;
   const m = maneuver.toLowerCase();
@@ -40,6 +44,7 @@ export function patternForManeuver(maneuver: string | null | undefined): readonl
   return PATTERNS.STRAIGHT;
 }
 
+/** Choose a short readable maneuver label for the navigation UI and accessibility announcements. */
 export function labelForManeuver(maneuver: string | null | undefined): string {
   if (!maneuver) return 'Continue';
   const m = maneuver.toLowerCase();
@@ -58,6 +63,10 @@ export function labelForManeuver(maneuver: string | null | undefined): string {
   return 'Continue straight';
 }
 
+/**
+ * Choose the visual direction symbol that accompanies a maneuver; unknown maneuvers use the
+ * forward arrow.
+ */
 export function iconForManeuver(maneuver: string | null | undefined): string {
   if (!maneuver) return '\u2B06\uFE0F';
   const m = maneuver.toLowerCase();

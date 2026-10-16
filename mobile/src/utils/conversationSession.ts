@@ -2,6 +2,10 @@ import * as Crypto from 'expo-crypto';
 
 import { sessionId } from './identity';
 
+/**
+ * Create an independent conversation identifier, with a timestamp/random fallback when native UUID
+ * generation is unavailable.
+ */
 function genId(): string {
   try {
     return Crypto.randomUUID();
@@ -13,6 +17,7 @@ function genId(): string {
 /** Isolates AI context per testing run (rotated via "New Test" on the main screen). */
 let activeConversationId = sessionId;
 
+/** Return the current in-memory conversation ID shared by question requests and telemetry. */
 export function getConversationId(): string {
   return activeConversationId;
 }

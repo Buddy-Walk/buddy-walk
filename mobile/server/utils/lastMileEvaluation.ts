@@ -4,6 +4,10 @@ interface EvaluationRow {
   destinationPlaceAddress?: string; destination?: string;
   reviewOutcome?: string; turnCorrectness?: string; entranceCorrectness?: string;
 }
+/**
+ * Aggregate reviewed field trials by pipeline, UTC week, and destination, keeping historical
+ * replays and question-only requests out of field success rates.
+ */
 export function summarizeFieldEvaluation(rows: EvaluationRow[]) {
   const groups = new Map<string, { pipelineVersion: string; week: string; location: string; trials: number;
     scored: number; gotThere: number; neededRetake: number; wouldNotGetThere: number;
@@ -31,7 +35,7 @@ export function summarizeFieldEvaluation(rows: EvaluationRow[]) {
     if (row.entranceCorrectness === "wrong") g.wrongEntrances++;
     groups.set(key, g);
   }
-  return { replayCount, groups: [...groups.values()].map(g => ({ ...g, unscored: g.trials - g.scored,
+  return { replayCount, groups: [...groups.values()].map(/* Calculate scored/unscored totals and outcome rates, using null when a rate has no reviewed denominator. */ g => ({ ...g, unscored: g.trials - g.scored,
     successRate: g.scored ? g.gotThere / g.scored : null,
     wrongTurnRate: g.turnsScored ? g.wrongTurns / g.turnsScored : null,
     wrongEntranceRate: g.entrancesScored ? g.wrongEntrances / g.entrancesScored : null,

@@ -21,6 +21,10 @@ WebBrowser.maybeCompleteAuthSession();
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Auth'>;
 
+/**
+ * Render accessible email, Google, and Apple authentication flows and route successful sessions to
+ * permission onboarding.
+ */
 export default function AuthScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -36,14 +40,18 @@ export default function AuthScreen({ navigation }: Props) {
   });
 
   useEffect(() => {
+    // Check whether Apple sign-in is available on this device before showing its authentication
+    // option.
     if (Platform.OS === 'ios') {
       AppleAuthentication.isAvailableAsync()
         .then(setAppleAvailable)
-        .catch(() => setAppleAvailable(false));
+        .catch(/* Hide Apple sign-in when the platform availability check fails. */ () => setAppleAvailable(false));
     }
   }, []);
 
   useEffect(() => {
+    // Consume Google authentication results, requiring an identity token before exchanging it
+    // for a Firebase session.
     if (googleResponse?.type === 'success') {
       const idToken = googleResponse.params?.id_token;
       if (idToken) {
@@ -59,10 +67,18 @@ export default function AuthScreen({ navigation }: Props) {
   const buttonLabel = isCreating ? 'Create Account' : 'Sign In';
   const modeLabel = isCreating ? 'Already have an account? Sign In' : 'Need an account? Create one';
   const canSubmit = useMemo(
+    /**
+     * Enable email authentication only after basic input requirements are met and no submission is
+     * running.
+     */
     () => email.trim().length > 3 && password.length >= 6 && !submitting,
     [email, password, submitting]
   );
 
+  /**
+   * Exchange a Google identity token for the app session and present any resulting authentication
+   * error.
+   */
   async function finishGoogleSignIn(idToken: string) {
     setSubmitting(true);
     setErrorMessage('');
@@ -76,6 +92,10 @@ export default function AuthScreen({ navigation }: Props) {
     }
   }
 
+  /**
+   * Create or sign in to an email/password account, normalize the email, and continue to
+   * permissions after success.
+   */
   async function handleSubmit() {
     if (!canSubmit) return;
     setSubmitting(true);
@@ -95,6 +115,10 @@ export default function AuthScreen({ navigation }: Props) {
     }
   }
 
+  /**
+   * Launch Google's authorization prompt and surface errors that occur before a response is
+   * returned.
+   */
   async function handleGooglePress() {
     setErrorMessage('');
     try {
@@ -104,6 +128,10 @@ export default function AuthScreen({ navigation }: Props) {
     }
   }
 
+  /**
+   * Create an Apple nonce, request Apple identity credentials, and exchange the token plus
+   * original nonce for a Firebase session.
+   */
   async function handleApplePress() {
     setErrorMessage('');
     setSubmitting(true);
@@ -241,7 +269,7 @@ export default function AuthScreen({ navigation }: Props) {
 
         <Button
           mode="text"
-          onPress={() => setIsCreating((prev) => !prev)}
+          onPress={/* Switch the email form between account creation and sign-in. */ () => setIsCreating(/* Invert the existing account-mode state without closing over an older render. */ (prev) => !prev)}
           textColor="#fff"
           disabled={submitting}
         >
@@ -253,6 +281,10 @@ export default function AuthScreen({ navigation }: Props) {
   );
 }
 
+/**
+ * Build the nonce string paired with an Apple sign-in request and its Firebase credential
+ * exchange.
+ */
 function generateRawNonce(): string {
   const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._';
   let result = '';

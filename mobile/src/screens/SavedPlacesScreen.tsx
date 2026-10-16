@@ -28,6 +28,10 @@ type Props = NativeStackScreenProps<RootStackParamList, 'SavedPlaces'>;
 
 const SUGGESTED_ALIASES = ['home', 'work', 'pharmacy', 'doctor', 'gym'];
 
+/**
+ * Manage named destination aliases with address lookup, optional coordinates, accessible deletion,
+ * and persisted storage.
+ */
 export default function SavedPlacesScreen({ navigation }: Props) {
   const [places, setPlaces] = useState<SavedPlace[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +42,8 @@ export default function SavedPlacesScreen({ navigation }: Props) {
   const [resolvingLocation, setResolvingLocation] = useState(false);
 
   const reload = useCallback(async () => {
+    // Reload the persisted destinations and settle the list's loading state even if reading
+    // storage fails.
     setLoading(true);
     try {
       const list = await listSavedPlaces();
@@ -48,9 +54,14 @@ export default function SavedPlacesScreen({ navigation }: Props) {
   }, []);
 
   useEffect(() => {
+    // Populate the saved-place list when the screen opens.
     reload();
   }, [reload]);
 
+  /**
+   * Request location and reverse-geocode the current fix to prefill a saved destination's address
+   * and coordinates.
+   */
   async function handleUseCurrentLocation() {
     setResolvingLocation(true);
     try {
@@ -92,6 +103,10 @@ export default function SavedPlacesScreen({ navigation }: Props) {
     }
   }
 
+  /**
+   * Reuse verified coordinates or geocode an address with a nearby-location bias, returning null
+   * when no usable result is available.
+   */
   async function resolveCoordsForAddress(
     addressTrim: string,
     existing?: { lat: number; lon: number } | null
@@ -115,6 +130,10 @@ export default function SavedPlacesScreen({ navigation }: Props) {
     return geo ? { lat: geo.lat, lon: geo.lng } : null;
   }
 
+  /**
+   * Validate and save the alias/address pair, attempt coordinate resolution, refresh the list, and
+   * explain when map verification was unavailable.
+   */
   async function handleSave() {
     const aliasTrim = alias.trim();
     const addressTrim = address.trim();
@@ -148,6 +167,10 @@ export default function SavedPlacesScreen({ navigation }: Props) {
     }
   }
 
+  /**
+   * Ask before removing a saved alias so a screen-reader action cannot silently delete a
+   * destination.
+   */
   function confirmDelete(place: SavedPlace) {
     Alert.alert(
       'Remove saved place?',
@@ -157,6 +180,7 @@ export default function SavedPlacesScreen({ navigation }: Props) {
         {
           text: 'Remove',
           style: 'destructive',
+          /** Delete the confirmed destination, refresh the list, and announce the removal. */
           onPress: async () => {
             await deletePlace(place.id);
             await reload();
@@ -175,7 +199,7 @@ export default function SavedPlacesScreen({ navigation }: Props) {
           icon="arrow-left"
           iconColor="#fff"
           size={28}
-          onPress={() => navigation.goBack()}
+          onPress={/* Close destination management and return to the previous screen. */ () => navigation.goBack()}
           accessibilityLabel="Back to main screen"
         />
         <Text style={styles.headerTitle} accessibilityRole="header">
@@ -196,6 +220,7 @@ export default function SavedPlacesScreen({ navigation }: Props) {
           <TextInput
             value={alias}
             onChangeText={(text) => {
+              // Update the destination alias as the user types.
               setAlias(text);
             }}
             placeholder="e.g. home"
@@ -206,11 +231,11 @@ export default function SavedPlacesScreen({ navigation }: Props) {
             accessibilityLabel="Place nickname"
           />
           <View style={styles.suggestionRow}>
-            {SUGGESTED_ALIASES.map((s) => (
+            {SUGGESTED_ALIASES.map(/* Render one suggested alias as an accessible shortcut for filling the name field. */ (s) => (
               <Pressable
                 key={s}
-                onPress={() => setAlias(s)}
-                style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
+                onPress={/* Fill the alias field with this suggestion. */ () => setAlias(s)}
+                style={/* Show the pressed appearance of an alias suggestion. */ ({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
                 accessibilityLabel={`Use suggestion ${s}`}
                 accessibilityRole="button"
               >
@@ -223,6 +248,8 @@ export default function SavedPlacesScreen({ navigation }: Props) {
           <TextInput
             value={address}
             onChangeText={(text) => {
+              // Update the address and clear coordinates that belonged to the previous address
+              // text.
               setAddress(text);
               setCoords(null);
             }}
@@ -235,7 +262,7 @@ export default function SavedPlacesScreen({ navigation }: Props) {
           <Pressable
             onPress={handleUseCurrentLocation}
             disabled={resolvingLocation}
-            style={({ pressed }) => [
+            style={/* Render the current-location autofill control's pressed appearance. */ ({ pressed }) => [
               styles.secondaryButton,
               pressed && styles.secondaryButtonPressed,
             ]}
@@ -252,7 +279,7 @@ export default function SavedPlacesScreen({ navigation }: Props) {
           <Pressable
             onPress={handleSave}
             disabled={busy}
-            style={({ pressed }) => [
+            style={/* Render the save control's pressed and busy appearances. */ ({ pressed }) => [
               styles.primaryButton,
               pressed && styles.primaryButtonPressed,
               busy && styles.primaryButtonDisabled,
@@ -281,7 +308,7 @@ export default function SavedPlacesScreen({ navigation }: Props) {
               home?".
             </Text>
           ) : (
-            places.map((p) => (
+            places.map(/* Render one saved destination with its spoken summary and both touch and accessibility delete actions. */ (p) => (
               <View
                 key={p.id}
                 style={styles.placeRow}
@@ -290,6 +317,8 @@ export default function SavedPlacesScreen({ navigation }: Props) {
                 accessibilityHint="Use the Remove button to delete this saved place"
                 accessibilityActions={[{ name: 'delete', label: `Remove ${p.alias}` }]}
                 onAccessibilityAction={(event) => {
+                  // Route the screen reader's delete action through the same confirmation as the
+                  // visible Remove button.
                   if (event.nativeEvent.actionName === 'delete') confirmDelete(p);
                 }}
               >
@@ -305,8 +334,8 @@ export default function SavedPlacesScreen({ navigation }: Props) {
                   ) : null}
                 </View>
                 <Pressable
-                  onPress={() => confirmDelete(p)}
-                  style={({ pressed }) => [
+                  onPress={/* Open deletion confirmation for this saved destination. */ () => confirmDelete(p)}
+                  style={/* Show the destination removal button's pressed appearance. */ ({ pressed }) => [
                     styles.removeButton,
                     pressed && styles.removeButtonPressed,
                   ]}

@@ -23,8 +23,13 @@ export function pulse(pattern: readonly number[]): void {
   }
 }
 
+/**
+ * Trigger a strong native impact, falling back to a short vibration when the haptics API is
+ * unavailable.
+ */
 function heavyImpact(): void {
   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {
+    // Use basic vibration when the device cannot produce the requested heavy impact.
     try {
       Vibration.vibrate(40);
     } catch {
@@ -51,6 +56,7 @@ export function tap(): void {
  */
 export function tapMedium(): void {
   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {
+    // Use a recognizable double vibration when the requested native confirmation cue fails.
     try {
       Vibration.vibrate([0, 60, 50, 60]);
     } catch {
@@ -61,14 +67,15 @@ export function tapMedium(): void {
 
 /** Success notification feedback (e.g. capture confirmed, action completed). */
 export function notifySuccess(): void {
-  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { /* Treat unsupported success haptics as optional feedback rather than an application error. */ });
 }
 
 /** Warning / error notification feedback. */
 export function notifyWarning(): void {
-  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => { /* Treat unsupported warning haptics as optional feedback rather than an application error. */ });
 }
 
+/** Stop a repeating vibration pulse when navigation or the associated action ends. */
 export function cancelPulse(): void {
   try {
     Vibration.cancel();

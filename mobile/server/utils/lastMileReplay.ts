@@ -13,4 +13,8 @@ export interface ReplayInput {
   originalPhotoSha256: string;
   photoRepresentation: "stored-compressed";
 }
+/**
+ * Fingerprint the original photo for passive trial provenance without storing another copy or
+ * executing a retry.
+ */
 export function photoHash(photo: string): string { return createHash("sha256").update(photo).digest("hex"); }

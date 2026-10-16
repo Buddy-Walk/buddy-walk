@@ -31,6 +31,7 @@ export const memoryAiRequests: aiRequestLogInterface[] = [];
 export const memoryChatLogs: MemoryChatLog[] = [];
 export const memoryLastMileTests: lastMileTestLogInterface[] = [];
 
+/** Append usage events to the bounded in-memory fallback, evicting the oldest records first. */
 export function pushMemoryEvents(events: telemetryEventInterface[]): void {
   memoryEvents.push(...events);
   if (memoryEvents.length > MAX_MEMORY_EVENTS) {
@@ -38,6 +39,7 @@ export function pushMemoryEvents(events: telemetryEventInterface[]): void {
   }
 }
 
+/** Append feedback to the bounded in-memory fallback when persistent storage is unavailable. */
 export function pushMemoryFeedback(entry: feedbackInterface): void {
   memoryFeedback.push(entry);
   if (memoryFeedback.length > MAX_MEMORY_FEEDBACK) {
@@ -45,6 +47,7 @@ export function pushMemoryFeedback(entry: feedbackInterface): void {
   }
 }
 
+/** Retain an AI request in the bounded fallback buffer, preserving the most recent requests. */
 export function pushMemoryAiRequest(entry: aiRequestLogInterface): void {
   memoryAiRequests.push(entry);
   if (memoryAiRequests.length > MAX_MEMORY_AI_REQUESTS) {
@@ -52,6 +55,7 @@ export function pushMemoryAiRequest(entry: aiRequestLogInterface): void {
   }
 }
 
+/** Retain a Last Meters trial in the bounded fallback buffer for dashboard review. */
 export function pushMemoryLastMileTest(entry: lastMileTestLogInterface): void {
   memoryLastMileTests.push(entry);
   if (memoryLastMileTests.length > MAX_MEMORY_LAST_MILE_TESTS) {
@@ -59,6 +63,7 @@ export function pushMemoryLastMileTest(entry: lastMileTestLogInterface): void {
   }
 }
 
+/** Create a bounded in-memory conversation with its own ID, timestamp, and copied message list. */
 export function createMemoryChatLog(body: chatLogInterface): MemoryChatLog {
   const entry: MemoryChatLog = {
     _id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
@@ -73,10 +78,12 @@ export function createMemoryChatLog(body: chatLogInterface): MemoryChatLog {
   return entry;
 }
 
+/** Look up a fallback conversation by its local identifier. */
 export function findMemoryChatLog(id: string): MemoryChatLog | undefined {
-  return memoryChatLogs.find((log) => log._id === id);
+  return memoryChatLogs.find(/* Match the requested conversation ID within the fallback buffer. */ (log) => log._id === id);
 }
 
+/** Append a message to a known fallback conversation, returning undefined when it no longer exists. */
 export function appendMemoryChatMessage(id: string, chat: messageInterface): MemoryChatLog | undefined {
   const log = findMemoryChatLog(id);
   if (!log) return undefined;
@@ -84,6 +91,10 @@ export function appendMemoryChatMessage(id: string, chat: messageInterface): Mem
   return log;
 }
 
+/**
+ * Mark a matching fallback message as reported and save the reason without creating missing
+ * records.
+ */
 export function flagMemoryChatMessage(
   chatlogId: string,
   messageId: string,

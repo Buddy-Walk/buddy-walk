@@ -74,6 +74,10 @@ const TELEMETRY_ENABLED =
   (typeof __DEV__ === 'undefined' || __DEV__ === false) ||
   process.env.EXPO_PUBLIC_TELEMETRY === '1';
 
+/**
+ * Keep bounded scalar event properties and omit nested objects or media that do not belong in
+ * telemetry.
+ */
 function sanitizeProps(
   props?: Record<string, unknown>
 ): Record<string, PropValue> | undefined {
@@ -95,6 +99,10 @@ function sanitizeProps(
   return out;
 }
 
+/**
+ * Load the bounded offline event queue once per app session, falling back to an empty queue if
+ * storage is invalid.
+ */
 async function hydrate(): Promise<void> {
   if (hydrated) return;
   hydrated = true;
@@ -109,6 +117,10 @@ async function hydrate(): Promise<void> {
   }
 }
 
+/**
+ * Persist the most recent queued events without allowing an analytics storage failure to affect
+ * the app.
+ */
 async function persist(): Promise<void> {
   try {
     await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue.slice(-MAX_QUEUE)));
@@ -117,10 +129,15 @@ async function persist(): Promise<void> {
   }
 }
 
+/** Update the screen name automatically attached to subsequent telemetry events. */
 export function setCurrentScreen(name: string): void {
   currentScreen = name;
 }
 
+/**
+ * Queue a consent-eligible event with sanitized properties and timestamps, persisting it offline
+ * and flushing when the batch threshold is reached.
+ */
 export async function track(
   name: EventName,
   props?: Record<string, unknown>
@@ -143,11 +160,16 @@ export async function track(
   }
 }
 
+/** Record a screen visit and make that screen the context for later events. */
 export function trackScreen(name: string): void {
   setCurrentScreen(name);
   void track(Events.ScreenView, { screen: name });
 }
 
+/**
+ * Send one queued batch at a time with installation identity, removing only successfully uploaded
+ * events and retaining failed batches.
+ */
 export async function flush(): Promise<void> {
   if (!TELEMETRY_ENABLED || flushing) return;
   if (isAnalyticsOptedOutSync()) return;
@@ -179,13 +201,14 @@ export async function flush(): Promise<void> {
  * than once. Returns a disposer for tests/teardown.
  */
 export function initTelemetry(): () => void {
-  if (!TELEMETRY_ENABLED) return () => {};
+  if (!TELEMETRY_ENABLED) return () => { /* Return a harmless teardown function when telemetry collection is disabled. */ };
   if (!timer) {
-    timer = setInterval(() => void flush(), FLUSH_INTERVAL_MS);
+    timer = setInterval(/* Flush queued analytics periodically without blocking the current user interaction. */ () => void flush(), FLUSH_INTERVAL_MS);
   }
   void track(Events.AppOpened);
 
   const unsubscribe = subscribeAnalyticsOptOut((optedOut) => {
+    // Discard buffered events as soon as the user opts out of analytics collection.
     if (optedOut) {
       queue = [];
       void persist();
@@ -193,6 +216,7 @@ export function initTelemetry(): () => void {
   });
 
   return () => {
+    // Release the periodic flush timer and consent listener when telemetry shuts down.
     if (timer) {
       clearInterval(timer);
       timer = null;

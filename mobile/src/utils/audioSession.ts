@@ -22,10 +22,15 @@ const RECORDING_MODE: Partial<AudioMode> = {
 let chain: Promise<void> = Promise.resolve();
 let lastApplied: Mode | null = null;
 
+/** Yield for a short audio-session settling interval without blocking the UI thread. */
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise(/* Resolve the settling delay after the requested number of milliseconds. */ (resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Switch the foreground app between recording and playback modes, suppressing redundant changes
+ * and retrying a temporarily busy native audio session once.
+ */
 async function applyMode(mode: Mode): Promise<void> {
   if (AppState.currentState !== 'active') return;
   // Skip redundant switches — re-applying the same mode is what most often
@@ -51,8 +56,9 @@ async function applyMode(mode: Mode): Promise<void> {
   }
 }
 
+/** Serialize audio-mode changes so microphone teardown and speech playback do not race each other. */
 function enqueue(mode: Mode): Promise<void> {
-  chain = chain.then(() => applyMode(mode)).catch(() => {});
+  chain = chain.then(/* Apply the requested audio mode only after earlier transitions have settled. */ () => applyMode(mode)).catch(() => { /* Keep a failed audio-mode transition from rejecting the shared queue and preventing later transitions. */ });
   return chain;
 }
 
@@ -73,6 +79,10 @@ export async function ensurePlaybackThroughSpeaker(): Promise<void> {
   await enqueue('playback');
 }
 
+/**
+ * Release the previous playback/microphone route, then reopen recording with short settling gaps
+ * so repeated voice interactions can acquire the mic.
+ */
 export async function prepareAudioForRecording(): Promise<void> {
   // Drop back to playback briefly so iOS releases the mic route after TTS, then
   // re-open recording. Without the gap, createAsync often fails on the 2nd tap.

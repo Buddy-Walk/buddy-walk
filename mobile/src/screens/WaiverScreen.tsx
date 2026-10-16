@@ -7,6 +7,7 @@ import { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Waiver'>;
 
+/** Present the app's navigation disclaimer in an accessible scrollable screen. */
 export default function WaiverScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container}>
@@ -32,7 +33,7 @@ export default function WaiverScreen({ navigation }: Props) {
       <View style={styles.footer}>
         <Button
           mode="contained"
-          onPress={() => navigation.goBack()}
+          onPress={/* Return from the disclaimer to the previous onboarding screen. */ () => navigation.goBack()}
           style={styles.button}
           contentStyle={styles.buttonContent}
           labelStyle={styles.buttonLabel}

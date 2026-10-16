@@ -26,6 +26,10 @@ interface Stop {
 
 const parentStops = new Map<string, Stop>();
 
+/**
+ * Load parent subway stations from the bundled stops file, skipping malformed rows and logging
+ * unavailable data.
+ */
 function loadStops() {
   try {
     const stopsPath = path.join(__dirname, "../stops.txt");
@@ -46,6 +50,7 @@ function loadStops() {
   }
 }
 
+/** Compute great-circle station distance in kilometers for nearby-station selection. */
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371;
   const dLat = (lat2 - lat1) * (Math.PI / 180);
@@ -56,10 +61,15 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/** Remove the platform direction suffix so north/south GTFS stops map to their parent station. */
 function baseStopId(stopId: string) {
   return stopId.replace(/[NS]$/, "");
 }
 
+/**
+ * Normalize GTFS timestamp representations into Unix seconds, accommodating milliseconds, bigint,
+ * strings, and protobuf Long values.
+ */
 export function epochSeconds(timeField: unknown): number | null {
   if (timeField == null) return null;
   if (typeof timeField === "number") {
@@ -91,6 +101,7 @@ export function epochSeconds(timeField: unknown): number | null {
   return null;
 }
 
+/** Match a requested route to its feed label, including supported express or branch suffixes. */
 function routeMatches(routeId: string, target: string) {
   const route = routeId.toUpperCase();
   if (route === target) return true;
@@ -98,6 +109,7 @@ function routeMatches(routeId: string, target: string) {
   return false;
 }
 
+/** Format a nonnegative arrival countdown with natural singular/plural wording. */
 function formatMinutesUntil(arrivalSec: number, nowSec: number) {
   const mins = Math.max(0, Math.round((arrivalSec - nowSec) / 60));
   if (mins <= 0) return "arriving now";
@@ -110,6 +122,7 @@ function formatArrivalPhrase(arrivalSec: number, nowSec: number) {
   return formatMinutesUntil(arrivalSec, nowSec);
 }
 
+/** Find the nearest parent station inside the maximum walking-distance radius. */
 function findNearestParentStop(lat: number, lon: number) {
   let best: { id: string; stop: Stop; km: number } | null = null;
   for (const [id, stop] of parentStops) {
@@ -123,6 +136,10 @@ function findNearestParentStop(lat: number, lon: number) {
 
 loadStops();
 
+/**
+ * Fetch and decode the requested line's real-time feed, select arrivals at the nearest station,
+ * and produce concise direction-aware arrival text.
+ */
 export async function getSubwayArrivals(routeId: string, userLat: number, userLon: number): Promise<string> {
   const route = routeId.toUpperCase().trim();
   const feedSuffix = MTA_FEEDS[route];
@@ -184,7 +201,7 @@ export async function getSubwayArrivals(routeId: string, userLat: number, userLo
     }
   }
 
-  arrivals.sort((a, b) => a.arrivalSec - b.arrivalSec);
+  arrivals.sort(/* Order station arrivals chronologically before limiting the displayed departures. */ (a, b) => a.arrivalSec - b.arrivalSec);
   const upcoming = arrivals.slice(0, MAX_ARRIVALS);
 
   if (upcoming.length === 0) {
@@ -192,6 +209,8 @@ export async function getSubwayArrivals(routeId: string, userLat: number, userLo
   }
 
   const lines = upcoming.map((a) => {
+    // Describe one arrival with its direction, branch/express label when different, and live
+    // arrival phrase.
     const mins = formatArrivalPhrase(a.arrivalSec, nowSec);
     const express = a.routeLabel !== route ? ` (${a.routeLabel})` : "";
     return `${a.direction}${express}: ${mins}`;

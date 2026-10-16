@@ -1,11 +1,19 @@
 import { apiClient } from './client';
 import { ChatLogInterface, MessageInterface } from '../types';
 
+/**
+ * Recognize offline and timeout failures that should not interrupt the answer flow when optional
+ * chat logging fails.
+ */
 function isUnreachableApiError(e: unknown): boolean {
   const err = e as { message?: string; code?: string };
   return err?.message === 'Network Error' || err?.code === 'ECONNABORTED';
 }
 
+/**
+ * Create a persisted conversation if the API is reachable; logging failures never prevent the user
+ * from receiving an answer.
+ */
 export async function createChatLog(body: ChatLogInterface) {
   try {
     const result = await apiClient.post('/db/createChatLog', body);
@@ -20,6 +28,10 @@ export async function createChatLog(body: ChatLogInterface) {
   }
 }
 
+/**
+ * Append one question and answer to an existing conversation, treating unreachable storage as a
+ * best-effort failure.
+ */
 export async function addChatToChatLog(body: { id: string; chat: MessageInterface }) {
   try {
     const result = await apiClient.post('/db/newChat', body);
@@ -33,6 +45,7 @@ export async function addChatToChatLog(body: { id: string; chat: MessageInterfac
   }
 }
 
+/** Attach a user-provided report reason to a specific saved message and conversation. */
 export async function flagMessage(body: {
   flagReason?: string;
   messageId: string;

@@ -25,6 +25,10 @@ export function isStoredImage(value: unknown): value is string {
   return typeof value === "string" && value.startsWith("data:");
 }
 
+/**
+ * Represent an image payload by its character count when the response should omit the actual
+ * image.
+ */
 function placeholderForLength(length: number): string {
   return length > 0 ? `[base64 image ${length} chars]` : "";
 }
@@ -33,7 +37,9 @@ export function imagePlaceholder(value?: string): string {
   return placeholderForLength(value?.length ?? 0);
 }
 
+/** Summarize stored image presence and payload lengths for each trial image field. */
 export function imageStatsOf(row: LastMileTestImageFields): LastMileTestImageStats["imageStats"] {
+  /** Measure one optional image and distinguish a stored data URL from a textual placeholder. */
   const stats = (value?: string) => ({ length: value?.length ?? 0, stored: isStoredImage(value) });
   return {
     userPhoto: stats(row.userPhoto),

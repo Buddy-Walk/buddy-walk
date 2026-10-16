@@ -19,11 +19,13 @@ import {
 const manhattan = { lat: 40.758, lng: -73.9855 };
 
 test("normalizeNearbyPlaceQuery removes proximity filler", () => {
+  // Regression test: normalizeNearbyPlaceQuery removes proximity filler.
   assert.equal(normalizeNearbyPlaceQuery("closest FedEx near me"), "FedEx");
   assert.equal(normalizeNearbyPlaceQuery("Nearby pharmacy"), "pharmacy");
 });
 
 test("extractNearbyPlaceQuery isolates destinations from local requests", () => {
+  // Regression test: extractNearbyPlaceQuery isolates destinations from local requests.
   assert.equal(
     extractNearbyPlaceQuery("Give me walking directions to FedEx near me."),
     "FedEx"
@@ -35,6 +37,8 @@ test("extractNearbyPlaceQuery isolates destinations from local requests", () => 
 });
 
 test("extractNearbyPlaceQuery only accepts bare destinations when explicitly allowed", () => {
+  // Regression test: extractNearbyPlaceQuery only accepts bare destinations when explicitly
+  // allowed.
   assert.equal(extractNearbyPlaceQuery("FedEx"), null);
   assert.equal(extractNearbyPlaceQuery("FedEx", true), "FedEx");
   assert.equal(extractNearbyPlaceQuery("38 Warren St", true), "38 Warren St");
@@ -43,6 +47,7 @@ test("extractNearbyPlaceQuery only accepts bare destinations when explicitly all
 });
 
 test("looksLikeBareDestinationQuery detects safe destination-shaped text", () => {
+  // Regression test: looksLikeBareDestinationQuery detects safe destination-shaped text.
   assert.equal(looksLikeBareDestinationQuery("FedEx"), true);
   assert.equal(looksLikeBareDestinationQuery("Whole Foods"), true);
   assert.equal(looksLikeBareDestinationQuery("38 Warren St"), true);
@@ -51,6 +56,7 @@ test("looksLikeBareDestinationQuery detects safe destination-shaped text", () =>
 });
 
 test("isNearbyPlaceCandidateRelevant rejects fuzzy brand substitutions", () => {
+  // Regression test: isNearbyPlaceCandidateRelevant rejects fuzzy brand substitutions.
   assert.equal(
     isNearbyPlaceCandidateRelevant(
       { name: "Burger Man", types: ["restaurant"], vicinity: "7th Avenue" },
@@ -75,6 +81,7 @@ test("isNearbyPlaceCandidateRelevant rejects fuzzy brand substitutions", () => {
 });
 
 test("selectNearbyPlaceCandidate chooses the nearest valid result", () => {
+  // Regression test: selectNearbyPlaceCandidate chooses the nearest valid result.
   const selected = selectNearbyPlaceCandidate(
     [
       {
@@ -96,6 +103,7 @@ test("selectNearbyPlaceCandidate chooses the nearest valid result", () => {
 });
 
 test("selectNearbyPlaceCandidate rejects global and malformed results", () => {
+  // Regression test: selectNearbyPlaceCandidate rejects global and malformed results.
   assert.equal(
     selectNearbyPlaceCandidate(
       [
@@ -116,6 +124,7 @@ test("selectNearbyPlaceCandidate rejects global and malformed results", () => {
 });
 
 test("default place selection rejects results beyond the local boundary", () => {
+  // Regression test: default place selection rejects results beyond the local boundary.
   const sixKilometersNorth = {
     place_id: "outside-local-area",
     name: "FedEx outside local area",
@@ -151,10 +160,10 @@ test("chain lookups pick the nearest branch after merging both searches", () => 
     },
   ];
   const merged = mergeNearbyPlaceCandidates(nearby, text);
-  assert.deepEqual(merged.map((c) => c.place_id), ["far", "here"]);
+  assert.deepEqual(merged.map(/* Read merged place IDs to verify deduplication without losing closer branches. */ (c) => c.place_id), ["far", "here"]);
 
   const ranked = selectNearbyPlaceCandidates(
-    merged.filter((c) => isNearbyPlaceCandidateRelevant(c, "McDonald's")),
+    merged.filter(/* Apply the production relevance filter before checking which merged branch ranks nearest. */ (c) => isNearbyPlaceCandidateRelevant(c, "McDonald's")),
     { lat: 40.71473, lng: -74.01396 }
   );
   assert.equal(ranked[0].place_id, "here");
@@ -163,6 +172,7 @@ test("chain lookups pick the nearest branch after merging both searches", () => 
 });
 
 test("permanently closed places are never selected", () => {
+  // Regression test: permanently closed places are never selected.
   const selected = selectNearbyPlaceCandidate(
     [
       {
@@ -185,6 +195,7 @@ test("permanently closed places are never selected", () => {
 });
 
 test("local place ranking filters distant results before returning options", () => {
+  // Regression test: local place ranking filters distant results before returning options.
   const origin = { lat: 40.758, lng: -73.9855 };
   const local = {
     name: "Local store",
@@ -201,11 +212,12 @@ test("local place ranking filters distant results before returning options", () 
     MAX_LOCAL_PLACE_DISTANCE_METERS
   );
 
-  assert.deepEqual(ranked.map((place) => place.name), ["Local store"]);
+  assert.deepEqual(ranked.map(/* Read ranked place names to assert distance ordering. */ (place) => place.name), ["Local store"]);
   assert.ok(nearbyPlaceDistanceMeters(origin, origin) < 1);
 });
 
 test("editDistance counts insertions, substitutions and adjacent swaps", () => {
+  // Regression test: editDistance counts insertions, substitutions and adjacent swaps.
   assert.equal(editDistance("fiterman", "fiterman"), 0);
   assert.equal(editDistance("fitterman", "fiterman"), 1);
   assert.equal(editDistance("sweetgreen", "sweetgren"), 1);
@@ -213,6 +225,7 @@ test("editDistance counts insertions, substitutions and adjacent swaps", () => {
 });
 
 test("isNearbyPlaceCandidateRelevant tolerates spacing and small misspellings", () => {
+  // Regression test: isNearbyPlaceCandidateRelevant tolerates spacing and small misspellings.
   assert.equal(
     isNearbyPlaceCandidateRelevant({ name: "BMCC Fiterman Hall", types: ["university"] }, "Fitter man hall"),
     true
@@ -223,6 +236,7 @@ test("isNearbyPlaceCandidateRelevant tolerates spacing and small misspellings", 
 });
 
 test("isNearbyPlaceCandidateRelevant accepts an acronym of the place name", () => {
+  // Regression test: isNearbyPlaceCandidateRelevant accepts an acronym of the place name.
   assert.equal(
     isNearbyPlaceCandidateRelevant(
       { name: "Borough of Manhattan Community College", types: ["university"] },
@@ -237,6 +251,7 @@ test("isNearbyPlaceCandidateRelevant accepts an acronym of the place name", () =
 });
 
 test("mergeNearbyPlaceCandidates records every search that returned a place", () => {
+  // Regression test: mergeNearbyPlaceCandidates records every search that returned a place.
   const merged = mergeNearbyPlaceCandidates(
     [{ place_id: "a", name: "Target", searchSources: ["nearby"] }],
     [
@@ -244,10 +259,11 @@ test("mergeNearbyPlaceCandidates records every search that returned a place", ()
       { place_id: "b", name: "Target Express", searchSources: ["text"] },
     ]
   );
-  assert.deepEqual(merged.map((c) => c.searchSources), [["nearby", "text"], ["text"]]);
+  assert.deepEqual(merged.map(/* Read merged source tags to verify that deduplication preserves search provenance. */ (c) => c.searchSources), [["nearby", "text"], ["text"]]);
 });
 
 test("summarizePlaceCandidates logs kept and rejected results nearest first", () => {
+  // Regression test: summarizePlaceCandidates logs kept and rejected results nearest first.
   const summary = summarizePlaceCandidates(
     [
       {
@@ -271,7 +287,7 @@ test("summarizePlaceCandidates logs kept and rejected results nearest first", ()
     "Shake Shack"
   );
   assert.deepEqual(
-    summary.map((c) => [c.placeId, c.relevant, c.source]),
+    summary.map(/* Select candidate identity, relevance, and source fields for concise audit-summary assertions. */ (c) => [c.placeId, c.relevant, c.source]),
     [
       ["near", false, "nearby+text"],
       ["far", true, "nearby"],
@@ -282,6 +298,7 @@ test("summarizePlaceCandidates logs kept and rejected results nearest first", ()
 });
 
 test("signTextMatchesPlaceName confirms only signs that name the destination", () => {
+  // Regression test: signTextMatchesPlaceName confirms only signs that name the destination.
   assert.equal(signTextMatchesPlaceName("DUNKIN'\nOPEN 24 HOURS", "Dunkin'"), true);
   assert.equal(signTextMatchesPlaceName("AUNTIE ANNE'S | PRETZELS", "Auntie Anne's"), true);
   assert.equal(signTextMatchesPlaceName("citi\nATM", "Citi"), true);

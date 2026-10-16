@@ -42,6 +42,8 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     ];
 
 (async function(){
+  // Boot the mobile API: select persistent or fallback storage, register local/proxied routes
+  // and admin viewers, then start HTTP serving and optional keep-alive probes.
   const app: Application = express();
   const port = process.env.PORT || 8000;
 
@@ -74,6 +76,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
   app.use('/api/companion', (req, res, next) => {
+    // Apply API CORS headers and answer preflight requests before route handlers read the body.
     const origin = req.headers.origin;
     if (origin) {
       res.setHeader('Access-Control-Allow-Origin', origin);
@@ -98,6 +101,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     app.post(
       '/api/transcribe',
       express.raw({ type: '*/*', limit: '10mb' }),
+      /** Forward raw transcription uploads to the local audio controller. */
       (req, res) => {
         void transcribeController.transcribe(req, res);
       }
@@ -116,6 +120,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   // Street View must run here when keys exist — do not rely on the text proxy.
   if (canRunLocalLastMile()) {
     app.post('/api/last-mile', (req, res) => {
+      // Forward Last Meters captures to the local pipeline controller.
       void lastMileController.lastMileRequest(req, res);
     });
   } else if (routing.lastMile === 'proxy') {
@@ -135,6 +140,8 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   app.use("/api/last-mile-tests", lastMileTestLogRoute)
 
   app.get('/api/health', async (_req, res) => {
+    // Expose service routing, storage, upstream reachability, and Last Meters capability for
+    // mobile diagnostics.
     const mode = describeServerMode();
     const upstreamText =
       mode.routing.ai === 'proxy' ? await probeUpstreamText() : { ok: true, status: 200 };
@@ -171,6 +178,10 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     console.warn('[companion] viewer template not found in any of:', viewerCandidates);
   }
 
+  /**
+   * Embed a sanitized companion token in the viewer template and disable caching of the private
+   * view.
+   */
   function sendCompanionViewer(res: Response, rawToken: string): void {
     const token = rawToken.replace(/[^a-zA-Z0-9_-]/g, '');
     if (!companionViewerTemplate) {
@@ -186,10 +197,12 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   }
 
   app.get('/companion-viewer.html', (req, res) => {
+    // Open the companion viewer using a token supplied in the query string.
     sendCompanionViewer(res, String(req.query.token ?? ''));
   });
 
   app.get('/companion/:token', (req, res) => {
+    // Open the companion viewer using a token supplied in the route path.
     sendCompanionViewer(res, req.params.token ?? '');
   });
 
@@ -209,6 +222,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   }
 
   app.get('/usage', (req, res) => {
+    // Serve the admin usage viewer with its safely serialized access token and no-store headers.
     if (!usageViewerTemplate) {
       res.status(500).send('Usage dashboard is not available right now.');
       return;
@@ -235,6 +249,8 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   }
 
   app.get('/last-mile-tests', (req, res) => {
+    // Serve the Last Meters review viewer with its safely serialized access token and no-store
+    // headers.
     if (!lastMileTestsTemplate) {
       res.status(500).send('Last Meters test dashboard is not available right now.');
       return;
@@ -253,16 +269,21 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     app.use(express.static(rootDir));
 
     app.get('*', (_req, res) => {
+      // Return the built frontend entry point for the root route when static assets are
+      // available.
       res.sendFile(path.join(rootDir, 'index.html'));
     });
   } else {
     console.warn('[server] Web dist not found; running API-only.');
     app.get('/', (_req, res) => {
+      // Return a minimal API status page when no frontend build is installed.
       res.status(200).json({ ok: true, service: 'buddy-walk-api' });
     });
   }
   
   app.listen(Number(port), '0.0.0.0', () => {
+      // Announce the listening server and start the optional Render keep-alive loop only after
+      // startup succeeds.
       console.log(`Server is live at http://localhost:${port}`);
       startRenderKeepAlive();
     });

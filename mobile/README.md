@@ -2,6 +2,8 @@
 
 Expo / React Native app for blind and low-vision travelers: camera + voice Q&A, haptic turn-by-turn navigation, saved places, and companion location sharing.
 
+For code entry points, capture and sensor data flow, service ownership, and validation commands, see the [mobile contributor guide](docs/mobile-code-guide.md).
+
 **Screenshots & overview:** see the [repository README](../README.md) and [GitHub Pages site](../docs/index.html) (`docs/assets/`).
 
 ---

@@ -6,6 +6,10 @@ const LEGACY_HOSTS: string[] =
 
 export const OWNED_API_ROOT = defaultApi.apiRoot.replace(/\/+$/, '').replace(/\/api$/i, '');
 
+/**
+ * Normalize the host portion of an API address so the same guard works with or without a URL
+ * scheme.
+ */
 function hostnameOf(root: string): string | null {
   try {
     const url = root.match(/^https?:\/\//i) ? root : `https://${root}`;
@@ -15,10 +19,11 @@ function hostnameOf(root: string): string | null {
   }
 }
 
+/** Reject known retired hosts before configuring a production API client. */
 export function isLegacyApiHost(root: string): boolean {
   const host = hostnameOf(root);
   if (!host) return false;
-  return LEGACY_HOSTS.some((legacy) => host === legacy.replace(/^www\./i, '').toLowerCase());
+  return LEGACY_HOSTS.some(/* Match the normalized hostname against one entry in the retired API-host list. */ (legacy) => host === legacy.replace(/^www\./i, '').toLowerCase());
 }
 
 /** Never send TestFlight / production traffic to abandoned upstream hosts. */

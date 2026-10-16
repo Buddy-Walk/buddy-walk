@@ -14,6 +14,7 @@ const NUMBER_WORDS: Record<string, string> = {
   seven: '7',
 };
 
+/** Normalize a subway line identifier and reject names that are not in the supported route set. */
 function normalizeRoute(raw: string): string | null {
   const route = raw.trim().toUpperCase();
   return VALID_ROUTES.has(route) ? route : null;

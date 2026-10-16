@@ -35,24 +35,35 @@ interface SavedPlacesStoreOptions {
   warn?: (...args: unknown[]) => void;
 }
 
+/** Normalize saved-place aliases for case-insensitive lookup and duplicate detection. */
 function normalizeAlias(alias: string): string {
   return alias.trim().toLowerCase();
 }
 
+/** Escape a user-created alias before including it in a regular expression. */
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * Create a saved-place repository with injected storage, clock, randomness, and logging so
+ * persistence and alias expansion can be tested independently of the device.
+ */
 export function createSavedPlacesStore({
   storage,
-  now = () => new Date(),
+  now = /* Use the current wall-clock time unless the caller supplies a deterministic clock for testing. */ () => new Date(),
   random = Math.random,
   warn = console.warn,
 }: SavedPlacesStoreOptions) {
+  /** Create a local saved-place identifier using the repository's injected clock and random source. */
   function genId(): string {
     return now().getTime().toString(36) + random().toString(36).slice(2, 8);
   }
 
+  /**
+   * Read valid saved-place records from storage, returning an empty list for missing or malformed
+   * data.
+   */
   async function listSavedPlaces(): Promise<SavedPlace[]> {
     try {
       const raw = await storage.getItem(STORAGE_KEY);
@@ -60,6 +71,10 @@ export function createSavedPlacesStore({
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [];
       return parsed.filter(
+        /**
+         * Discard persisted entries that lack the required saved-place ID, alias, or address
+         * fields.
+         */
         (p): p is SavedPlace =>
           !!p &&
           typeof p.id === 'string' &&
@@ -72,17 +87,23 @@ export function createSavedPlacesStore({
     }
   }
 
+  /** Persist the complete saved-place collection in the shared storage entry. */
   async function writePlaces(places: SavedPlace[]): Promise<void> {
     await storage.setItem(STORAGE_KEY, JSON.stringify(places));
   }
 
+  /** Find a saved destination by normalized alias and return null when no usable alias matches. */
   async function findPlaceByAlias(alias: string): Promise<SavedPlace | null> {
     const target = normalizeAlias(alias);
     if (!target) return null;
     const all = await listSavedPlaces();
-    return all.find((p) => normalizeAlias(p.alias) === target) ?? null;
+    return all.find(/* Match this saved place against the caller's normalized alias. */ (p) => normalizeAlias(p.alias) === target) ?? null;
   }
 
+  /**
+   * Validate and save a destination, updating an existing normalized alias rather than creating a
+   * duplicate.
+   */
   async function savePlace(input: SavePlaceInput): Promise<SavedPlace> {
     const alias = input.alias.trim();
     const address = input.address.trim();
@@ -90,7 +111,7 @@ export function createSavedPlacesStore({
     if (!address) throw new Error('Address is required');
 
     const existing = await listSavedPlaces();
-    const conflicting = existing.find((p) => normalizeAlias(p.alias) === normalizeAlias(alias));
+    const conflicting = existing.find(/* Find an alias collision before deciding whether the saved destination should be inserted or replaced. */ (p) => normalizeAlias(p.alias) === normalizeAlias(alias));
     const updated: SavedPlace = conflicting
       ? { ...conflicting, alias, address, lat: input.lat, lon: input.lon }
       : {
@@ -103,25 +124,30 @@ export function createSavedPlacesStore({
         };
 
     const next = conflicting
-      ? existing.map((p) => (p.id === conflicting.id ? updated : p))
+      ? existing.map(/* Replace only the matching saved record and preserve every other destination. */ (p) => (p.id === conflicting.id ? updated : p))
       : [...existing, updated];
 
     await writePlaces(next);
     return updated;
   }
 
+  /** Delete the saved record with the specified ID and persist the remaining collection. */
   async function deletePlace(id: string): Promise<void> {
     const all = await listSavedPlaces();
-    await writePlaces(all.filter((p) => p.id !== id));
+    await writePlaces(all.filter(/* Keep saved destinations other than the one being deleted. */ (p) => p.id !== id));
   }
 
+  /**
+   * Expand whole-word saved aliases into their address/coordinate representation, preferring
+   * longer aliases and recording which destinations matched.
+   */
   async function expandSavedAliases(text: string): Promise<ExpansionResult> {
     const trimmed = text.trim();
     if (!trimmed) return { text: trimmed, matched: [] };
     const all = await listSavedPlaces();
     if (all.length === 0) return { text: trimmed, matched: [] };
 
-    const sorted = [...all].sort((a, b) => b.alias.length - a.alias.length);
+    const sorted = [...all].sort(/* Process longer aliases first so a short alias does not consume part of a more specific saved name. */ (a, b) => b.alias.length - a.alias.length);
     const matched: SavedPlace[] = [];
     let result = trimmed;
 
@@ -135,6 +161,8 @@ export function createSavedPlacesStore({
           ? `${place.address} (coordinates ${place.lat}, ${place.lon})`
           : place.address;
       result = result.replace(re, (_fullMatch, prefix: string) => {
+        // Substitute the saved destination while preserving the separator that preceded its
+        // alias.
         didMatch = true;
         return `${prefix}${replacement}`;
       });

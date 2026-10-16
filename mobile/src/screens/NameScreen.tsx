@@ -8,9 +8,14 @@ import { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Name'>;
 
+/** Collect the optional display name used by the mobile experience before opening the main screen. */
 export default function NameScreen({ navigation }: Props) {
   const [name, setName] = useState('');
 
+  /**
+   * Persist a nonempty trimmed display name and finish onboarding by replacing this screen with
+   * Main.
+   */
   async function handleContinue() {
     if (name.trim()) {
       await AsyncStorage.setItem('name', name.trim());

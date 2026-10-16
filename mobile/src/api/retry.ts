@@ -1,6 +1,10 @@
 import axios from 'axios';
 import { API_ROOT } from './client';
 
+/**
+ * Allow retries for transient connection, throttling, and gateway failures while preserving
+ * cancellation and the caller's timeout policy.
+ */
 function isRetryableAxiosError(error: unknown, retryOnTimeout: boolean): boolean {
   if (axios.isCancel(error)) return false;
   if (!axios.isAxiosError(error)) return false;
@@ -24,11 +28,15 @@ export async function warmApiBackend(): Promise<void> {
       // Cold starts on Render free tier can take ~60s.
     }
     if (attempt < maxAttempts - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 15_000 * (attempt + 1)));
+      await new Promise(/* Wait longer between health checks while a cold backend is waking up. */ (resolve) => setTimeout(resolve, 15_000 * (attempt + 1)));
     }
   }
 }
 
+/**
+ * Repeat a caller-supplied request within a bounded retry budget, optionally warming the backend
+ * and applying incremental delays; throw the final error.
+ */
 export async function withNetworkRetry<T>(
   fn: () => Promise<T>,
   options?: {
@@ -54,7 +62,7 @@ export async function withNetworkRetry<T>(
       if (!isRetryableAxiosError(error, retryOnTimeout) || attempt === retries) {
         throw error;
       }
-      await new Promise((resolve) => setTimeout(resolve, baseDelayMs * (attempt + 1)));
+      await new Promise(/* Apply the next retry delay without blocking the JavaScript event loop. */ (resolve) => setTimeout(resolve, baseDelayMs * (attempt + 1)));
       if (warmOnFailure && (!axios.isAxiosError(error) || !error.response)) {
         await warmApiBackend();
       }

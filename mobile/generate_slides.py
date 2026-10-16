@@ -19,11 +19,13 @@ GOOD = RGBColor(0x66, 0xBB, 0x6A)      # green for "result"
 WIDE_W, WIDE_H = Inches(13.333), Inches(7.5)
 
 
+# Apply the shared presentation background color to one slide.
 def add_bg(slide):
     slide.background.fill.solid()
     slide.background.fill.fore_color.rgb = BG
 
 
+# Add the presentation's left-edge accent bar without an outline.
 def add_accent_bar(slide):
     bar = slide.shapes.add_shape(
         1, Inches(0.0), Inches(0.0), Inches(0.18), WIDE_H
@@ -48,6 +50,7 @@ def set_runs(paragraph, text, color, size, bold_default=False):
         run.font.name = "Segoe UI"
 
 
+# Create a branded title slide containing the presentation title, subtitle, and presenter.
 def title_slide(prs, title, subtitle, presenter):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_bg(slide)
@@ -107,6 +110,7 @@ def content_slide(prs, title, bullets):
     return slide
 
 
+# Assemble the Buddy Walk project presentation in the shared widescreen style and save the deck.
 def build():
     prs = Presentation()
     prs.slide_width = WIDE_W

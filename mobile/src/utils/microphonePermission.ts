@@ -26,7 +26,7 @@ export async function ensureMicrophonePermission(): Promise<boolean> {
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((track) => track.stop());
+      stream.getTracks().forEach(/* Release the temporary audio track opened only to obtain microphone permission. */ (track) => track.stop());
       return true;
     } catch {
       return false;
@@ -46,7 +46,7 @@ export async function ensureMicrophonePermission(): Promise<boolean> {
     'Buddy Walk needs microphone access for Tap to Ask. Enable it in Settings.',
     [
       { text: 'Not now', style: 'cancel' },
-      { text: 'Open Settings', onPress: () => Linking.openSettings() },
+      { text: 'Open Settings', onPress: /* Open device settings so the user can grant microphone access after an earlier denial. */ () => Linking.openSettings() },
     ]
   );
   return false;

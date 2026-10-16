@@ -9,12 +9,14 @@
  */
 const DEFAULT_UPSTREAM = 'https://buddywalk.app';
 
+/** Check whether at least one named environment setting has a nonblank value. */
 function anyPresent(...names: string[]): boolean {
-  return names.some((name) => Boolean(process.env[name]?.trim()));
+  return names.some(/* Treat whitespace-only credentials as absent when choosing service routing. */ (name) => Boolean(process.env[name]?.trim()));
 }
 
+/** Require every named environment setting to be present before enabling its local service. */
 function allPresent(...names: string[]): boolean {
-  return names.every((name) => Boolean(process.env[name]?.trim()));
+  return names.every(/* Check one required credential after trimming accidental surrounding whitespace. */ (name) => Boolean(process.env[name]?.trim()));
 }
 
 /** OpenAI / Gemini: /api/text, /api/parseRequest, /api/audio, /api/last-mile. */
@@ -42,6 +44,7 @@ export function canRunLocalLastMile(): boolean {
   return Boolean(process.env.OPENAI_API_KEY?.trim()) && hasOwnMapsKey();
 }
 
+/** Normalize the upstream origin so proxy routes can append their own /api paths safely. */
 export function getUpstreamApiRoot(): string {
   const raw = (process.env.UPSTREAM_API_ROOT || DEFAULT_UPSTREAM).trim();
   return raw.replace(/\/+$/, '').replace(/\/api$/i, '');
@@ -60,6 +63,10 @@ export type ServiceRouting = {
   lastMile: ServiceRoute;
 };
 
+/**
+ * Choose local execution when the required credentials exist; otherwise use the configured
+ * upstream.
+ */
 function route(hasKeys: boolean): ServiceRoute {
   return hasKeys ? 'local' : 'proxy';
 }
@@ -105,9 +112,13 @@ export function getServiceRouting(): ServiceRouting {
 
 /** True when at least one capability still depends on the upstream proxy. */
 export function isZeroConfigMode(): boolean {
-  return Object.values(getServiceRouting()).some((value) => value === 'proxy');
+  return Object.values(getServiceRouting()).some(/* Report whether any service needs the upstream, which controls startup health probing. */ (value) => value === 'proxy');
 }
 
+/**
+ * Describe the effective service routing and storage mode for health responses without exposing
+ * credentials.
+ */
 export function describeServerMode(): {
   mode: 'zero-config' | 'self-hosted' | 'mixed';
   upstream?: string;
@@ -116,8 +127,8 @@ export function describeServerMode(): {
 } {
   const routing = getServiceRouting();
   const values = Object.values(routing);
-  const allProxy = values.every((value) => value === 'proxy');
-  const allLocal = values.every((value) => value === 'local');
+  const allProxy = values.every(/* Detect a deployment whose services all depend on the upstream API. */ (value) => value === 'proxy');
+  const allLocal = values.every(/* Detect a deployment that can execute every supported service locally. */ (value) => value === 'local');
 
   return {
     mode: allProxy ? 'zero-config' : allLocal ? 'self-hosted' : 'mixed',

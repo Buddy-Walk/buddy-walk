@@ -12,6 +12,10 @@ const INSTALL_ID_KEY = '@buddywalk:installId';
  */
 let cachedInstallId: string | null = null;
 
+/**
+ * Generate an installation/session identifier without making native crypto availability a startup
+ * requirement.
+ */
 function genId(): string {
   try {
     return Crypto.randomUUID();
@@ -21,6 +25,10 @@ function genId(): string {
   }
 }
 
+/**
+ * Reuse the persisted installation ID across launches, or create a process-local fallback if
+ * AsyncStorage cannot be read or written.
+ */
 export async function getInstallId(): Promise<string> {
   if (cachedInstallId) return cachedInstallId;
   try {

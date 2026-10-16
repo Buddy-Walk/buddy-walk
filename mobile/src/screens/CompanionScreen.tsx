@@ -56,6 +56,7 @@ interface MapsSession {
 
 type PersistedSession = LiveSession | MapsSession;
 
+/** Format a sharing timestamp for display, distinguishing missing and invalid values. */
 function formatTime(iso?: string | null): string {
   if (!iso) return 'never';
   const d = new Date(iso);
@@ -63,6 +64,10 @@ function formatTime(iso?: string | null): string {
   return d.toLocaleTimeString();
 }
 
+/**
+ * Explain a live-sharing backend failure and the available static-map fallback in
+ * platform-appropriate language.
+ */
 function companionUnavailableMessage(
   reason: 'html_not_api' | 'network' | 'bad_response' | null
 ): string {
@@ -84,10 +89,18 @@ function companionUnavailableMessage(
   );
 }
 
+/**
+ * Narrow a persisted sharing record to the live-session shape, including older records that stored
+ * a token without a mode.
+ */
 function isLiveSession(s: PersistedSession): s is LiveSession {
   return s.mode === 'live' || 'token' in s;
 }
 
+/**
+ * Choose a live viewer link or a current static map pin according to the session and backend
+ * availability.
+ */
 function getShareUrl(
   session: PersistedSession | null,
   fix: Location.LocationObject | null,
@@ -102,6 +115,10 @@ function getShareUrl(
   return buildShareUrl(session.token);
 }
 
+/**
+ * Manage foreground location sharing, persisted session restoration, live-server health, and
+ * accessible share/stop controls.
+ */
 export default function CompanionScreen({ navigation }: Props) {
   const [displayName, setDisplayName] = useState('');
   const [session, setSession] = useState<PersistedSession | null>(null);
@@ -122,12 +139,19 @@ export default function CompanionScreen({ navigation }: Props) {
 
   // Keep the ref in sync so the polling loop can read the latest session
   useEffect(() => {
+    // Expose the latest sharing session to asynchronous tracking and sharing callbacks.
     sessionRef.current = session;
   }, [session]);
 
   useEffect(() => {
+    // Check backend availability and restore an eligible persisted session, cancelling startup
+    // work and tracking on unmount.
     let cancelled = false;
 
+    /**
+     * Restore a stored live or static-map session, validating its credentials and expiration
+     * before resuming the appropriate tracker.
+     */
     async function restoreSession(apiAvailable: boolean) {
       try {
         const raw = await AsyncStorage.getItem(ACTIVE_SESSION_KEY);
@@ -187,6 +211,8 @@ export default function CompanionScreen({ navigation }: Props) {
     }
 
     (async () => {
+      // Probe the companion backend before deciding which sharing mode a saved session can
+      // resume.
       const { available, reason } = await checkCompanionApiAvailability();
       if (cancelled) return;
       setCompanionAvailable(available);
@@ -195,6 +221,8 @@ export default function CompanionScreen({ navigation }: Props) {
     })();
 
     return () => {
+      // Ignore late startup results and release location-sharing resources when the screen
+      // unmounts.
       cancelled = true;
       stopTracking();
     };
@@ -204,16 +232,21 @@ export default function CompanionScreen({ navigation }: Props) {
   // If the OS pauses the JS interval (background), we'll catch up when
   // the app comes back to the foreground.
   useEffect(() => {
+    // Subscribe to app foreground transitions so an active live session can publish a fresh
+    // status.
     const sub = AppState.addEventListener('change', (state) => {
+      // Refresh an active live session as soon as the user returns to the app.
       if (state === 'active' && sessionRef.current && isLiveSession(sessionRef.current)) {
-        sendPingNow().catch(() => {});
+        sendPingNow().catch(() => { /* Keep a failed foreground refresh from interrupting screen activation. */ });
       }
     });
-    return () => sub.remove();
+    return /* Remove this app-state subscription when the screen unmounts. */ () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const sendPingNow = useCallback(async () => {
+    // Send one authenticated location ping at a time, obtaining a fix if necessary and updating
+    // the last-success/error status.
     const current = sessionRef.current;
     if (!current || !isLiveSession(current)) return;
     if (pingInFlightRef.current) return;
@@ -248,6 +281,7 @@ export default function CompanionScreen({ navigation }: Props) {
     }
   }, []);
 
+  /** Request foreground location and maintain the latest fix used when sharing a static map pin. */
   async function beginMapsTracking() {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
@@ -265,6 +299,7 @@ export default function CompanionScreen({ navigation }: Props) {
         distanceInterval: 5,
         timeInterval: 5_000,
       },
+      /** Cache the most recent fix for the next static-map share operation. */
       (loc) => {
         lastFixRef.current = loc;
       }
@@ -280,6 +315,10 @@ export default function CompanionScreen({ navigation }: Props) {
     }
   }
 
+  /**
+   * Start live-session tracking with movement-triggered updates and periodic heartbeats, avoiding
+   * overlapping position watchers.
+   */
   async function beginTracking(persisted: LiveSession) {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
@@ -297,12 +336,13 @@ export default function CompanionScreen({ navigation }: Props) {
         distanceInterval: 5,
         timeInterval: 3_000,
       },
+      /** Cache the location change and send a throttled live update when the wearer moves. */
       (loc) => {
         lastFixRef.current = loc;
         // Real-time: push the new position immediately when the wearer moves,
         // throttled so GPS chatter doesn't flood the server.
         if (Date.now() - lastPingSentAtRef.current >= MOVEMENT_PING_MS) {
-          sendPingNow().catch(() => {});
+          sendPingNow().catch(() => { /* Allow a failed movement update to be retried by the next movement or heartbeat. */ });
         }
       }
     );
@@ -310,16 +350,19 @@ export default function CompanionScreen({ navigation }: Props) {
     // Heartbeat keeps the session fresh while standing still.
     if (intervalRef.current) clearInterval(intervalRef.current);
     intervalRef.current = setInterval(() => {
-      sendPingNow().catch(() => {});
+      // Send a live-session heartbeat even when the phone has remained stationary.
+      sendPingNow().catch(() => { /* Keep a transient heartbeat failure from stopping the sharing timer. */ });
     }, PING_INTERVAL_MS);
 
     // fire one immediately so the viewer gets a fix right away
     sessionRef.current = persisted;
     setTimeout(() => {
-      sendPingNow().catch(() => {});
+      // Publish the first live location shortly after tracking starts.
+      sendPingNow().catch(() => { /* Let a failed initial ping recover through the regular sharing updates. */ });
     }, 800);
   }
 
+  /** Release the location watcher and heartbeat timer, then discard the cached fix. */
   function stopTracking() {
     if (locationSubRef.current) {
       locationSubRef.current.remove();
@@ -332,6 +375,7 @@ export default function CompanionScreen({ navigation }: Props) {
     lastFixRef.current = null;
   }
 
+  /** Create and persist a static-map sharing session after obtaining an authorized location fix. */
   async function startMapsSharing() {
     await beginMapsTracking();
     if (!lastFixRef.current) {
@@ -355,6 +399,10 @@ export default function CompanionScreen({ navigation }: Props) {
     void promptShareAfterStart(persisted, false);
   }
 
+  /**
+   * Start a live companion session when its API is available, otherwise fall back to sharing a
+   * static map pin.
+   */
   async function handleStart() {
     setWorking(true);
     try {
@@ -394,6 +442,10 @@ export default function CompanionScreen({ navigation }: Props) {
     }
   }
 
+  /**
+   * Stop local tracking and clear saved sharing state, then make a best-effort request to end any
+   * live server session.
+   */
   async function handleStop(silent = false) {
     const current = sessionRef.current;
     stopTracking();
@@ -416,6 +468,10 @@ export default function CompanionScreen({ navigation }: Props) {
     }
   }
 
+  /**
+   * Open the platform share sheet with the correct live link or static pin, returning whether
+   * sharing could be launched.
+   */
   async function shareSessionLink(
     current: PersistedSession,
     fix: Location.LocationObject | null,
@@ -440,23 +496,28 @@ export default function CompanionScreen({ navigation }: Props) {
     }
   }
 
+  /**
+   * Wait for startup UI/location readiness before automatically presenting the new session's share
+   * sheet.
+   */
   async function promptShareAfterStart(
     current: PersistedSession,
     liveApiReady: boolean,
     delayMs = 600
   ) {
-    await new Promise((r) => setTimeout(r, delayMs));
+    await new Promise(/* Allow the initial sharing confirmation to settle before opening the share sheet. */ (r) => setTimeout(r, delayMs));
     if (!sessionRef.current || sessionRef.current !== current) return;
     let fix = lastFixRef.current;
     const useMaps = !isLiveSession(current) || !liveApiReady;
     if (useMaps && !fix) {
-      await new Promise((r) => setTimeout(r, 2000));
+      await new Promise(/* Allow a newly requested location fix time to arrive before building a static map link. */ (r) => setTimeout(r, 2000));
       fix = lastFixRef.current;
     }
     if (!getShareUrl(current, fix, liveApiReady)) return;
     await shareSessionLink(current, fix, liveApiReady);
   }
 
+  /** Share the active session on demand after confirming that a usable link can be constructed. */
   async function handleShareLink() {
     if (!session) return;
     const ready = companionAvailable === true;
@@ -480,7 +541,7 @@ export default function CompanionScreen({ navigation }: Props) {
           icon="arrow-left"
           iconColor="#fff"
           size={28}
-          onPress={() => navigation.goBack()}
+          onPress={/* Return to the previous screen without changing the active sharing session. */ () => navigation.goBack()}
           accessibilityLabel="Back to main screen"
         />
         <Text style={styles.headerTitle} accessibilityRole="header">
@@ -532,7 +593,7 @@ export default function CompanionScreen({ navigation }: Props) {
             <Pressable
               onPress={handleStart}
               disabled={working || companionAvailable === null}
-              style={({ pressed }) => [
+              style={/* Render the start-sharing control's pressed and in-progress appearances. */ ({ pressed }) => [
                 styles.primaryButton,
                 pressed && styles.primaryButtonPressed,
                 working && styles.primaryButtonDisabled,
@@ -570,7 +631,7 @@ export default function CompanionScreen({ navigation }: Props) {
 
             <Pressable
               onPress={handleShareLink}
-              style={({ pressed }) => [
+              style={/* Render the share-link control's pressed appearance. */ ({ pressed }) => [
                 styles.primaryButton,
                 pressed && styles.primaryButtonPressed,
               ]}
@@ -601,7 +662,7 @@ export default function CompanionScreen({ navigation }: Props) {
 
             <Button
               mode="outlined"
-              onPress={() => handleStop(false)}
+              onPress={/* Stop sharing and announce the change because this was an explicit user action. */ () => handleStop(false)}
               style={styles.stopButton}
               labelStyle={styles.stopButtonLabel}
               textColor="#fff"

@@ -29,6 +29,7 @@ WRAP = Alignment(wrap_text=True, vertical="top")
 CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 
+# Apply the shared fill, font, border, and alignment to a worksheet table header.
 def style_header_row(ws, row: int, cols: int) -> None:
     for c in range(1, cols + 1):
         cell = ws.cell(row=row, column=c)
@@ -38,6 +39,7 @@ def style_header_row(ws, row: int, cols: int) -> None:
         cell.alignment = CENTER
 
 
+# Apply borders, wrapping, and row height throughout a rectangular worksheet table.
 def style_table(ws, start_row: int, end_row: int, cols: int) -> None:
     for r in range(start_row, end_row + 1):
         for c in range(1, cols + 1):
@@ -46,11 +48,13 @@ def style_table(ws, start_row: int, end_row: int, cols: int) -> None:
             cell.alignment = WRAP
 
 
+# Set worksheet column widths from their one-based numeric column indices.
 def set_widths(ws, widths: dict[int, float]) -> None:
     for col, w in widths.items():
         ws.column_dimensions[get_column_letter(col)].width = w
 
 
+# Create the first worksheet with external-test instructions and completion guidance.
 def build_readme_sheet(wb: Workbook) -> None:
     ws = wb.create_sheet("Read Me", 0)
     ws.sheet_view.showGridLines = False
@@ -95,6 +99,8 @@ def build_readme_sheet(wb: Workbook) -> None:
         cell.alignment = WRAP
 
 
+# Create the external session sheet with participant, device, accessibility, and test-
+# environment fields.
 def build_session_sheet(wb: Workbook) -> None:
     ws = wb.active
     ws.title = "Session"
@@ -194,6 +200,7 @@ def build_session_sheet(wb: Workbook) -> None:
         row += 3
 
 
+# Create the external field-test categories, repeated run rows, and result-entry controls.
 def build_test_runs_sheet(wb: Workbook) -> None:
     ws = wb.create_sheet("Test Runs")
     ws.sheet_view.showGridLines = False
@@ -329,6 +336,8 @@ def build_test_runs_sheet(wb: Workbook) -> None:
     ws.freeze_panes = "A4"
 
 
+# Create a structured external issues log with severity/status choices and space for
+# reproduction details.
 def build_issues_sheet(wb: Workbook) -> None:
     ws = wb.create_sheet("Issues Log")
     ws.sheet_view.showGridLines = False
@@ -379,6 +388,8 @@ def build_issues_sheet(wb: Workbook) -> None:
     ws.freeze_panes = "A5"
 
 
+# Create the system-metrics worksheet with definitions and formulas for assessing the collected
+# runs.
 def build_system_metrics_sheet(wb: Workbook) -> None:
     ws = wb.create_sheet("System Metrics")
     ws.sheet_view.showGridLines = False
@@ -501,6 +512,7 @@ def build_system_metrics_sheet(wb: Workbook) -> None:
     ws.freeze_panes = "A5"
 
 
+# Assemble the external testing workbook sheets and save the generated XLSX artifact.
 def main() -> None:
     wb = Workbook()
     build_readme_sheet(wb)

@@ -144,6 +144,10 @@ export function calculateLastMileConfidence(
 const NOT_VISIBLE_PATTERN =
   /\b(?:not visible|not in view|cannot (?:identify|locate|match|see)|can't (?:identify|locate|match|see)|unknown|no match)\b/i;
 
+/**
+ * Accept exactly one supported panorama heading or unambiguous tile index from model text;
+ * visibility failures and ambiguous answers yield null.
+ */
 export function parseLastMileHeading(response: string): number | null {
   const text = response.trim();
   if (!text || NOT_VISIBLE_PATTERN.test(text) || /\bNOT_VISIBLE\b/i.test(text)) {
@@ -151,12 +155,12 @@ export function parseLastMileHeading(response: string): number | null {
   }
 
   const validHeadings = new Set<number>(LAST_MILE_HEADINGS);
-  const numbers = [...text.matchAll(/-?\d+(?:\.\d+)?/g)].map((match) => Number(match[0]));
+  const numbers = [...text.matchAll(/-?\d+(?:\.\d+)?/g)].map(/* Parse numeric tokens so headings and echoed view indices can be checked explicitly. */ (match) => Number(match[0]));
   const headingMatches = [
     ...new Set(
       numbers
-        .map((heading) => (heading === 360 ? 0 : heading))
-        .filter((heading) => validHeadings.has(heading)),
+        .map(/* Canonicalize a full-circle heading to zero degrees before checking supported tiles. */ (heading) => (heading === 360 ? 0 : heading))
+        .filter(/* Keep only headings that correspond to generated panorama directions. */ (heading) => validHeadings.has(heading)),
     ),
   ];
   if (headingMatches.length === 1) return headingMatches[0];
@@ -173,10 +177,18 @@ export function parseLastMileHeading(response: string): number | null {
   return null;
 }
 
+/**
+ * Require the exact visibility verdict so explanatory or uncertain model text cannot count as
+ * confirmation.
+ */
 export function parseDestinationVisibility(response: string): boolean {
   return response.trim().toUpperCase() === "VISIBLE";
 }
 
+/**
+ * Validate and normalize a compass heading, then snap it to the nearest generated panorama
+ * direction.
+ */
 export function snapLastMileHeading(heading: number): number {
   if (!Number.isFinite(heading)) {
     throw new Error("Last Meters heading must be a finite number.");
@@ -187,6 +199,7 @@ export function snapLastMileHeading(heading: number): number {
   ];
 }
 
+/** Compute the smallest unsigned angular separation between two finite headings. */
 export function lastMileHeadingDifference(
   currentHeading: number,
   targetHeading: number
@@ -197,6 +210,10 @@ export function lastMileHeadingDifference(
   return Math.abs(((targetHeading - currentHeading + 540) % 360) - 180);
 }
 
+/**
+ * Check heading agreement using a validated tolerance and circular rather than linear angle
+ * distance.
+ */
 export function isLastMileHeadingAligned(
   currentHeading: number,
   targetHeading: number,
@@ -208,6 +225,10 @@ export function isLastMileHeadingAligned(
   return lastMileHeadingDifference(currentHeading, targetHeading) <= toleranceDegrees;
 }
 
+/**
+ * Compare compass and panorama evidence for review while retaining the compass as the only
+ * authoritative heading.
+ */
 export function compareCompassAndPanoramaHeadings(
   deviceHeading: number | undefined,
   panoramaMatchedHeading: number | null,
@@ -241,6 +262,10 @@ export function compareCompassAndPanoramaHeadings(
   };
 }
 
+/**
+ * Accept a visually identified target tile only when it agrees with the map direction within the
+ * allowed angular distance.
+ */
 export function resolveVerifiedTargetHeading(
   visuallyMatchedHeading: number | null,
   expectedMapHeading: number,
@@ -269,6 +294,7 @@ export function resolveVerifiedTargetHeading(
     : null;
 }
 
+/** Express distance in rounded feet for nearby guidance or miles for longer distances. */
 export function formatLastMileDistance(distanceMeters: number): string {
   if (distanceMeters >= 1_000) {
     return `${(distanceMeters / 1_609.344).toFixed(1)} miles`;
@@ -291,6 +317,7 @@ export function formatLastMileDistance(distanceMeters: number): string {
   return `${roundedFeet.toLocaleString("en-US")} feet`;
 }
 
+/** Convert a normalized bearing into one of eight spoken compass directions. */
 function formatLastMileDirection(bearing: number): string {
   const directionNames = [
     "north",
@@ -349,6 +376,10 @@ export function streetViewImageryAgeYears(
   return Math.max(0, (nowMonths - capturedMonths) / 12);
 }
 
+/**
+ * Use destination reference imagery only inside the allowed radius and when its known age does not
+ * exceed policy.
+ */
 export function shouldUseDestinationReference(distanceMeters: number, panoramaAgeYears?: number): boolean {
   if (!Number.isFinite(distanceMeters) || distanceMeters < 0) {
     throw new Error("Last Meters distance must be a non-negative finite number.");
@@ -357,6 +388,7 @@ export function shouldUseDestinationReference(distanceMeters: number, panoramaAg
     !(typeof panoramaAgeYears === "number" && Number.isFinite(panoramaAgeYears) && panoramaAgeYears > LAST_MILE_REFERENCE_MAX_AGE_YEARS);
 }
 
+/** Name the resolved branch by address when the query could identify several locations. */
 function describeResolvedBranch(destination: string, address?: string): string {
   const trimmed = address?.trim();
   return trimmed && trimmed !== destination
@@ -364,12 +396,17 @@ function describeResolvedBranch(destination: string, address?: string): string {
     : destination;
 }
 
+/** Ask for a street name when a resolved branch address may differ from the user's intended branch. */
 function differentBranchHint(destination: string, address?: string): string {
   return address?.trim() && address.trim() !== destination
     ? ` If you are at a different ${destination}, add the street name and try again.`
     : "";
 }
 
+/**
+ * Describe an aligned map heading with rounded distance and branch context, deferring continued
+ * walking to primary navigation.
+ */
 export function buildAlignedHeadingInstruction(
   destination: string,
   distanceMeters: number,
@@ -385,6 +422,10 @@ export function buildAlignedHeadingInstruction(
   );
 }
 
+/**
+ * Describe a distant destination by compass direction and ask the user to return to Last Meters
+ * inside its working radius.
+ */
 export function buildLastMileApproachInstruction(
   destination: string,
   distanceMeters: number,
@@ -404,6 +445,10 @@ export function buildLastMileApproachInstruction(
   );
 }
 
+/**
+ * Require destination distance to exceed both the minimum bearing range and the estimated GPS
+ * error.
+ */
 export function isDestinationBearingReliable(
   distanceMeters: number,
   gpsAccuracyMeters?: number
@@ -415,6 +460,10 @@ export function isDestinationBearingReliable(
   return distanceMeters > Math.max(LAST_MILE_MIN_RELIABLE_BEARING_METERS, accuracy);
 }
 
+/**
+ * Withhold a turn when compass and imagery conflict, explaining how to recalibrate and retake the
+ * photo.
+ */
 export function buildHeadingConflictInstruction(
   destination: string,
   distanceMeters: number
@@ -430,6 +479,10 @@ export function buildHeadingConflictInstruction(
   );
 }
 
+/**
+ * Describe close-range proximity without authorizing movement when GPS uncertainty prevents
+ * confirming which side contains the entrance.
+ */
 export function buildCloseRangeNoTurnInstruction(
   destination: string,
   distanceMeters: number,
@@ -472,6 +525,10 @@ export function buildLastMileDistanceSentence(
     : `${subject} is about ${distance} away in that direction. Continue with your primary navigation.`;
 }
 
+/**
+ * Explain that the destination is not visible and defer further travel to primary navigation
+ * before a fresh capture.
+ */
 export function buildLastMileRetakeInstruction(
   destination: string,
   distanceMeters: number,
@@ -509,12 +566,14 @@ export function buildBesideBuildingInstruction(
   );
 }
 
+/** Add a Google Maps closure notice, distinguishing temporary closure from current opening hours. */
 export function buildClosedNowNotice(destination: string, temporarily = false): string {
   return temporarily
     ? ` Google Maps lists ${destination} as temporarily closed.`
     : ` Google Maps lists ${destination} as closed right now.`;
 }
 
+/** Attribute the answer to Maps and, when applicable, Street View with its available imagery date. */
 export function buildLastMileSourceNote(streetViewDate?: string | null): string {
   if (streetViewDate === null) return " Source: Google Maps.";
   return streetViewDate

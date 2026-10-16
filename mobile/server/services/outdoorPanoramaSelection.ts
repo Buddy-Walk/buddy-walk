@@ -14,14 +14,22 @@ export type PanoramaAudit = (attempt: PanoramaAttempt) => void;
 export interface PanoramaSearchBudget { seen: Set<string>; deadline: number }
 export interface SelectedPanorama extends OutdoorPanoramaMetadata { date?: string }
 
+/**
+ * Accept only explicit indoor/outdoor classifier verdicts; preserve every other answer as
+ * uncertain.
+ */
 export function parseSceneVerdict(value: string): SceneVerdict {
   const verdict = value.trim().toLowerCase();
   return verdict === "outdoor" || verdict === "indoor" ? verdict : "uncertain";
 }
 
+/**
+ * Search bounded nearby Street View metadata probes, deduplicate panorama IDs, validate preview
+ * images, and accept only confidently outdoor imagery within the shared deadline.
+ */
 export async function selectOutdoorPanorama(
   lat: number, lng: number, apiKey: string, classify: SceneClassifier,
-  audit: PanoramaAudit = () => {},
+  audit: PanoramaAudit = () => { /* Allow callers that do not need an audit hook to use the same validated panorama search. */ },
   budget?: PanoramaSearchBudget,
 ): Promise<{ metadata: SelectedPanorama; attempts: PanoramaAttempt[] }> {
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 85 || Math.abs(lng) > 180) {
@@ -30,7 +38,12 @@ export async function selectOutdoorPanorama(
   const attempts: PanoramaAttempt[] = [];
   const seen = budget?.seen ?? new Set<string>();
   const deadline = budget?.deadline ?? Date.now() + 45_000;
+  /** Limit each network call to the remaining search budget, capped at ten seconds. */
   const remaining = () => Math.max(1, Math.min(10_000, deadline - Date.now()));
+  /**
+   * Append and publish every panorama attempt so rejected or uncertain imagery remains
+   * diagnosable.
+   */
   const record = (attempt: PanoramaAttempt) => {
     attempts.push(attempt);
     audit(attempt);
@@ -62,6 +75,8 @@ export async function selectOutdoorPanorama(
       }
       // Four 90-degree views cover the full horizon, unlike narrow matching tiles.
       const images = await Promise.all([0, 90, 180, 270].map(async heading => {
+        // Download one preview direction from the candidate panorama and require usable image
+        // dimensions before scene classification.
         const response = await axios.get("https://maps.googleapis.com/maps/api/streetview", {
           params: { size: "640x640", pano: panoId, heading, fov: 90, pitch: 0, source: "outdoor", return_error_code: true, key: apiKey },
           responseType: "arraybuffer", timeout: remaining(),

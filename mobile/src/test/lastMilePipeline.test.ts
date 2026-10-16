@@ -7,9 +7,12 @@ import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
 
 for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallback", "verified-turn", "detour", "low-confidence", "ambiguous"] as const) {
   test(`Last Meters integration: ${scenario}`, async t => {
+    // Regression test: Last Meters integration: ${scenario}.
     const oldKey = process.env.GOOGLE_MAPS_API_KEY;
     process.env.GOOGLE_MAPS_API_KEY = "unit-test";
     t.after(() => {
+      // Restore the Maps credential after the scenario so later tests do not inherit fixture
+      // configuration.
       if (oldKey === undefined) delete process.env.GOOGLE_MAPS_API_KEY;
       else process.env.GOOGLE_MAPS_API_KEY = oldKey;
     });
@@ -19,6 +22,8 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
     assert.ok(jpeg.length > 10000);
     let lookups = 0;
     t.mock.method(axios, "get", async (url: string, options: any) => {
+      // Provide scenario-specific Places, building, walking-route, and panorama responses
+      // without contacting external providers.
       if (url.includes("nearbysearch")) {
         const place = { place_id: "citi", name: "Citi", vicinity: "Test Street", geometry: { location: { lat: 40.70045, lng: -74 } }, types: ["bank"] };
         return { data: { status: "OK", results: scenario === "ambiguous" ? [place, { ...place, place_id: "citi-two", vicinity: "Other Street" }] : [place] } };
@@ -44,6 +49,8 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
     let guidanceCalls = 0;
     const service = new OpenAIService();
     (service as any)._client = { chat: { completions: { create: async (request: any) => {
+      // Return deterministic model stage results and assert the intended orientation/target and
+      // sign/reference concurrency.
       const prompt = request.messages[0].content as string;
       let text = "NOT_VISIBLE";
       if (prompt.startsWith("Classify the CAMERA")) text = "OUTDOOR";
@@ -65,9 +72,9 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
       return { choices: [{ message: { content: text } }], usage: { total_tokens: 10 } };
     } } } };
     let logged: any;
-    t.mock.method(lastMileTestLogService, "record", async (row: any) => { logged = row; return "trial-test"; });
+    t.mock.method(lastMileTestLogService, "record", async (row: any) => { /* Capture the pipeline trial evidence and return a stable fixture record ID. */  logged = row; return "trial-test"; });
     let answer: any;
-    const res = { status: () => res, json: (body: any) => { answer = body; } };
+    const res = { status: /* Keep the HTTP response stub chainable for status().json(). */ () => res, json: (body: any) => { /* Capture the final response for scenario-specific guidance and safety assertions. */  answer = body; } };
     const now = Date.now();
     await service.lastMileRequest({ res } as any, 40.7, -74, `data:image/jpeg;base64,${jpeg.toString("base64")}`, "Citi", 90, 14, 3, {
       photoCapturedAt: now, positionTimestamp: now, headingTimestamp: now, headingReference: "true",
@@ -106,11 +113,11 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
       assert.ok(logged.safetyReasons.includes("entrance_not_listed"));
     } else {
       assert.ok(signCalls > 0, "Stale imagery must still get Step 2C");
-      assert.ok(logged.steps.some((s: any) => s.response === "SKIPPED: stale_imagery"));
+      assert.ok(logged.steps.some(/* Find the stage that explicitly skipped an over-age destination reference. */ (s: any) => s.response === "SKIPPED: stale_imagery"));
       if (scenario === "second-panorama") {
         assert.equal(logged.panoId, "second");
-        assert.deepEqual(logged.steps.filter((s: any) => s.name === "target_store_match").map((s: any) => s.panoId), ["first", "second"]);
-        assert.ok(logged.panoramaValidation.some((a: any) => a.status === "destination_not_visible"));
+        assert.deepEqual(logged.steps.filter(/* Select target-matching stages so distinct panorama attempts can be checked. */ (s: any) => s.name === "target_store_match").map(/* Read the panorama ID associated with each target-matching attempt. */ (s: any) => s.panoId), ["first", "second"]);
+        assert.ok(logged.panoramaValidation.some(/* Confirm that the rejected first panorama retained a destination-not-visible audit entry. */ (a: any) => a.status === "destination_not_visible"));
       }
     }
   });

@@ -21,6 +21,10 @@ const theme = {
   },
 };
 
+/**
+ * Mount the native navigation tree inside the shared theme and error boundary, with a light status
+ * bar.
+ */
 export default function App() {
   return (
     <AppErrorBoundary>

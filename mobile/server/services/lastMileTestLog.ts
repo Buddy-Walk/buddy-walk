@@ -26,6 +26,8 @@ const IMAGE_STATS_STAGE = {
   $addFields: {
     imageStats: Object.fromEntries(
       LAST_MILE_TEST_IMAGE_FIELDS.map((field) => {
+        // Build Mongo image-stat projections so summary queries can measure payloads without
+        // returning the images.
         const value = { $ifNull: [`$${field}`, ""] };
         return [
           field,
@@ -39,6 +41,10 @@ const IMAGE_STATS_STAGE = {
   },
 };
 
+/**
+ * Rotate, downsize, and JPEG-compress a user image for trial storage, preserving the original when
+ * conversion fails.
+ */
 export async function compressUserPhoto(dataUrl: string): Promise<string> {
   try {
     const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, "");
@@ -70,6 +76,10 @@ export async function compressPanoramaPhoto(dataUrl: string): Promise<string> {
 }
 
 export class LastMileTestLogService {
+  /**
+   * Compress trial images and save the full result with a server timestamp, returning its ID
+   * without making logging failure fatal.
+   */
   async record(input: Omit<lastMileTestLogInterface, "serverTs">): Promise<string | undefined> {
     const doc: lastMileTestLogInterface = {
       ...input,
@@ -101,6 +111,10 @@ export class LastMileTestLogService {
     }
   }
 
+  /**
+   * Read bounded newest-first trial records from Mongo or memory with optional timestamp
+   * filtering.
+   */
   async getData(
     limit: number,
     dateFilter?: Record<string, unknown>
@@ -119,6 +133,7 @@ export class LastMileTestLogService {
     if (dateFilter?.serverTs) {
       const range = dateFilter.serverTs as { $gte?: Date; $lte?: Date };
       rows = rows.filter((row) => {
+        // Apply inclusive server-time bounds to a fallback trial record.
         const ts = new Date(row.serverTs).getTime();
         if (range.$gte && ts < range.$gte.getTime()) return false;
         if (range.$lte && ts > range.$lte.getTime()) return false;
@@ -140,7 +155,7 @@ export class LastMileTestLogService {
           { $sort: { serverTs: -1 } },
           { $limit: Math.max(1, Math.floor(limit)) },
           IMAGE_STATS_STAGE,
-          { $project: Object.fromEntries(LAST_MILE_TEST_IMAGE_FIELDS.map((field) => [field, 0] as const)) },
+          { $project: Object.fromEntries(LAST_MILE_TEST_IMAGE_FIELDS.map(/* Exclude full image fields from the lightweight summary projection. */ (field) => [field, 0] as const)) },
         ])
         .allowDiskUse(true);
       return { source: "mongo", data };
@@ -150,12 +165,18 @@ export class LastMileTestLogService {
     return {
       source,
       data: data.map((row) => {
+        // Replace fallback image payloads with presence/length statistics for summary-list
+        // responses.
         const { userPhoto, panoramaPhoto, destinationPhoto, ...rest } = row;
         return { ...rest, imageStats: imageStatsOf({ userPhoto, panoramaPhoto, destinationPhoto }) };
       }),
     };
   }
 
+  /**
+   * Find a trial by ID, excluding Street View image payloads unless the caller explicitly requests
+   * them.
+   */
   async getById(
     id: string,
     options?: { includeStreetView?: boolean }
@@ -169,6 +190,7 @@ export class LastMileTestLogService {
       return data ?? null;
     }
     const row = memoryLastMileTests.find((entry) => {
+      // Compare a fallback trial's stored identifier to the requested ID.
       const maybeId = (entry as lastMileTestLogInterface & { _id?: unknown })._id;
       return String(maybeId ?? "") === id;
     });
@@ -180,6 +202,10 @@ export class LastMileTestLogService {
     return rest;
   }
 
+  /**
+   * Save reviewer status, notes, optional outcome scores, and review time in the active store
+   * without overwriting pipeline evidence.
+   */
   async updateReview(
     id: string,
     review: Pick<
@@ -236,8 +262,10 @@ export class LastMileTestLogService {
     }
   }
 
+  /** Locate an existing fallback trial for a review update. */
   private findMemoryRow(id: string): lastMileTestLogInterface | undefined {
     return memoryLastMileTests.find((entry) => {
+      // Match the requested ID against a fallback trial's optional identifier.
       const maybeId = (entry as lastMileTestLogInterface & { _id?: unknown })._id;
       return String(maybeId ?? "") === id;
     });

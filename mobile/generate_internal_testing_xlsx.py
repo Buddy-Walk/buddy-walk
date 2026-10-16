@@ -31,6 +31,7 @@ WRAP = Alignment(wrap_text=True, vertical="top")
 CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 
+# Style one table header using the workbook's shared colors, font, border, and alignment.
 def style_header_row(ws, row: int, cols: int) -> None:
     for c in range(1, cols + 1):
         cell = ws.cell(row=row, column=c)
@@ -40,6 +41,7 @@ def style_header_row(ws, row: int, cols: int) -> None:
         cell.alignment = CENTER
 
 
+# Apply the shared bordered, wrapped layout across a table's data rows.
 def style_table(ws, start_row: int, end_row: int, cols: int) -> None:
     for r in range(start_row, end_row + 1):
         for c in range(1, cols + 1):
@@ -48,6 +50,7 @@ def style_table(ws, start_row: int, end_row: int, cols: int) -> None:
             cell.alignment = WRAP
 
 
+# Restrict a result column to the supported Pass, Fail, Partial, Skipped, and N/A choices.
 def add_result_validation(ws, col: int, start_row: int, end_row: int) -> None:
     col_letter = get_column_letter(col)
     dv = DataValidation(
@@ -61,11 +64,14 @@ def add_result_validation(ws, col: int, start_row: int, end_row: int) -> None:
     dv.add(f"{col_letter}{start_row}:{col_letter}{end_row}")
 
 
+# Assign worksheet widths using one-based numeric column identifiers.
 def set_widths(ws, widths: dict[int, float]) -> None:
     for col, w in widths.items():
         ws.column_dimensions[get_column_letter(col)].width = w
 
 
+# Create the internal session worksheet with tester, device, permissions, accessibility, and
+# environment fields.
 def build_session_sheet(wb: Workbook) -> None:
     ws = wb.active
     ws.title = "Session"
@@ -188,6 +194,8 @@ def build_session_sheet(wb: Workbook) -> None:
     ws.cell(row=row, column=3, value="").border = BORDER
 
 
+# Create internal test categories and repeated run tables with result validation and evidence
+# fields.
 def build_test_runs_sheet(wb: Workbook) -> None:
     ws = wb.create_sheet("Test Runs")
     ws.sheet_view.showGridLines = False
@@ -368,6 +376,8 @@ def build_test_runs_sheet(wb: Workbook) -> None:
     ws.freeze_panes = "A4"
 
 
+# Create the internal issues worksheet with structured severity/status fields and reproduction
+# notes.
 def build_issues_sheet(wb: Workbook) -> None:
     ws = wb.create_sheet("Issues Log")
     ws.sheet_view.showGridLines = False
@@ -418,6 +428,8 @@ def build_issues_sheet(wb: Workbook) -> None:
     ws.freeze_panes = "A5"
 
 
+# Prepend instructions for completing the internal workbook and recording consistent test
+# evidence.
 def build_readme_sheet(wb: Workbook) -> None:
     ws = wb.create_sheet("Read Me", 0)
     ws.sheet_view.showGridLines = False
@@ -457,6 +469,7 @@ def build_readme_sheet(wb: Workbook) -> None:
         cell.alignment = WRAP
 
 
+# Build every internal testing worksheet and save the resulting XLSX artifact.
 def main() -> None:
     wb = Workbook()
     build_readme_sheet(wb)

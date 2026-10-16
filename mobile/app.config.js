@@ -9,10 +9,18 @@ const isStoreBuild = easProfile === 'production' || easProfile === 'preview';
 
 const LEGACY_HOSTS = defaultApi.legacyApiHosts ?? ['buddywalk.app'];
 
+/**
+ * Canonicalize an API origin so callers can append their own /api path without duplicate slashes
+ * or suffixes.
+ */
 function normalizeApiRoot(raw) {
   return raw.replace(/\/+$/, '').replace(/\/api$/i, '');
 }
 
+/**
+ * Extract a case-insensitive hostname from a configured URL; return null when the value cannot be
+ * parsed.
+ */
 function hostnameOf(root) {
   try {
     const url = root.match(/^https?:\/\//i) ? root : `https://${root}`;
@@ -22,10 +30,11 @@ function hostnameOf(root) {
   }
 }
 
+/** Identify retired API hosts before production configuration can embed one in a mobile build. */
 function isLegacyHost(root) {
   const host = hostnameOf(root);
   if (!host) return false;
-  return LEGACY_HOSTS.some((legacy) => host === legacy.replace(/^www\./i, '').toLowerCase());
+  return LEGACY_HOSTS.some(/* Compare the configured host with each normalized entry in the retired-host list. */ (legacy) => host === legacy.replace(/^www\./i, '').toLowerCase());
 }
 
 /** Never bake buddywalk.app (or other legacy hosts) into TestFlight builds. */

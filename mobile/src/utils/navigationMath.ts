@@ -1,7 +1,12 @@
 import type { NavLatLng, NavRoute, NavStep } from '../types';
 
+/**
+ * Compute great-circle distance in meters between route coordinates for arrival and step-progress
+ * checks.
+ */
 export function haversineMeters(a: NavLatLng, b: NavLatLng): number {
   const R = 6371000;
+  /** Convert degrees to radians before applying the great-circle distance formula. */
   const toRad = (deg: number) => (deg * Math.PI) / 180;
   const dLat = toRad(b.lat - a.lat);
   const dLng = toRad(b.lng - a.lng);
@@ -11,6 +16,10 @@ export function haversineMeters(a: NavLatLng, b: NavLatLng): number {
   return 2 * R * Math.atan2(Math.sqrt(sa), Math.sqrt(1 - sa));
 }
 
+/**
+ * Format metric distances as short spoken feet estimates, avoiding false precision for very short
+ * distances.
+ */
 export function metersToFeetText(m: number): string {
   if (!Number.isFinite(m)) return '';
   if (m < 6) return 'a few feet';
@@ -19,6 +28,7 @@ export function metersToFeetText(m: number): string {
   return `${Math.round(ft / 10) * 10} feet`;
 }
 
+/** Distinguish mapped route steps from text-only fallback steps whose coordinates are all zero. */
 export function stepHasUsableCoords(s: NavStep | undefined): boolean {
   if (!s) return false;
   const { startLocation: a, endLocation: b } = s;

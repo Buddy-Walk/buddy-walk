@@ -17,6 +17,8 @@ from generate_slides import (
 WEB_URL = "https://buddywalk.app"
 
 
+# Assemble the user-testing presentation with the shared slide helpers and save the widescreen
+# deck.
 def build():
     prs = Presentation()
     prs.slide_width = WIDE_W

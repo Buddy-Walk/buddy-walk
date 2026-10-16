@@ -15,10 +15,15 @@ const TOKEN_TTL_MS = 9 * 60 * 1000;
 let cached: { value: SpeechToken; fetchedAt: number } | null = null;
 let inFlight: Promise<SpeechToken> | null = null;
 
+/** Check whether the cached Azure speech token is still inside its usable lifetime. */
 function isFresh(): boolean {
   return !!cached && Date.now() - cached.fetchedAt < TOKEN_TTL_MS;
 }
 
+/**
+ * Fetch a valid speech token from the configured AI host, falling back to the mobile API with a
+ * longer cold-start timeout.
+ */
 async function fetchToken(): Promise<SpeechToken> {
   // Direct upstream first (fast, no Render cold start), Render as fallback.
   try {
@@ -38,16 +43,24 @@ async function fetchToken(): Promise<SpeechToken> {
   throw new Error('Failed to fetch speech token');
 }
 
+/**
+ * Reuse a fresh speech token or share a single in-flight refresh across callers to avoid duplicate
+ * token requests.
+ */
 export async function getToken(): Promise<SpeechToken> {
   if (isFresh()) return cached!.value;
 
   if (!inFlight) {
     inFlight = fetchToken()
       .then((value) => {
+        // Cache the newly fetched speech token together with the time used to determine
+        // expiration.
         cached = { value, fetchedAt: Date.now() };
         return value;
       })
       .finally(() => {
+        // Release the shared refresh promise so a later request can retry after success or
+        // failure.
         inFlight = null;
       });
   }
@@ -56,5 +69,5 @@ export async function getToken(): Promise<SpeechToken> {
 
 /** Warm the token cache without blocking the caller (fire on app launch). */
 export function prefetchToken(): void {
-  void getToken().catch(() => {});
+  void getToken().catch(() => { /* Ignore a speculative token-prefetch failure; the actual speech request can report or retry it later. */ });
 }

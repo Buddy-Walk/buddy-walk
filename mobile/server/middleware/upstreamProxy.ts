@@ -7,12 +7,14 @@ import {
   lastMileTestLogService,
 } from '../services/lastMileTestLog';
 
+/** Convert a usable string to a bounded log value, omitting empty or nonstring input. */
 function truncate(value: unknown, max = 800): string | undefined {
   if (typeof value !== 'string' || !value.trim()) return undefined;
   const trimmed = value.trim();
   return trimmed.length <= max ? trimmed : `${trimmed.slice(0, max)}…`;
 }
 
+/** Forward the caller's authorization header without copying unrelated inbound headers upstream. */
 function pickForwardHeaders(req: Request): Record<string, string> {
   const out: Record<string, string> = {};
   const auth = req.headers.authorization;
@@ -20,6 +22,7 @@ function pickForwardHeaders(req: Request): Record<string, string> {
   return out;
 }
 
+/** Extract readable answer text from the response shapes supported by the upstream API. */
 function extractOutputText(data: unknown): string | undefined {
   if (!data || typeof data !== 'object') return undefined;
   const record = data as Record<string, unknown>;
@@ -29,6 +32,10 @@ function extractOutputText(data: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * Record bounded proxy input/output, image counts, status, and latency for usage review without
+ * blocking the answer on logging.
+ */
 async function recordProxyMetrics(
   req: Request,
   upstreamRes: AxiosResponse,
@@ -68,6 +75,10 @@ type UpstreamResult = {
   contentType?: string;
 };
 
+/**
+ * Send JSON to the configured upstream with a finite timeout while preserving error status bodies
+ * for the caller.
+ */
 async function fetchUpstreamJson(req: Request, upstreamPath: string): Promise<UpstreamResult> {
   const upstreamRoot = getUpstreamApiRoot();
   const url = `${upstreamRoot}${upstreamPath}`;
@@ -83,6 +94,10 @@ async function fetchUpstreamJson(req: Request, upstreamPath: string): Promise<Up
       ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       ...pickForwardHeaders(req),
     },
+    /**
+     * Allow all upstream HTTP statuses through Axios so the proxy can preserve their response
+     * bodies.
+     */
     validateStatus: () => true,
     maxContentLength: Infinity,
     maxBodyLength: Infinity,
@@ -99,6 +114,7 @@ async function fetchUpstreamJson(req: Request, upstreamPath: string): Promise<Up
   };
 }
 
+/** Copy the upstream status, content type, and response body into the HTTP response. */
 function sendUpstreamResult(res: Response, result: UpstreamResult): void {
   res.status(result.status);
   if (result.contentType) {
@@ -107,6 +123,10 @@ function sendUpstreamResult(res: Response, result: UpstreamResult): void {
   res.send(result.data);
 }
 
+/**
+ * Explain which server credentials or upstream configuration are needed when no AI route is
+ * available.
+ */
 function upstreamUnavailableMessage(): Record<string, string> {
   return {
     error:
@@ -115,6 +135,10 @@ function upstreamUnavailableMessage(): Record<string, string> {
   };
 }
 
+/**
+ * Try the matching local AI controller when this deployment has credentials and the upstream
+ * cannot answer.
+ */
 async function tryLocalAiHandler(
   req: Request,
   res: Response,
@@ -133,6 +157,10 @@ async function tryLocalAiHandler(
   return true;
 }
 
+/**
+ * Proxy a JSON request, record its outcome, and use a credential-backed local fallback on upstream
+ * service failure.
+ */
 async function forwardJson(req: Request, res: Response, upstreamPath: string): Promise<void> {
   const startedAt = Date.now();
   const feature = upstreamPath.includes('parse') ? 'parse' : 'text';
@@ -183,6 +211,10 @@ async function forwardJson(req: Request, res: Response, upstreamPath: string): P
   }
 }
 
+/**
+ * Proxy synthesized audio as binary data, preserving its media type and using local synthesis when
+ * available after upstream failure.
+ */
 async function forwardBinary(req: Request, res: Response, upstreamPath: string): Promise<void> {
   const upstreamRoot = getUpstreamApiRoot();
   const url = `${upstreamRoot}${upstreamPath}`;
@@ -197,6 +229,10 @@ async function forwardBinary(req: Request, res: Response, upstreamPath: string):
         ...pickForwardHeaders(req),
       },
       responseType: 'arraybuffer',
+      /**
+       * Preserve upstream audio errors as responses instead of allowing Axios to discard their
+       * status/body path.
+       */
       validateStatus: () => true,
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
@@ -226,6 +262,10 @@ async function forwardBinary(req: Request, res: Response, upstreamPath: string):
   }
 }
 
+/**
+ * Forward a raw audio upload with its original media type and a bounded timeout, returning useful
+ * upstream errors.
+ */
 async function forwardRaw(req: Request, res: Response, upstreamPath: string): Promise<void> {
   const upstreamRoot = getUpstreamApiRoot();
   const url = `${upstreamRoot}${upstreamPath}`;
@@ -241,6 +281,7 @@ async function forwardRaw(req: Request, res: Response, upstreamPath: string): Pr
         ...pickForwardHeaders(req),
       },
       responseType: 'arraybuffer',
+      /** Retain raw-upload error responses so their status and body can be forwarded. */
       validateStatus: () => true,
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
@@ -258,18 +299,25 @@ async function forwardRaw(req: Request, res: Response, upstreamPath: string): Pr
   }
 }
 
+/** Treat an unknown nonobject response as an empty record before inspecting optional fields. */
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
 }
 
+/** Select a nonblank string from an unknown field without coercing other types. */
 function pickString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
+/** Select an actual finite number from an unknown field without accepting numeric strings. */
 function pickNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+/**
+ * Save the original capture and a failed-stage explanation when a proxied Last Meters request
+ * cannot complete.
+ */
 async function recordProxiedLastMileFailure(
   req: Request,
   startedAt: number,
@@ -305,11 +353,15 @@ async function recordProxiedLastMileFailure(
 /** Text generation and TTS — needs OPENAI_API_KEY / GEMINI_API_KEY locally. */
 export function mountAiProxy(app: Application): void {
   console.log(`[server] Proxying AI to ${getUpstreamApiRoot()}; metrics stored locally`);
-  app.post('/api/text', (req, res) => forwardJson(req, res, '/api/text'));
-  app.post('/api/parseRequest', (req, res) => forwardJson(req, res, '/api/parseRequest'));
-  app.post('/api/audio', (req, res) => forwardBinary(req, res, '/api/audio'));
+  app.post('/api/text', /* Forward text-answer requests through the JSON proxy. */ (req, res) => forwardJson(req, res, '/api/text'));
+  app.post('/api/parseRequest', /* Forward question-parsing requests through the JSON proxy. */ (req, res) => forwardJson(req, res, '/api/parseRequest'));
+  app.post('/api/audio', /* Forward speech synthesis through the binary proxy. */ (req, res) => forwardBinary(req, res, '/api/audio'));
 }
 
+/**
+ * Build the constrained photo-and-destination prompt required by an upstream that supports only
+ * the legacy text endpoint.
+ */
 function lastMetersTextPrompt(destination: string): string {
   return (
     `Help me reach the entrance of ${destination}.\n\n` +
@@ -362,6 +414,7 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
         'Content-Type': 'application/json',
         ...pickForwardHeaders(req),
       },
+      /** Keep the legacy text endpoint's HTTP errors available for pipeline failure logging. */
       validateStatus: () => true,
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
@@ -454,6 +507,7 @@ export function mountLastMileProxy(app: Application): void {
     `[server] Last Meters → ${getUpstreamApiRoot()}/api/text; user photos stored locally`
   );
   app.post('/api/last-mile', (req, res) => {
+    // Adapt a Last Meters request to the legacy upstream text endpoint.
     void forwardLastMileViaText(req, res);
   });
 }
@@ -461,10 +515,11 @@ export function mountLastMileProxy(app: Application): void {
 /** Azure Speech — needs AZURE_SUBSCRIPTION_KEY and AZURE_REGION locally. */
 export function mountSpeechProxy(app: Application): void {
   console.log(`[server] Proxying speech to ${getUpstreamApiRoot()}`);
-  app.get('/api/token/getToken', (req, res) => forwardJson(req, res, '/api/token/getToken'));
+  app.get('/api/token/getToken', /* Forward speech-token requests through the JSON proxy. */ (req, res) => forwardJson(req, res, '/api/token/getToken'));
   app.post(
     '/api/transcribe',
     express.raw({ type: '*/*', limit: '10mb' }),
+    /** Forward microphone uploads through the raw-body proxy. */
     (req, res) => forwardRaw(req, res, '/api/transcribe')
   );
 }
@@ -472,7 +527,7 @@ export function mountSpeechProxy(app: Application): void {
 /** MTA arrivals — needs MTA_API_KEY locally. */
 export function mountMtaProxy(app: Application): void {
   console.log(`[server] Proxying MTA to ${getUpstreamApiRoot()}`);
-  app.post('/api/mta', (req, res) => forwardJson(req, res, '/api/mta'));
+  app.post('/api/mta', /* Forward transit lookups through the JSON proxy. */ (req, res) => forwardJson(req, res, '/api/mta'));
 }
 
 /** Lightweight probe for /api/health — does not log metrics. */
@@ -484,6 +539,7 @@ export async function probeUpstreamText(): Promise<{ ok: boolean; status: number
       { text: 'ping', image: [], coords: null },
       {
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        /** Inspect the upstream probe status directly instead of throwing on an unhealthy endpoint. */
         validateStatus: () => true,
         timeout: 25_000,
       }

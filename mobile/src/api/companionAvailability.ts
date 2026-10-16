@@ -11,10 +11,15 @@ export interface CompanionAvailabilityResult {
   reason: CompanionAvailabilityReason;
 }
 
+/** Accept only the explicit JSON health shape used by the companion API. */
 function isHealthyPayload(data: unknown): boolean {
   return typeof data === 'object' && data !== null && (data as { ok?: boolean }).ok === true;
 }
 
+/**
+ * Recognize a website fallback page so a successful HTTP status is not mistaken for a working JSON
+ * API.
+ */
 function looksLikeHtmlPayload(data: unknown): boolean {
   if (typeof data !== 'string') return false;
   const lower = data.toLowerCase();
@@ -28,6 +33,10 @@ export async function checkCompanionApiAvailability(): Promise<CompanionAvailabi
     // on the first request, and failing here silently downgrades to maps mode.
     const health = await companionApiClient.get('/companion/health', {
       timeout: 20000,
+      /**
+       * Inspect every HTTP response so availability checks can explain missing routes and server
+       * failures.
+       */
       validateStatus: () => true,
     });
     if (health.status !== 200 || looksLikeHtmlPayload(health.data)) {
@@ -40,6 +49,10 @@ export async function checkCompanionApiAvailability(): Promise<CompanionAvailabi
     const snapshot = await companionApiClient.get('/companion/snapshot', {
       params: { token: 'healthcheck' },
       timeout: 10000,
+      /**
+       * Inspect every HTTP response so availability checks can explain missing routes and server
+       * failures.
+       */
       validateStatus: () => true,
     });
     if (looksLikeHtmlPayload(snapshot.data)) {
@@ -55,6 +68,10 @@ export async function checkCompanionApiAvailability(): Promise<CompanionAvailabi
   }
 }
 
+/**
+ * Expose the companion health check as a simple availability flag for callers that do not need
+ * diagnostics.
+ */
 export async function isCompanionApiAvailable(): Promise<boolean> {
   return (await checkCompanionApiAvailability()).available;
 }

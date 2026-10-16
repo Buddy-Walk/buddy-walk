@@ -27,6 +27,10 @@ interface FeedbackModalProps {
 
 const STARS = [1, 2, 3, 4, 5];
 
+/**
+ * Collect general app feedback and analytics consent in an accessible modal, keeping submission
+ * state separate from the underlying screen.
+ */
 export default function FeedbackModal({
   visible,
   onDismiss,
@@ -39,6 +43,7 @@ export default function FeedbackModal({
   const [optedOut, setOptedOut] = useState(false);
 
   useEffect(() => {
+    // Clear prior feedback and reload analytics consent whenever the modal is opened.
     if (visible) {
       setRating(0);
       setMessage('');
@@ -47,6 +52,10 @@ export default function FeedbackModal({
     }
   }, [visible]);
 
+  /**
+   * Validate that a rating or comment was entered, submit feedback with screen context, flush
+   * telemetry, and announce completion.
+   */
   async function handleSubmit() {
     if (rating === 0 && message.trim().length === 0) {
       AccessibilityInfo.announceForAccessibility(
@@ -71,6 +80,7 @@ export default function FeedbackModal({
     }
   }
 
+  /** Persist the user's analytics opt-out choice immediately when its switch changes. */
   async function handleToggleOptOut(next: boolean) {
     setOptedOut(next);
     await setAnalyticsOptedOut(next);
@@ -101,10 +111,11 @@ export default function FeedbackModal({
               <>
                 <Text style={styles.label}>How was your experience?</Text>
                 <View style={styles.starsRow} accessibilityRole="radiogroup">
-                  {STARS.map((value) => (
+                  {STARS.map(/* Render one accessible star-rating choice and indicate whether it belongs to the selected rating. */ (value) => (
                     <Pressable
                       key={value}
                       onPress={() => {
+                        // Confirm the tap and select this star value.
                         tap();
                         setRating(value);
                       }}
@@ -133,7 +144,7 @@ export default function FeedbackModal({
                 <Pressable
                   onPress={handleSubmit}
                   disabled={submitting}
-                  style={({ pressed }) => [
+                  style={/* Combine pressed and disabled appearances for the feedback submission button. */ ({ pressed }) => [
                     styles.submit,
                     pressed && styles.submitPressed,
                     submitting && styles.submitDisabled,
@@ -157,7 +168,7 @@ export default function FeedbackModal({
               </View>
               <Switch
                 value={!optedOut}
-                onValueChange={(on) => handleToggleOptOut(!on)}
+                onValueChange={/* Translate the collection-enabled switch into the stored opt-out preference. */ (on) => handleToggleOptOut(!on)}
                 accessibilityLabel="Share anonymous usage data"
               />
             </View>

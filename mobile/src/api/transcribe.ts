@@ -5,6 +5,10 @@ export interface TranscribeResult {
   status: string;
 }
 
+/**
+ * Send encoded audio to Azure's regional speech endpoint, parse recognized text, and distinguish
+ * silence from a transport or service error.
+ */
 async function callAzureSpeechToText(
   audioBody: Blob | ArrayBuffer,
   contentType: string,

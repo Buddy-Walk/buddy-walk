@@ -4,6 +4,8 @@ import { getSubwayArrivals } from '../services/mta';
 const route = express.Router();
 
 route.post('/mta', async (req, res) => {
+  // Validate the requested transit route and location, then return nearby subway arrivals or a
+  // controlled lookup error.
   const body = req.body as { routeId?: string; lat?: number; lon?: number };
   const routeId = body.routeId?.trim();
   const lat = Number(body.lat);

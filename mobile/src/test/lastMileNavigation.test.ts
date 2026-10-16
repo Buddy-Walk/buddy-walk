@@ -31,6 +31,7 @@ import {
 } from "../../server/utils/lastMileNavigation";
 
 test("parseLastMileHeading accepts a single valid panorama heading", () => {
+  // Regression test: parseLastMileHeading accepts a single valid panorama heading.
   assert.equal(parseLastMileHeading("315"), 315);
   assert.equal(parseLastMileHeading("The matching view is 45 degrees."), 45);
   assert.equal(parseLastMileHeading("360"), 0);
@@ -52,6 +53,7 @@ test("parseLastMileHeading maps a VIEW index to that tile's heading", () => {
 });
 
 test("parseLastMileHeading rejects uncertain, conflicting, and invalid responses", () => {
+  // Regression test: parseLastMileHeading rejects uncertain, conflicting, and invalid responses.
   assert.equal(parseLastMileHeading("NOT_VISIBLE"), null);
   assert.equal(parseLastMileHeading("The target is not in view, maybe 315."), null);
   assert.equal(parseLastMileHeading("45 or 90"), null);
@@ -61,6 +63,7 @@ test("parseLastMileHeading rejects uncertain, conflicting, and invalid responses
 });
 
 test("buildLastMileTurnInstruction always chooses the shortest safe turn", () => {
+  // Regression test: buildLastMileTurnInstruction always chooses the shortest safe turn.
   assert.equal(
     buildLastMileTurnInstruction(225, 315),
     "Turn 90 degrees to your right."
@@ -84,8 +87,9 @@ test("buildLastMileTurnInstruction always chooses the shortest safe turn", () =>
 });
 
 test("buildLastMileTurnInstruction rejects non-finite headings", () => {
-  assert.throws(() => buildLastMileTurnInstruction(Number.NaN, 45));
-  assert.throws(() => buildLastMileTurnInstruction(0, Number.POSITIVE_INFINITY));
+  // Regression test: buildLastMileTurnInstruction rejects non-finite headings.
+  assert.throws(/* Exercise rejection of a nonfinite starting heading. */ () => buildLastMileTurnInstruction(Number.NaN, 45));
+  assert.throws(/* Exercise rejection of an infinite target heading. */ () => buildLastMileTurnInstruction(0, Number.POSITIVE_INFINITY));
 });
 
 test("raw headings near a sector boundary do not flip between left and right", () => {
@@ -96,6 +100,7 @@ test("raw headings near a sector boundary do not flip between left and right", (
 });
 
 test("small corrections use slight-turn wording", () => {
+  // Regression test: small corrections use slight-turn wording.
   assert.equal(
     buildLastMileTurnInstruction(100, 75),
     "Turn slightly to your left, about 25 degrees."
@@ -122,6 +127,7 @@ test("confidence can never be high when compass and panorama disagree", () => {
 });
 
 test("a medium compass calibration lowers confidence", () => {
+  // Regression test: a medium compass calibration lowers confidence.
   const input = {
     gpsAccuracyMeters: 8,
     panoramaCurrentViewMatched: true,
@@ -145,6 +151,7 @@ test("map bearing is not trusted when the user is closer than the GPS error", ()
 });
 
 test("withheld-turn messages never contain a turn instruction", () => {
+  // Regression test: withheld-turn messages never contain a turn instruction.
   const conflict = buildHeadingConflictInstruction("McDonald's", 52);
   const closeRange = buildCloseRangeNoTurnInstruction("16 Handles", 5);
   for (const message of [conflict, closeRange]) {
@@ -156,6 +163,7 @@ test("withheld-turn messages never contain a turn instruction", () => {
 });
 
 test("close-range guidance states how far the destination is after the turn", () => {
+  // Regression test: close-range guidance states how far the destination is after the turn.
   assert.equal(
     buildLastMileDistanceSentence("Auntie Anne's", 4),
     "After turning, Auntie Anne's is about 15 feet ahead."
@@ -168,10 +176,11 @@ test("close-range guidance states how far the destination is after the turn", ()
     buildLastMileDistanceSentence("Target", 66),
     "After turning, Target is about 200 feet away in that direction. Continue with your primary navigation."
   );
-  assert.throws(() => buildLastMileDistanceSentence("Target", -1));
+  assert.throws(/* Exercise rejection of a negative destination distance. */ () => buildLastMileDistanceSentence("Target", -1));
 });
 
 test("far-away guidance names the branch it resolved", () => {
+  // Regression test: far-away guidance names the branch it resolved.
   assert.equal(
     buildLastMileApproachInstruction("McDonald's", 335, 45, "160 Broadway, New York"),
     "The nearest McDonald's I found, at 160 Broadway, New York, is roughly 1,100 feet to the northeast. " +
@@ -185,6 +194,7 @@ test("far-away guidance names the branch it resolved", () => {
 });
 
 test("parseDestinationVisibility only accepts an exact visible result", () => {
+  // Regression test: parseDestinationVisibility only accepts an exact visible result.
   assert.equal(parseDestinationVisibility("VISIBLE"), true);
   assert.equal(parseDestinationVisibility(" visible "), true);
   assert.equal(parseDestinationVisibility("NOT_VISIBLE"), false);
@@ -192,15 +202,17 @@ test("parseDestinationVisibility only accepts an exact visible result", () => {
 });
 
 test("snapLastMileHeading chooses the nearest panorama direction", () => {
+  // Regression test: snapLastMileHeading chooses the nearest panorama direction.
   assert.equal(snapLastMileHeading(12), 22.5);
   assert.equal(snapLastMileHeading(44), 45);
   assert.equal(snapLastMileHeading(338), 337.5);
   assert.equal(snapLastMileHeading(359), 0);
   assert.equal(snapLastMileHeading(-46), 315);
-  assert.throws(() => snapLastMileHeading(Number.NaN));
+  assert.throws(/* Exercise rejection of a nonnumeric heading before snapping. */ () => snapLastMileHeading(Number.NaN));
 });
 
 test("buildLastMileApproachInstruction gives only rough far-away guidance", () => {
+  // Regression test: buildLastMileApproachInstruction gives only rough far-away guidance.
   assert.equal(
     buildLastMileApproachInstruction("Whole Foods", 1_609.344, 47),
     "Whole Foods is roughly 1.0 miles to the northeast. Continue with your primary navigation and use Last Meters again when you are within about 800 feet."
@@ -209,20 +221,22 @@ test("buildLastMileApproachInstruction gives only rough far-away guidance", () =
     buildLastMileApproachInstruction("FedEx", 300, 180),
     /^FedEx is roughly 1,000 feet to the south\./
   );
-  assert.throws(() =>
+  assert.throws(/* Exercise rejection of a nonfinite approach distance. */ () =>
     buildLastMileApproachInstruction("FedEx", Number.NaN, 90)
   );
 });
 
 test("heading alignment handles compass wraparound", () => {
+  // Regression test: heading alignment handles compass wraparound.
   assert.equal(lastMileHeadingDifference(350, 10), 20);
   assert.equal(lastMileHeadingDifference(10, 350), 20);
   assert.equal(isLastMileHeadingAligned(350, 10), true);
   assert.equal(isLastMileHeadingAligned(350, 30), false);
-  assert.throws(() => isLastMileHeadingAligned(0, 90, 181));
+  assert.throws(/* Exercise rejection of an alignment tolerance larger than half a circle. */ () => isLastMileHeadingAligned(0, 90, 181));
 });
 
 test("panorama heading is comparison-only and never replaces the compass", () => {
+  // Regression test: panorama heading is comparison-only and never replaces the compass.
   assert.deepEqual(compareCompassAndPanoramaHeadings(92, 135), {
     compassHeading: 90,
     panoramaMatchedHeading: 135,
@@ -247,6 +261,8 @@ test("panorama heading is comparison-only and never replaces the compass", () =>
 });
 
 test("confidence fusion rewards independent agreement and flags weak localization", () => {
+  // Regression test: confidence fusion rewards independent agreement and flags weak
+  // localization.
   const strong = calculateLastMileConfidence({
     gpsAccuracyMeters: 8,
     panoramaCurrentViewMatched: true,
@@ -269,6 +285,7 @@ test("confidence fusion rewards independent agreement and flags weak localizatio
 });
 
 test("verified panorama target preserves precise front-to-behind guidance", () => {
+  // Regression test: verified panorama target preserves precise front-to-behind guidance.
   assert.equal(resolveVerifiedTargetHeading(180, 180), 180);
   assert.equal(resolveVerifiedTargetHeading(135, 180), null);
   assert.equal(resolveVerifiedTargetHeading(157.5, 180), 157.5);
@@ -278,6 +295,7 @@ test("verified panorama target preserves precise front-to-behind guidance", () =
 });
 
 test("buildAlignedHeadingInstruction keeps aligned guidance rough", () => {
+  // Regression test: buildAlignedHeadingInstruction keeps aligned guidance rough.
   assert.equal(
     buildAlignedHeadingInstruction("Whole Foods", 320),
     "Whole Foods is roughly 1,050 feet ahead on your current heading. Keep this heading and continue with your primary navigation."
@@ -285,6 +303,7 @@ test("buildAlignedHeadingInstruction keeps aligned guidance rough", () => {
 });
 
 test("close aligned guidance does not inflate the distance to 50 feet", () => {
+  // Regression test: close aligned guidance does not inflate the distance to 50 feet.
   assert.equal(
     buildAlignedHeadingInstruction("CVS", 3),
     "CVS is roughly 10 feet ahead on your current heading. Keep this heading and continue with your primary navigation."
@@ -296,6 +315,7 @@ test("close aligned guidance does not inflate the distance to 50 feet", () => {
 });
 
 test("panorama sectors cover 360 degrees once without overlap", () => {
+  // Regression test: panorama sectors cover 360 degrees once without overlap.
   assert.equal(LAST_MILE_HEADINGS.length, 16);
   assert.equal(LAST_MILE_HEADINGS.length * LAST_MILE_PANORAMA_FOV_DEGREES, 360);
   for (let index = 1; index < LAST_MILE_HEADINGS.length; index += 1) {
@@ -307,6 +327,7 @@ test("panorama sectors cover 360 degrees once without overlap", () => {
 });
 
 test("destination references are limited to the same frontage", () => {
+  // Regression test: destination references are limited to the same frontage.
   assert.equal(shouldUseDestinationReference(10, 10), false);
   assert.equal(shouldUseDestinationReference(10, 2), true);
   assert.equal(shouldUseDestinationReference(10, 8), true);
@@ -330,10 +351,12 @@ test("destination references are limited to the same frontage", () => {
     ),
     false
   );
-  assert.throws(() => shouldUseDestinationReference(Number.NaN));
+  assert.throws(/* Exercise rejection of an invalid destination-reference distance. */ () => shouldUseDestinationReference(Number.NaN));
 });
 
 test("Citi close-range aligned wording does not claim GPS proves the door is ahead", () => {
+  // Regression test: Citi close-range aligned wording does not claim GPS proves the door is
+  // ahead.
   const aligned = buildCloseRangeNoTurnInstruction("Citi", 10, isLastMileHeadingAligned(325, 321), "2016-09");
   assert.match(aligned, /compass agrees/);
   assert.match(aligned, /2016-09/);
@@ -344,6 +367,7 @@ test("Citi close-range aligned wording does not claim GPS proves the door is ahe
 });
 
 test("Test B guidance asks the user to move one block and retake", () => {
+  // Regression test: Test B guidance asks the user to move one block and retake.
   assert.equal(
     buildLastMileRetakeInstruction("Whole Foods", 120, 90),
     "Whole Foods is not visible from this block and is roughly 400 feet to the east. Continue with your primary navigation for another block, then stop safely and take a new photo."
@@ -351,6 +375,7 @@ test("Test B guidance asks the user to move one block and retake", () => {
 });
 
 test("resolveExactModeGate requires accurate GPS and includes its uncertainty", () => {
+  // Regression test: resolveExactModeGate requires accurate GPS and includes its uncertainty.
   assert.deepEqual(resolveExactModeGate(240), { exact: false, allowanceMeters: 0, widened: false });
   assert.deepEqual(resolveExactModeGate(240, 10), { exact: true, allowanceMeters: 0, widened: false });
   assert.deepEqual(resolveExactModeGate(241, 10), { exact: false, allowanceMeters: 0, widened: false });
@@ -363,10 +388,11 @@ test("resolveExactModeGate requires accurate GPS and includes its uncertainty", 
   });
   assert.equal(resolveExactModeGate(360, 150).exact, false);
   assert.equal(resolveExactModeGate(260, Number.NaN).exact, false);
-  assert.throws(() => resolveExactModeGate(-1));
+  assert.throws(/* Exercise rejection of a negative GPS accuracy when resolving the exact-mode gate. */ () => resolveExactModeGate(-1));
 });
 
 test("streetViewImageryAgeYears reads Street View capture dates", () => {
+  // Regression test: streetViewImageryAgeYears reads Street View capture dates.
   const now = new Date("2026-09-30T12:00:00Z");
   assert.equal(streetViewImageryAgeYears("2016-09", now), 10);
   assert.equal(streetViewImageryAgeYears("2026-04", now), 5 / 12);
@@ -376,6 +402,7 @@ test("streetViewImageryAgeYears reads Street View capture dates", () => {
 });
 
 test("calculateLastMileConfidence flags stale Street View imagery", () => {
+  // Regression test: calculateLastMileConfidence flags stale Street View imagery.
   const evidence = {
     gpsAccuracyMeters: 10,
     compassAccuracyLevel: 3,
@@ -392,6 +419,7 @@ test("calculateLastMileConfidence flags stale Street View imagery", () => {
 });
 
 test("Last Meters answers cite their source and Google's closed status", () => {
+  // Regression test: Last Meters answers cite their source and Google's closed status.
   assert.equal(buildLastMileSourceNote(null), " Source: Google Maps.");
   assert.equal(
     buildLastMileSourceNote("2016-09"),
@@ -403,6 +431,7 @@ test("Last Meters answers cite their source and Google's closed status", () => {
 });
 
 test("beside-building guidance does not send the user to another block", () => {
+  // Regression test: beside-building guidance does not send the user to another block.
   const text = buildBesideBuildingInstruction("Brookfield Place", 140, 180);
   assert.equal(
     text,

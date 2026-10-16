@@ -2,12 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseLastMetersInput } from "../utils/lastMetersInput";
 
+/**
+ * Extract only destination parses so the destination-phrase cases fail clearly if an input is
+ * routed as a question.
+ */
 function destinationOf(input: string): string | null {
   const parsed = parseLastMetersInput(input);
   return parsed.kind === "destination" ? parsed.destination : null;
 }
 
 test("parseLastMetersInput strips question lead-ins from field-test inputs", () => {
+  // Regression test: parseLastMetersInput strips question lead-ins from field-test inputs.
   assert.equal(destinationOf("Where is bmcc"), "bmcc");
   assert.equal(destinationOf("Where is sweet green"), "sweet green");
   assert.equal(destinationOf("Where is Citibank?"), "Citibank");
@@ -19,6 +24,7 @@ test("parseLastMetersInput strips question lead-ins from field-test inputs", () 
 });
 
 test("parseLastMetersInput keeps bare destinations unchanged", () => {
+  // Regression test: parseLastMetersInput keeps bare destinations unchanged.
   const parsed = parseLastMetersInput("Fitter man hall");
   assert.deepEqual(parsed, {
     kind: "destination",
@@ -31,6 +37,7 @@ test("parseLastMetersInput keeps bare destinations unchanged", () => {
 });
 
 test("parseLastMetersInput routes transit questions to the answer flow", () => {
+  // Regression test: parseLastMetersInput routes transit questions to the answer flow.
   assert.deepEqual(parseLastMetersInput("When is 2 train"), { kind: "question", reason: "transit" });
   assert.deepEqual(parseLastMetersInput("When is the next A train?"), {
     kind: "question",
@@ -43,6 +50,7 @@ test("parseLastMetersInput routes transit questions to the answer flow", () => {
 });
 
 test("parseLastMetersInput routes general questions to the answer flow", () => {
+  // Regression test: parseLastMetersInput routes general questions to the answer flow.
   for (const input of ["Describe the video", "What is in front of me?", "Is the UPS Store open?", "help"]) {
     assert.deepEqual(parseLastMetersInput(input), { kind: "question", reason: "question" }, input);
   }

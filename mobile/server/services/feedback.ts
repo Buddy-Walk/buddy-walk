@@ -18,6 +18,10 @@ interface FeedbackBody {
 }
 
 export class FeedbackService {
+  /**
+   * Normalize and bound feedback text, stamp receipt time, and store the record in Mongo or
+   * fallback memory.
+   */
   async create(ctx: AppContext, body: FeedbackBody) {
     const { res } = ctx;
     try {
@@ -66,6 +70,7 @@ export class FeedbackService {
     if (dateFilter?.date) {
       const range = dateFilter.date as { $gte?: Date; $lte?: Date };
       rows = rows.filter((row) => {
+        // Apply inclusive requested dates to fallback feedback rows.
         const ts = new Date(row.date).getTime();
         if (range.$gte && ts < range.$gte.getTime()) return false;
         if (range.$lte && ts > range.$lte.getTime()) return false;
@@ -75,6 +80,7 @@ export class FeedbackService {
     return { source: "memory", data: rows.slice(0, limit) };
   }
 
+  /** Return a bounded newest-first feedback list and identify which store supplied it. */
   async list(ctx: AppContext, limit: number) {
     const { res } = ctx;
     try {

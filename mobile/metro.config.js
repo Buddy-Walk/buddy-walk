@@ -9,6 +9,8 @@ const WEB_ONLY_MODULES = new Set([
 ]);
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  // Resolve native imports without bundling browser-only packages; delegate every other import
+  // to Metro.
   if (platform !== 'web' && WEB_ONLY_MODULES.has(moduleName)) {
     return { type: 'empty' };
   }

@@ -110,6 +110,7 @@ SESSION_FIELDS: dict[str, str] = {
 }
 
 
+# Map a recorded issue into the one-based XLSX Issues Log columns.
 def issue_to_xlsx_columns(issue: dict[str, str]) -> dict[int, str]:
     return {
         2: issue["test"],
@@ -123,6 +124,7 @@ def issue_to_xlsx_columns(issue: dict[str, str]) -> dict[int, str]:
     }
 
 
+# Map a recorded issue into the zero-based ODS Issues Log columns.
 def issue_to_ods_columns(issue: dict[str, str]) -> dict[int, str]:
     return {
         1: issue["test"],
@@ -136,6 +138,7 @@ def issue_to_ods_columns(issue: dict[str, str]) -> dict[int, str]:
     }
 
 
+# Find each configured issue row by test identifier and fill its XLSX issue details.
 def patch_issues_xlsx(ws) -> None:
     for issue in ISSUE_ROWS:
         for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
@@ -149,6 +152,7 @@ def patch_issues_xlsx(ws) -> None:
                 break
 
 
+# Fill known session metadata by matching labels in the first worksheet column.
 def patch_session_xlsx(ws) -> None:
     for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
         label = row[0].value
@@ -159,6 +163,7 @@ def patch_session_xlsx(ws) -> None:
             row[1].value = SESSION_FIELDS[key]
 
 
+# Open an XLSX workbook, update its available session and issues sheets, and save the same file.
 def patch_xlsx(path: Path) -> None:
     import openpyxl
 
@@ -170,6 +175,7 @@ def patch_xlsx(path: Path) -> None:
     wb.save(path)
 
 
+# Read all paragraph text in an ODS cell without depending on its child-node layout.
 def cell_text(cell) -> str:
     from odf.text import P
 
@@ -179,6 +185,7 @@ def cell_text(cell) -> str:
     )
 
 
+# Replace an ODS cell's existing paragraphs with a single plain-text paragraph.
 def set_cell_text(cell, text: str) -> None:
     from odf.text import P
 
@@ -189,6 +196,7 @@ def set_cell_text(cell, text: str) -> None:
     cell.addElement(p)
 
 
+# Expand repeated ODS cells into logical column values before applying indexed updates.
 def expand_row(row) -> list[str]:
     from odf.table import TableCell
 
@@ -201,6 +209,8 @@ def expand_row(row) -> list[str]:
     return values
 
 
+# Recreate an ODS row from explicit values while preserving its large repeated trailing-cell
+# padding.
 def rebuild_row(row, values: list[str]) -> None:
     from odf.table import TableCell, TableRow
 
@@ -223,6 +233,8 @@ def rebuild_row(row, values: list[str]) -> None:
         row.addElement(padding)
 
 
+# Apply selected column updates while bounding expanded blank padding before rebuilding an ODS
+# row.
 def set_row_values(row, updates: dict[int, str]) -> None:
     values = expand_row(row)
     keep = max(max(updates) + 1 if updates else 1, len(values) if len(values) < 50 else 0)
@@ -234,6 +246,7 @@ def set_row_values(row, updates: dict[int, str]) -> None:
     rebuild_row(row, values)
 
 
+# Find the first ODS row whose initial logical cells match the requested identifying values.
 def find_data_row(sheet, match: tuple[str, ...]):
     from odf.table import TableRow
 
@@ -244,6 +257,8 @@ def find_data_row(sheet, match: tuple[str, ...]):
     return None
 
 
+# Load an ODS workbook, update configured session/issues rows in the available sheets, and save
+# it in place.
 def patch_ods(path: Path) -> None:
     from odf.opendocument import load
     from odf.table import Table
@@ -264,6 +279,8 @@ def patch_ods(path: Path) -> None:
     doc.save(str(path))
 
 
+# Parse the workbook path and backup options, validate its format, and apply the matching XLSX
+# or ODS patch.
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(

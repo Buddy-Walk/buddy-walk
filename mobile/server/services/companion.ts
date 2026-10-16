@@ -30,6 +30,10 @@ export interface PingPayload {
 }
 
 export class CompanionService {
+  /**
+   * Create an expiring sharing session with a collision-checked viewer token and separate owner
+   * secret in the selected store.
+   */
   async createSession(ctx: AppContext, displayName?: string) {
     const { res } = ctx;
     try {
@@ -88,6 +92,10 @@ export class CompanionService {
     }
   }
 
+  /**
+   * Authenticate an active session owner, update the latest location/sensors and ping count, and
+   * extend its expiration.
+   */
   async ping(
     ctx: AppContext,
     token: string,
@@ -156,6 +164,10 @@ export class CompanionService {
     }
   }
 
+  /**
+   * Authenticate the owner before ending sharing, retaining the inactive session briefly so
+   * viewers can observe that it ended.
+   */
   async stop(ctx: AppContext, token: string, ownerSecret: string) {
     const { res } = ctx;
     try {
@@ -195,6 +207,7 @@ export class CompanionService {
     }
   }
 
+  /** Expose viewer-safe session state and the latest location without returning the owner secret. */
   async snapshot(ctx: AppContext, token: string) {
     const { res } = ctx;
     try {

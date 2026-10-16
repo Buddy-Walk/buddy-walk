@@ -21,6 +21,10 @@ import {
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Permissions'>;
 
+/**
+ * Show independent location, camera, and microphone permission controls with accessible progress
+ * and denial feedback.
+ */
 export default function PermissionsScreen({ navigation }: Props) {
   const [locationGranted, setLocationGranted] = useState(false);
   const [cameraGranted, setCameraGranted] = useState(false);
@@ -32,6 +36,8 @@ export default function PermissionsScreen({ navigation }: Props) {
   const allGranted = locationGranted && cameraGranted && micGranted;
 
   const refreshPermissionStates = useCallback(async () => {
+    // Read all permission states together and synchronize the onboarding controls without
+    // requesting new prompts.
     const [location, camera, mic] = await Promise.all([
       getLocationPermissionState(),
       getCameraPermissionState(),
@@ -43,14 +49,20 @@ export default function PermissionsScreen({ navigation }: Props) {
   }, []);
 
   useEffect(() => {
+    // Refresh the displayed permission states when the screen is first shown.
     void refreshPermissionStates();
   }, [refreshPermissionStates]);
 
+  /** Mark onboarding complete locally before entering the main experience. */
   async function handleContinue() {
     await AsyncStorage.setItem('onboardingComplete', 'true');
     navigation.navigate('Main');
   }
 
+  /**
+   * Request location access once per active interaction and explain denial or request failures
+   * without leaving the button busy.
+   */
   async function requestLocation() {
     if (locationBusy || locationGranted) return;
     setLocationBusy(true);
@@ -78,6 +90,10 @@ export default function PermissionsScreen({ navigation }: Props) {
     }
   }
 
+  /**
+   * Request camera authorization and update its control independently of location and microphone
+   * permissions.
+   */
   async function requestCamera() {
     if (cameraBusy || cameraGranted) return;
     setCameraBusy(true);
@@ -96,6 +112,7 @@ export default function PermissionsScreen({ navigation }: Props) {
     }
   }
 
+  /** Request microphone authorization and update the spoken-question permission state. */
   async function requestMic() {
     if (micBusy || micGranted) return;
     setMicBusy(true);
@@ -130,7 +147,7 @@ export default function PermissionsScreen({ navigation }: Props) {
         </Text>
         <Text
           style={styles.waiverLink}
-          onPress={() => navigation.navigate('Waiver')}
+          onPress={/* Open the waiver information without changing the stored permission decisions. */ () => navigation.navigate('Waiver')}
           accessibilityRole="link"
           accessibilityLabel="Read full waiver"
         >
@@ -145,7 +162,7 @@ export default function PermissionsScreen({ navigation }: Props) {
       <View style={styles.buttons}>
         <Button
           mode="contained"
-          onPress={() => void requestLocation()}
+          onPress={/* Start the location permission interaction from its accessible control. */ () => void requestLocation()}
           disabled={locationBusy || locationGranted}
           loading={locationBusy}
           style={[styles.button, locationGranted && styles.buttonGranted]}
@@ -159,7 +176,7 @@ export default function PermissionsScreen({ navigation }: Props) {
 
         <Button
           mode="contained"
-          onPress={() => void requestCamera()}
+          onPress={/* Start the camera permission interaction from its accessible control. */ () => void requestCamera()}
           disabled={cameraBusy || cameraGranted}
           loading={cameraBusy}
           style={[styles.button, cameraGranted && styles.buttonGranted]}
@@ -173,7 +190,7 @@ export default function PermissionsScreen({ navigation }: Props) {
 
         <Button
           mode="contained"
-          onPress={() => void requestMic()}
+          onPress={/* Start the microphone permission interaction from its accessible control. */ () => void requestMic()}
           disabled={micBusy || micGranted}
           loading={micBusy}
           style={[styles.button, micGranted && styles.buttonGranted]}
@@ -189,7 +206,7 @@ export default function PermissionsScreen({ navigation }: Props) {
       {allGranted && (
         <Button
           mode="contained"
-          onPress={() => void handleContinue()}
+          onPress={/* Finish the permission onboarding flow from the Continue control. */ () => void handleContinue()}
           style={styles.continueButton}
           contentStyle={styles.continueButtonContent}
           labelStyle={styles.continueButtonLabel}

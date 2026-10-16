@@ -54,21 +54,31 @@ interface PlaceCandidate {
   estimatedBlocks: number;
 }
 
+/**
+ * Coerce a model confidence value to a bounded integer percentage, using zero when it is not
+ * finite.
+ */
 function clampConfidence(value: unknown): number {
   const parsed = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, Math.min(100, Math.round(parsed)));
 }
 
+/** Wrap an angle into the zero-inclusive, 360-exclusive compass range. */
 function normalizeHeading(value: number): number {
   return ((value % 360) + 360) % 360;
 }
 
+/** Measure the shortest circular angular separation between two headings. */
 function circularDistance(a: number, b: number): number {
   const diff = Math.abs(normalizeHeading(a) - normalizeHeading(b));
   return Math.min(diff, 360 - diff);
 }
 
+/**
+ * Average two headings across their shortest arc so wraparound does not point in the opposite
+ * direction.
+ */
 function circularAverage(a: number, b: number): number {
   const first = normalizeHeading(a);
   const second = normalizeHeading(b);
@@ -76,19 +86,27 @@ function circularAverage(a: number, b: number): number {
   return normalizeHeading(first + diff / 2);
 }
 
+/**
+ * Estimate a small angular offset from the target's left/center/right position within a panorama
+ * tile.
+ */
 function positionOffset(position: TargetPosition): number {
   if (position === "left") return -LAST_MILE_PANORAMA_FOV_DEGREES / 3;
   if (position === "right") return LAST_MILE_PANORAMA_FOV_DEGREES / 3;
   return 0;
 }
 
+/**
+ * Select confident visual matches and refine the best angle with an adjacent matched tile when
+ * available.
+ */
 function selectBestAngle(
   comparisons: ComparisonResult[],
   confidenceThreshold: number,
 ): { angle: number; confidence: number; matches: ComparisonResult[] } | null {
   const matches = comparisons
-    .filter((item) => item.match && item.confidence >= confidenceThreshold)
-    .sort((a, b) => b.confidence - a.confidence);
+    .filter(/* Keep only positive comparisons meeting the configured confidence threshold. */ (item) => item.match && item.confidence >= confidenceThreshold)
+    .sort(/* Consider the highest-confidence visual comparison first. */ (a, b) => b.confidence - a.confidence);
 
   if (matches.length === 0) return null;
 
@@ -96,6 +114,7 @@ function selectBestAngle(
   let angle = normalizeHeading(best.matchedAngle + positionOffset(best.position));
 
   const adjacent = matches.find(
+    /** Find a second matched tile immediately adjacent to the strongest match. */
     (candidate, index) => index > 0 && circularDistance(best.matchedAngle, candidate.matchedAngle) === LAST_MILE_PANORAMA_FOV_DEGREES,
   );
 
@@ -110,6 +129,10 @@ function selectBestAngle(
   };
 }
 
+/**
+ * Translate a pair of headings into the shortest left/right/straight turn and a half-hour
+ * clock-face description.
+ */
 function turnToClockPosition(currentHeading: number, targetHeading: number): {
   direction: "LEFT" | "RIGHT" | "STRAIGHT";
   degrees: number;
@@ -148,6 +171,7 @@ function turnToClockPosition(currentHeading: number, targetHeading: number): {
   };
 }
 
+/** Read either supported Maps credential setting without exposing the key in a response. */
 function googleMapsApiKey(): string | undefined {
   return process.env.GOOGLE_MAPS_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
 }
@@ -155,12 +179,21 @@ function googleMapsApiKey(): string | undefined {
 export class LastMileService {
   private readonly client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+  /**
+   * Bound the configured legacy visual-match threshold to a percentage, using its default for
+   * nonnumeric input.
+   */
   private get confidenceThreshold(): number {
     const configured = Number(process.env.AI_CONFIDENCE_THRESHOLD);
     if (!Number.isFinite(configured)) return DEFAULT_CONFIDENCE_THRESHOLD;
     return Math.max(0, Math.min(100, configured));
   }
 
+  /**
+   * Run the legacy visual-comparison service: validate panorama tiles, match the photo and
+   * destination, and return uncertain or confirmation-required outcomes when evidence is
+   * insufficient.
+   */
   async handle(
     ctx: AppContext,
     lat: number,
@@ -192,7 +225,7 @@ export class LastMileService {
           uncertain: true,
           output:
             "Based on AI image comparison, I am not confident enough to determine which Street View direction matches your photo. Please take another photo from your current position.",
-          confidence: Math.max(...currentViewComparisons.map((item) => item.confidence), 0),
+          confidence: Math.max(...currentViewComparisons.map(/* Read each photo-match confidence to report the strongest result when no current view passes the threshold. */ (item) => item.confidence), 0),
           sources: ["AI image comparison", "Google Street View imagery"],
           comparisons: currentViewComparisons,
         });
@@ -211,7 +244,7 @@ export class LastMileService {
             uncertain: true,
             output:
               `Based on Google Street View imagery and AI storefront recognition, I could not identify ${destination} nearby. I also could not find a relevant Google Places result. Please confirm the store name or take another photo.`,
-            confidence: Math.max(...targetComparisons.map((item) => item.confidence), 0),
+            confidence: Math.max(...targetComparisons.map(/* Read destination-match confidences for the destination-not-found response. */ (item) => item.confidence), 0),
             sources: ["Google Street View imagery", "AI storefront recognition", "Google Maps place information"],
             comparisons: targetComparisons,
           });
@@ -224,7 +257,7 @@ export class LastMileService {
           output:
             `The requested store was not found in the nearby Street View imagery. Based on Google Maps place information, the closest likely result is ${candidate.name}, located at ${candidate.address}, approximately ${candidate.estimatedBlocks} blocks (${candidate.walkingDistance}) away. Is this the store you are looking for?`,
           candidate,
-          confidence: Math.max(...targetComparisons.map((item) => item.confidence), 0),
+          confidence: Math.max(...targetComparisons.map(/* Read destination-match confidences for a candidate that still requires user confirmation. */ (item) => item.confidence), 0),
           sources: ["Google Street View imagery", "AI storefront recognition", "Google Maps place information"],
           comparisons: targetComparisons,
         });
@@ -280,6 +313,10 @@ export class LastMileService {
     }
   }
 
+  /**
+   * Try the bounded legacy panorama download attempts and accept a tile set only when metadata,
+   * payload sizes, and image dimensions are usable.
+   */
   private async fetchValidatedPanoramaTiles(
     lat: number,
     lng: number,
@@ -356,6 +393,10 @@ export class LastMileService {
     return null;
   }
 
+  /**
+   * Ask the model to compare the user photo against every labeled panorama view without forcing a
+   * positive match.
+   */
   private async compareCurrentPhotoToPanorama(
     image: string,
     tiles: PanoramaTile[],
@@ -370,6 +411,10 @@ export class LastMileService {
     );
   }
 
+  /**
+   * Ask the model to check every panorama view for the named destination, reducing confidence when
+   * identity is ambiguous.
+   */
   private async findDestinationInPanorama(
     destination: string,
     tiles: PanoramaTile[],
@@ -380,6 +425,10 @@ export class LastMileService {
     );
   }
 
+  /**
+   * Request structured per-heading comparisons, normalize model values, and supply explicit
+   * nonmatches for omitted views.
+   */
   private async runComparison(
     instruction: string,
     content: Array<Record<string, unknown>>,
@@ -418,6 +467,10 @@ export class LastMileService {
     }
 
     return HEADINGS.map(
+      /**
+       * Return the normalized comparison for each expected heading, defaulting missing model
+       * entries to zero-confidence nonmatches.
+       */
       (heading) =>
         byHeading.get(heading) ?? {
           heading,
@@ -429,6 +482,10 @@ export class LastMileService {
     );
   }
 
+  /**
+   * Build alternating heading labels and image parts so model comparisons retain each tile's
+   * direction.
+   */
   private panoramaMessageContent(tiles: PanoramaTile[]): Array<Record<string, unknown>> {
     const content: Array<Record<string, unknown>> = [];
     for (const tile of tiles) {
@@ -438,6 +495,10 @@ export class LastMileService {
     return content;
   }
 
+  /**
+   * Look up a nearby destination candidate and walking-route distance for a confirmation-required
+   * legacy response.
+   */
   private async findPlaceCandidate(
     lat: number,
     lng: number,
@@ -484,6 +545,10 @@ export class LastMileService {
     };
   }
 
+  /**
+   * Ask the model for photo-grounded physical landmarks consistent with the computed direction,
+   * preserving uncertainty instead of inventing a landmark.
+   */
   private async generateGuidance(
     image: string,
     destination: string,
@@ -512,6 +577,7 @@ export class LastMileService {
     };
   }
 
+  /** Parse optional model JSON, returning null for empty or malformed content. */
   private parseJson<T>(content: string | null): T | null {
     if (!content) return null;
     try {

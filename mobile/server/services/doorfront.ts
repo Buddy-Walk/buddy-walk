@@ -7,16 +7,22 @@ const doorfront_uri = process.env.DOORFRONT_URI;
 const dbName = 'myFirstDatabase';
 const collectionName = 'collect_panorama';
 
+/** Escape user address text before embedding it in a Mongo regular-expression lookup. */
 function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 let clientPromise: Promise<MongoClient> | null = null;
 
+/**
+ * Reuse one Doorfront Mongo connection attempt and clear a failed attempt so a later lookup can
+ * reconnect.
+ */
 async function connectToDoorfrontDB() {
   try {
     if (!clientPromise) {
       clientPromise = (async () => {
+        // Initialize the shared Doorfront client with a bounded connection pool.
         const c = new MongoClient(doorfront_uri!, { maxPoolSize: 10 });
         await c.connect();
         console.log('Connected to Doorfront database');
@@ -31,6 +37,10 @@ async function connectToDoorfrontDB() {
   }
 }
 
+/**
+ * Look up Doorfront imagery and its first human label by a case-insensitive literal address,
+ * returning null when unavailable.
+ */
 export async function getPanoramaData(ctx: AppContext, address: string) {
     const { res } = ctx;
   try {
@@ -59,6 +69,10 @@ export async function getPanoramaData(ctx: AppContext, address: string) {
   }
 }
 
+/**
+ * Set a panorama's generated description and update time, returning false for missing records or
+ * failed writes.
+ */
 export async function addPanoramaDescription(panoramaId: string, description: string) {
   try {
     const db = await connectToDoorfrontDB();

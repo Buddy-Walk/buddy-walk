@@ -40,11 +40,16 @@ export interface NearbyPlaceSelection extends NearbyPlaceCandidate {
 
 export const MAX_LOCAL_PLACE_DISTANCE_METERS = 5_000;
 
+/**
+ * Compute great-circle distance in meters between two latitude/longitude points using the
+ * haversine formula.
+ */
 export function nearbyPlaceDistanceMeters(
   a: { lat: number; lng: number },
   b: { lat: number; lng: number }
 ): number {
   const earthRadiusMeters = 6_371_000;
+  /** Convert degrees to radians for the distance calculation. */
   const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
   const deltaLat = toRadians(b.lat - a.lat);
   const deltaLng = toRadians(b.lng - a.lng);
@@ -75,6 +80,7 @@ const PLACE_TYPE_ALIASES: Record<string, string[]> = {
   supermarket: ["grocery_or_supermarket", "supermarket"],
 };
 
+/** Normalize case, apostrophes, punctuation, and whitespace before comparing place names. */
 function normalizeMatchText(value: string): string {
   return value
     .toLowerCase()
@@ -87,8 +93,8 @@ function normalizeMatchText(value: string): string {
 export function editDistance(a: string, b: string): number {
   const rows = a.length + 1;
   const cols = b.length + 1;
-  const d: number[][] = Array.from({ length: rows }, (_, i) =>
-    Array.from({ length: cols }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  const d: number[][] = Array.from({ length: rows }, /* Allocate one edit-distance matrix row with its empty-prefix boundary costs. */ (_, i) =>
+    Array.from({ length: cols }, /* Seed the first row and column with insertion/deletion costs; other cells are filled by the recurrence. */ (_, j) => (i === 0 ? j : j === 0 ? i : 0))
   );
   for (let i = 1; i < rows; i++) {
     for (let j = 1; j < cols; j++) {
@@ -129,13 +135,18 @@ function acronymMatch(normalizedQuery: string, normalizedName: string): boolean 
   if (!/^[a-z]{2,6}$/.test(normalizedQuery)) return false;
   const words = normalizedName.split(" ").filter(Boolean);
   if (words.length < 2) return false;
-  const initials = (list: string[]) => list.map((word) => word[0]).join("");
+  /** Build an acronym from the first letter of each retained name word. */
+  const initials = (list: string[]) => list.map(/* Read a name word's first character for acronym matching. */ (word) => word[0]).join("");
   return (
-    initials(words.filter((word) => !ACRONYM_STOPWORDS.has(word))) === normalizedQuery ||
+    initials(words.filter(/* Ignore common connector words when comparing a place name to its acronym. */ (word) => !ACRONYM_STOPWORDS.has(word))) === normalizedQuery ||
     initials(words) === normalizedQuery
   );
 }
 
+/**
+ * Match a candidate to the destination using normalized names, token coverage, place-type aliases,
+ * conservative fuzzy/acronym matches, and address numbers.
+ */
 export function isNearbyPlaceCandidateRelevant(
   candidate: NearbyPlaceCandidate,
   query: string
@@ -152,14 +163,14 @@ export function isNearbyPlaceCandidateRelevant(
     return true;
   }
 
-  const queryTokens = normalizedQuery.split(" ").filter((token) => token.length >= 2);
+  const queryTokens = normalizedQuery.split(" ").filter(/* Ignore one-character tokens that would make unrelated names appear relevant. */ (token) => token.length >= 2);
   const nameTokens = new Set(normalizedName.split(" "));
-  if (queryTokens.length > 0 && queryTokens.every((token) => nameTokens.has(token))) {
+  if (queryTokens.length > 0 && queryTokens.every(/* Require every meaningful query token to occur in the candidate name. */ (token) => nameTokens.has(token))) {
     return true;
   }
 
   const aliases = PLACE_TYPE_ALIASES[normalizedQuery] ?? [];
-  if (aliases.some((type) => candidate.types?.includes(type))) {
+  if (aliases.some(/* Match a generic destination category against Google place types. */ (type) => candidate.types?.includes(type))) {
     return true;
   }
 
@@ -170,10 +181,10 @@ export function isNearbyPlaceCandidateRelevant(
     return true;
   }
 
-  const queryNumbers = queryTokens.filter((token) => /^\d+$/.test(token));
+  const queryNumbers = queryTokens.filter(/* Extract numeric query tokens for street-number matching. */ (token) => /^\d+$/.test(token));
   return (
     queryNumbers.length > 0 &&
-    queryNumbers.every((number) => normalizedAddress.split(" ").includes(number))
+    queryNumbers.every(/* Require each requested address number to occur as a complete address token. */ (number) => normalizedAddress.split(" ").includes(number))
   );
 }
 
@@ -186,6 +197,8 @@ export function signTextMatchesPlaceName(signText: string, placeName: string): b
   if (!name) return false;
   const compactName = name.replace(/ /g, "");
   return signText.split(/[\n|]+/).some((line) => {
+    // Compare one visible sign line to the candidate name, requiring substantial name coverage
+    // instead of accepting generic sign fragments.
     const text = normalizeMatchText(line);
     if (!text) return false;
     if (compactName.length < 5) {
@@ -202,6 +215,7 @@ export function signTextMatchesPlaceName(signText: string, placeName: string): b
   });
 }
 
+/** Remove proximity words from a destination query while retaining the actual place name. */
 export function normalizeNearbyPlaceQuery(query: string): string {
   return query
     .replace(/\b(?:closest|nearest)\b/gi, "")
@@ -211,6 +225,10 @@ export function normalizeNearbyPlaceQuery(query: string): string {
     .trim();
 }
 
+/**
+ * Recognize short standalone destination names or addresses without routing ordinary
+ * conversational questions into place search.
+ */
 export function looksLikeBareDestinationQuery(input: string): boolean {
   const text = input.trim();
   if (!text || text.length > 120 || /[?!]/.test(text)) return false;
@@ -234,6 +252,10 @@ export function looksLikeBareDestinationQuery(input: string): boolean {
   );
 }
 
+/**
+ * Extract a destination from navigation/proximity wording, optionally allowing a conservative
+ * standalone name or address.
+ */
 export function extractNearbyPlaceQuery(
   input: string,
   allowBareDestination = false
@@ -273,6 +295,10 @@ export function extractNearbyPlaceQuery(
   return null;
 }
 
+/**
+ * Return the nearest eligible local candidate, or null when none passes location and status
+ * filtering.
+ */
 export function selectNearbyPlaceCandidate(
   candidates: NearbyPlaceCandidate[],
   origin: { lat: number; lng: number },
@@ -281,6 +307,10 @@ export function selectNearbyPlaceCandidate(
   return selectNearbyPlaceCandidates(candidates, origin, maxDistanceMeters)[0] ?? null;
 }
 
+/**
+ * Measure and rank candidates after discarding invalid coordinates, permanently closed businesses,
+ * and places outside the configured radius.
+ */
 export function selectNearbyPlaceCandidates(
   candidates: NearbyPlaceCandidate[],
   origin: { lat: number; lng: number },
@@ -288,6 +318,7 @@ export function selectNearbyPlaceCandidates(
 ): NearbyPlaceSelection[] {
   return candidates
     .map((candidate) => {
+      // Attach a geodesic distance only when the candidate supplies finite numeric coordinates.
       const lat = candidate.geometry?.location?.lat;
       const lng = candidate.geometry?.location?.lng;
       if (
@@ -303,10 +334,10 @@ export function selectNearbyPlaceCandidates(
         distanceMeters: nearbyPlaceDistanceMeters(origin, { lat, lng }),
       };
     })
-    .filter((candidate): candidate is NearbyPlaceSelection => candidate !== null)
-    .filter((candidate) => candidate.business_status !== "CLOSED_PERMANENTLY")
-    .filter((candidate) => candidate.distanceMeters <= maxDistanceMeters)
-    .sort((a, b) => a.distanceMeters - b.distanceMeters);
+    .filter(/* Remove candidates whose coordinates could not be measured. */ (candidate): candidate is NearbyPlaceSelection => candidate !== null)
+    .filter(/* Exclude businesses explicitly marked permanently closed. */ (candidate) => candidate.business_status !== "CLOSED_PERMANENTLY")
+    .filter(/* Keep candidates inside the caller's maximum local search distance. */ (candidate) => candidate.distanceMeters <= maxDistanceMeters)
+    .sort(/* Order eligible places from nearest to farthest. */ (a, b) => a.distanceMeters - b.distanceMeters);
 }
 
 /**
@@ -345,6 +376,8 @@ export function summarizePlaceCandidates(
 ): PlaceCandidateLog[] {
   return candidates
     .map((candidate): PlaceCandidateLog | null => {
+      // Build a compact candidate audit record with distance, relevance, source, and business
+      // status.
       const lat = candidate.geometry?.location?.lat;
       const lng = candidate.geometry?.location?.lng;
       if (typeof lat !== "number" || typeof lng !== "number") return null;
@@ -359,11 +392,15 @@ export function summarizePlaceCandidates(
         businessStatus: candidate.business_status,
       };
     })
-    .filter((candidate): candidate is PlaceCandidateLog => candidate !== null)
-    .sort((a, b) => a.distanceMeters - b.distanceMeters)
+    .filter(/* Remove audit candidates lacking coordinate data. */ (candidate): candidate is PlaceCandidateLog => candidate !== null)
+    .sort(/* List candidate audit records in increasing distance order. */ (a, b) => a.distanceMeters - b.distanceMeters)
     .slice(0, limit);
 }
 
+/**
+ * Describe a bounded set of candidate names, addresses, and distances for the AI prompt, marking
+ * an empty result explicitly.
+ */
 export function describeNearbyPlaceCandidates(
   candidates: NearbyPlaceSelection[],
   limit = 5
@@ -372,6 +409,7 @@ export function describeNearbyPlaceCandidates(
   return candidates
     .slice(0, limit)
     .map(
+      /** Format one numbered candidate with its address fallback and rounded distance. */
       (candidate, index) =>
         `${index + 1}. ${candidate.name ?? "Unnamed"} - ` +
         `${candidate.vicinity ?? candidate.formatted_address ?? "no address"} - ` +

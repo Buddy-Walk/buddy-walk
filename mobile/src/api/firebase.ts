@@ -31,6 +31,10 @@ type FirebaseExtra = {
 
 const extra = Constants.expoConfig?.extra?.firebase as FirebaseExtra | undefined;
 
+/**
+ * Resolve a Firebase setting from runtime environment or Expo extra configuration and discard
+ * blank values.
+ */
 function env(key: string, fromExtra?: string): string | undefined {
   const value = process.env[key] ?? fromExtra;
   const trimmed = value?.trim();
@@ -46,6 +50,7 @@ const firebaseConfig = {
   appId: env('EXPO_PUBLIC_FIREBASE_APP_ID', extra?.appId),
 };
 
+/** Report whether Firebase credentials are present before attempting authentication setup. */
 export function isFirebaseConfigured(): boolean {
   return Boolean(firebaseConfig.apiKey);
 }
@@ -53,6 +58,10 @@ export function isFirebaseConfigured(): boolean {
 let app: FirebaseApp | null = null;
 let authInstance: Auth | null = null;
 
+/**
+ * Lazily initialize and cache Firebase Auth with native AsyncStorage persistence, reusing an
+ * existing instance when necessary.
+ */
 function ensureAuth(): Auth {
   if (!isFirebaseConfigured()) {
     throw new Error(FIREBASE_SETUP_MSG);
@@ -76,33 +85,44 @@ export function getAuthIfConfigured(): Auth | null {
   return ensureAuth();
 }
 
+/**
+ * Subscribe to authentication changes; an unconfigured app reports a signed-out state and returns
+ * a harmless cleanup function.
+ */
 export function subscribeAuthState(
   listener: (user: User | null) => void
 ): () => void {
   const auth = getAuthIfConfigured();
   if (!auth) {
     listener(null);
-    return () => {};
+    return () => { /* Provide the normal unsubscribe interface when no Firebase listener was created. */ };
   }
   return onAuthStateChanged(auth, listener);
 }
 
+/**
+ * Create an email/password account and return its Firebase user ID; propagate authentication
+ * errors to the screen.
+ */
 export async function signUpWithEmailPassword(email: string, password: string): Promise<string> {
   const cred = await createUserWithEmailAndPassword(ensureAuth(), email, password);
   return cred.user.uid;
 }
 
+/** Sign in with email/password credentials and return the authenticated Firebase user ID. */
 export async function signInWithEmailPassword(email: string, password: string): Promise<string> {
   const cred = await signInWithEmailAndPassword(ensureAuth(), email, password);
   return cred.user.uid;
 }
 
+/** Exchange Google identity tokens for a Firebase session and return the associated user ID. */
 export async function signInWithGoogleIdToken(idToken: string, accessToken?: string): Promise<string> {
   const credential = GoogleAuthProvider.credential(idToken, accessToken);
   const result = await signInWithCredential(ensureAuth(), credential);
   return result.user.uid;
 }
 
+/** Exchange Apple's identity token and its original nonce for a Firebase session. */
 export async function signInWithAppleIdentityToken(
   identityToken: string,
   rawNonce: string
@@ -113,6 +133,10 @@ export async function signInWithAppleIdentityToken(
   return result.user.uid;
 }
 
+/**
+ * Sign out of Firebase only when authentication is configured, allowing bypass-auth builds to call
+ * the same interface.
+ */
 export async function signOutCurrentUser(): Promise<void> {
   const auth = getAuthIfConfigured();
   if (auth) await signOut(auth);

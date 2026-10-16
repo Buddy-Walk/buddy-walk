@@ -7,11 +7,14 @@ let screenReaderOn = false;
 
 AccessibilityInfo.isScreenReaderEnabled()
   .then((enabled) => {
+    // Seed the cached screen-reader state used to choose the appropriate spoken-feedback
+    // channel.
     screenReaderOn = enabled;
   })
-  .catch(() => {});
+  .catch(() => { /* Leave the default screen-reader state in place if the platform cannot report accessibility status. */ });
 
 AccessibilityInfo.addEventListener('screenReaderChanged', (enabled) => {
+  // Keep the cached screen-reader state synchronized with changes made in device settings.
   screenReaderOn = enabled;
 });
 

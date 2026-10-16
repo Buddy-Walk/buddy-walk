@@ -11,6 +11,10 @@ let cachedOptOut: boolean | null = null;
 
 const listeners = new Set<(optedOut: boolean) => void>();
 
+/**
+ * Read and cache the installation's persisted analytics opt-out preference, using the default when
+ * storage is unavailable.
+ */
 export async function isAnalyticsOptedOut(): Promise<boolean> {
   if (cachedOptOut !== null) return cachedOptOut;
   try {
@@ -27,6 +31,10 @@ export function isAnalyticsOptedOutSync(): boolean {
   return cachedOptOut === true;
 }
 
+/**
+ * Update the in-memory and persisted consent preference, then notify every active analytics
+ * subscriber.
+ */
 export async function setAnalyticsOptedOut(optedOut: boolean): Promise<void> {
   cachedOptOut = optedOut;
   try {
@@ -34,12 +42,13 @@ export async function setAnalyticsOptedOut(optedOut: boolean): Promise<void> {
   } catch {
     // Keep the in-memory value even if persistence fails.
   }
-  listeners.forEach((fn) => fn(optedOut));
+  listeners.forEach(/* Deliver the new consent state to one subscribed listener. */ (fn) => fn(optedOut));
 }
 
+/** Register a consent listener and return a function that removes exactly that subscription. */
 export function subscribeAnalyticsOptOut(fn: (optedOut: boolean) => void): () => void {
   listeners.add(fn);
-  return () => listeners.delete(fn);
+  return /* Remove this consent listener when its caller tears down. */ () => listeners.delete(fn);
 }
 
 /** Warm the in-memory cache early (e.g. on app start). */

@@ -104,15 +104,20 @@ const NO_INTERNET_VIBRATION_PATTERN = [0, 250, 150, 250];
 // users. We refuse to surface them and suggest transit instead. Tune freely.
 const MAX_WALKING_METERS = 12000; // ~7.5 miles
 
+/**
+ * Read the route's total walking distance, summing step distances when the response has no usable
+ * route-level total.
+ */
 function routeTotalMeters(route: NavRoute | null | undefined): number {
   if (!route) return 0;
   const total = route.totalDistance?.value;
   if (typeof total === "number" && total > 0) return total;
   return (
-    route.steps?.reduce((sum, s) => sum + (s.distance?.value ?? 0), 0) ?? 0
+    route.steps?.reduce(/* Accumulate each step's available walking distance without treating a missing distance as an error. */ (sum, s) => sum + (s.distance?.value ?? 0), 0) ?? 0
   );
 }
 
+/** Reject implausibly long walking routes before presenting them as practical local navigation. */
 function isUnreasonableWalk(route: NavRoute | null | undefined): boolean {
   return routeTotalMeters(route) > MAX_WALKING_METERS;
 }
@@ -135,12 +140,14 @@ type CaptureUiState =
   | "photo-ready"
   | "video-ready";
 
+/** Format the elapsed video recording duration as minutes and two-digit seconds. */
 function formatRecordingTime(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+/** Choose the camera control state from active recording and staged photo/video media. */
 function getCaptureUiState(
   recordingMode: RecordingMode,
   hasPhotoCapture: boolean,
@@ -152,6 +159,7 @@ function getCaptureUiState(
   return "idle";
 }
 
+/** Describe the current capture state in the camera section's visible and accessible status text. */
 function captureStatusLabel(state: CaptureUiState): string {
   switch (state) {
     case "holding":
@@ -169,6 +177,11 @@ function captureStatusLabel(state: CaptureUiState): string {
 
 type Props = NativeStackScreenProps<RootStackParamList, "Main">;
 
+/**
+ * Coordinate camera capture, voice questions, location/heading snapshots, and Last Meters
+ * requests. Refs keep asynchronous handlers current; request cancellation and sensor rechecks
+ * prevent obsolete answers from becoming turn guidance.
+ */
 export default function MainScreen({ navigation }: Props) {
   const { signOut } = useAuthSession();
   const cameraRef = useRef<CameraView>(null);
@@ -243,26 +256,35 @@ export default function MainScreen({ navigation }: Props) {
   const recordingModeRef = useRef<RecordingMode>("idle");
 
   useEffect(() => {
+    // Keep microphone event callbacks synchronized with whether the UI is currently listening.
     isListeningRef.current = isListening;
   }, [isListening]);
   useEffect(() => {
+    // Keep asynchronous recording callbacks synchronized with transcription progress.
     isTranscribingRef.current = isTranscribing;
   }, [isTranscribing]);
   useEffect(() => {
+    // Expose the latest typed or interim spoken input to callbacks outside the current React
+    // render.
     userInputRef.current = userInput;
   }, [userInput]);
   useEffect(() => {
+    // Expose the latest request-busy state to timers and sensor callbacks.
     loadingRef.current = loading;
   }, [loading]);
   useEffect(() => {
+    // Keep the recording control's asynchronous handlers synchronized with the current video
+    // mode.
     recordingModeRef.current = recordingMode;
   }, [recordingMode]);
   useEffect(() => {
+    // Require a fresh camera-ready signal after staging media replaces the live preview.
     if (capturedImage || capturedVideoUri || webVideoFrames?.length) {
       cameraReadyRef.current = false;
     }
   }, [capturedImage, capturedVideoUri, webVideoFrames]);
 
+  /** Stop the recording duration timer and reset its displayed elapsed time. */
   function clearRecordingTimer(): void {
     if (recordingTimerRef.current) {
       clearInterval(recordingTimerRef.current);
@@ -271,12 +293,17 @@ export default function MainScreen({ navigation }: Props) {
     setRecordingElapsedSec(0);
   }
 
+  /**
+   * Enter video-recording mode, start the elapsed-time display, and provide tactile recording
+   * confirmation.
+   */
   function beginRecordingFeedback(): void {
     setRecordingMode("recording-video");
     videoRecordingStartedAtRef.current = Date.now();
     clearRecordingTimer();
     recordingTimerRef.current = setInterval(() => {
-      setRecordingElapsedSec((s) => s + 1);
+      // Advance the visible video recording duration once per second.
+      setRecordingElapsedSec(/* Increment recording duration from its latest state rather than a captured render value. */ (s) => s + 1);
     }, 1000);
     try {
       Vibration.vibrate([...VIDEO_RECORDING_START_VIBRATION]);
@@ -286,6 +313,8 @@ export default function MainScreen({ navigation }: Props) {
   }
 
   useEffect(() => {
+    // Pulse the recording indicator only while video recording is active and release the
+    // animation when that state changes.
     if (recordingMode !== "recording-video") {
       recDotOpacity.setValue(1);
       return;
@@ -305,21 +334,26 @@ export default function MainScreen({ navigation }: Props) {
       ]),
     );
     pulse.start();
-    return () => pulse.stop();
+    return /* Stop the recording indicator animation when recording ends or the effect is replaced. */ () => pulse.stop();
   }, [recordingMode, recDotOpacity]);
 
   useEffect(() => {
+    // Install cleanup for the recording duration timer.
     return () => {
+      // Release the duration timer if the main screen unmounts during recording.
       clearRecordingTimer();
     };
   }, []);
   // ─── Setup: location, compass, Azure token ───────────────────────────────
 
   useEffect(() => {
+    // Request camera/microphone access and establish playback audio mode as the capture screen
+    // opens.
     void ensureMicrophonePermission();
     void requestCameraPermission();
     void resetAudioForPlayback();
     return () => {
+      // Stop and discard any browser frame sampling owned by this screen on unmount.
       webFrameSessionRef.current?.stop();
       webFrameSessionRef.current = null;
     };
@@ -327,10 +361,14 @@ export default function MainScreen({ navigation }: Props) {
   }, []);
 
   useEffect(() => {
+    // Acquire location permission, seed the first location fix, and install live GPS/compass
+    // watchers with matching teardown.
     let locationSub: Location.LocationSubscription | null = null;
     let headingSub: Location.LocationSubscription | null = null;
 
     (async () => {
+      // Initialize authorized position and heading streams without blocking the first request on
+      // a watcher's delayed first event.
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === "granted") {
         // Seed an immediate fix so the very first question already carries
@@ -351,6 +389,10 @@ export default function MainScreen({ navigation }: Props) {
             distanceInterval: 0,
             timeInterval: 1000,
           },
+          /**
+           * Keep the latest location fix available for questions, sharing, and capture-time sensor
+           * snapshots.
+           */
           (loc) => {
             locationRef.current = loc;
           },
@@ -358,6 +400,8 @@ export default function MainScreen({ navigation }: Props) {
         if (Platform.OS !== "web") {
           try {
             headingSub = await Location.watchHeadingAsync((heading) => {
+              // Record heading time/reference/calibration and clear unusable compass readings
+              // rather than relabeling an old heading as current.
               headingTimestampRef.current = Date.now();
               headingReferenceRef.current = heading.trueHeading >= 0 ? "true" : "magnetic";
               headingAccuracyRef.current = heading.accuracy;
@@ -384,6 +428,7 @@ export default function MainScreen({ navigation }: Props) {
 
     // Low-accuracy readings stay unset; panorama evidence cannot replace them.
     return () => {
+      // Remove both sensor subscriptions when the main screen unmounts.
       locationSub?.remove();
       headingSub?.remove();
     };
@@ -392,6 +437,8 @@ export default function MainScreen({ navigation }: Props) {
   // ─── Azure STT token (refreshed before its ~10 min expiry) ───────────────
 
   const refreshAzureToken = useCallback(async () => {
+    // Refresh the cached Azure speech token, allowing the voice UI to fall back gracefully when
+    // speech setup is unavailable.
     try {
       const tok = await getToken();
       if (tok) azureTokenRef.current = tok;
@@ -403,22 +450,29 @@ export default function MainScreen({ navigation }: Props) {
   }, []);
 
   useEffect(() => {
+    // Warm the API and refresh speech credentials on startup, then renew the token before its
+    // normal expiration.
     void warmApiBackend();
     void refreshAzureToken();
     const id = setInterval(
+      /** Renew speech credentials during a long-lived main-screen session. */
       () => {
         void refreshAzureToken();
       },
       8 * 60 * 1000,
     );
-    return () => clearInterval(id);
+    return /* Stop periodic speech-token renewal when the screen unmounts. */ () => clearInterval(id);
   }, [refreshAzureToken]);
 
   // ─── Network connectivity listener (expo-network) ──────────────────────
 
   useEffect(() => {
+    // Subscribe to network changes so the UI can announce a transition offline without requiring
+    // a failed request first.
     try {
       const sub = Network.addNetworkStateListener((state) => {
+        // Announce and vibrate once on loss of connectivity, resetting the latch when
+        // connectivity returns.
         const connected = state.isConnected && state.isInternetReachable;
         if (!connected && !isOfflineRef.current) {
           isOfflineRef.current = true;
@@ -428,7 +482,7 @@ export default function MainScreen({ navigation }: Props) {
           isOfflineRef.current = false;
         }
       });
-      return () => sub.remove();
+      return /* Release the network-state listener when this effect is disposed. */ () => sub.remove();
     } catch (e) {
       // Listener unsupported on this platform (e.g. some browsers) — the app
       // still surfaces failures per-request, so silently skip live monitoring.
@@ -438,7 +492,10 @@ export default function MainScreen({ navigation }: Props) {
   }, []);
 
   useEffect(() => {
+    // Install cleanup for browser speech/audio capture sessions owned by the main screen.
     return () => {
+      // Abort both browser voice capture mechanisms and discard their session references on
+      // unmount.
       webAudioSessionRef.current?.abort();
       webAudioSessionRef.current = null;
       webSpeechSessionRef.current?.abort();
@@ -454,6 +511,8 @@ export default function MainScreen({ navigation }: Props) {
     if (Platform.OS === "web") return;
     Accelerometer.setUpdateInterval(150);
     const sub = Accelerometer.addListener(({ x, y, z }) => {
+      // Recognize a deliberate two-spike shake with a cooldown before starting another voice
+      // interaction.
       const magnitude = Math.sqrt(x * x + y * y + z * z);
       const now = Date.now();
 
@@ -482,7 +541,7 @@ export default function MainScreen({ navigation }: Props) {
         firstSpikeAtRef.current = now;
       }
     });
-    return () => sub.remove();
+    return /* Release the shake-detection accelerometer subscription. */ () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -491,6 +550,7 @@ export default function MainScreen({ navigation }: Props) {
   // Routes through one channel: the OS screen reader when active, otherwise the
   // app's own TTS. Prevents the double narration of speaking + announcing.
   const speak = useCallback(
+    /** Route short UI status messages through the shared accessibility announcement policy. */
     (text: string, options?: { preferDevice?: boolean }) => {
       announce(text, options);
     },
@@ -499,10 +559,14 @@ export default function MainScreen({ navigation }: Props) {
 
   /** Answers go through app TTS so pause/replay actually control them. */
   const speakAnswer = useCallback((text: string) => {
+    // Speak answer content through the replayable device-speech path rather than a transient
+    // status announcement.
     speakContent(text, { preferDevice: true });
   }, []);
 
   const toggleResponseSpeech = useCallback(async () => {
+    // Stop an answer that is already speaking, or replay the displayed answer when speech is
+    // idle.
     if (!aiResponse.trim()) return;
     try {
       if (await isSpeaking()) {
@@ -516,6 +580,7 @@ export default function MainScreen({ navigation }: Props) {
   }, [aiResponse, speakAnswer]);
 
   const notifyNoSpeechHeard = useCallback(() => {
+    // Give tactile and spoken feedback when microphone input did not contain a usable question.
     void cueError();
     speak("I didn't catch that. Ask again.");
   }, [speak]);
@@ -544,6 +609,8 @@ export default function MainScreen({ navigation }: Props) {
   // ─── Auto-speak AI response once, then log ───────────────────────────────
 
   useEffect(() => {
+    // Speak each newly displayed answer once and persist eligible conversation entries without
+    // making chat storage a requirement for answering.
     if (!aiResponse) {
       lastAutoSpokenRef.current = "";
       return;
@@ -569,6 +636,8 @@ export default function MainScreen({ navigation }: Props) {
     if (!chatLogEligibleRef.current) return;
 
     (async () => {
+      // Create or extend the saved conversation and keep the latest persisted message ID
+      // available for feedback.
       try {
         const storedName = await AsyncStorage.getItem("name");
         if (currentChatId === "") {
@@ -601,6 +670,7 @@ export default function MainScreen({ navigation }: Props) {
   // ─── Camera: tap = photo, hold = video ───────────────────────────────────
 
   const onCameraReady = useCallback(() => {
+    // Mark the mounted camera preview ready for capture operations.
     cameraReadyRef.current = true;
   }, []);
 
@@ -609,12 +679,13 @@ export default function MainScreen({ navigation }: Props) {
     if (cameraReadyRef.current) return true;
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 80));
+      await new Promise(/* Yield briefly between camera readiness checks instead of blocking the UI thread. */ (r) => setTimeout(r, 80));
       if (cameraReadyRef.current) return true;
     }
     return false;
   }
 
+  /** Toggle between starting and stopping video recording using the latest recording-mode ref. */
   async function toggleVideoCapture() {
     if (recordingModeRef.current === "recording-video") {
       await stopVideoRecording();
@@ -641,6 +712,10 @@ export default function MainScreen({ navigation }: Props) {
     return null;
   }
 
+  /**
+   * Snapshot the original GPS/compass evidence before requesting a photo, then stage the captured
+   * image with that metadata for a later Last Meters request.
+   */
   async function takePhoto() {
     if (!cameraRef.current) return;
     const ready = await waitForCameraReady();
@@ -703,6 +778,10 @@ export default function MainScreen({ navigation }: Props) {
     }
   }
 
+  /**
+   * Start native video recording or browser frame sampling, refuse overlapping recordings, and
+   * provide recording-state feedback.
+   */
   async function startVideoRecording() {
     if (!cameraRef.current || videoRecordStartedRef.current) return;
 
@@ -719,6 +798,8 @@ export default function MainScreen({ navigation }: Props) {
       beginRecordingFeedback();
       AccessibilityInfo.announceForAccessibility("Video recording started");
       setTimeout(() => {
+        // Stop the same browser recording session when its maximum permitted duration is
+        // reached.
         if (webFrameSessionRef.current === session) void stopVideoRecording();
       }, MAX_VIDEO_DURATION_MS);
       return;
@@ -766,6 +847,7 @@ export default function MainScreen({ navigation }: Props) {
     }
   }
 
+  /** Clear video-recording state and timers, then restore the audio session for answer playback. */
   function finishVideoRecording(): void {
     videoRecordStartedRef.current = false;
     videoRecordingStartedAtRef.current = null;
@@ -774,6 +856,10 @@ export default function MainScreen({ navigation }: Props) {
     void resetAudioForPlayback();
   }
 
+  /**
+   * Finish the current recording, respecting the minimum native clip duration, and stage usable
+   * video/frame data for a subsequent question.
+   */
   async function stopVideoRecording() {
     if (Platform.OS === "web") {
       const session = webFrameSessionRef.current;
@@ -803,7 +889,7 @@ export default function MainScreen({ navigation }: Props) {
     if (startedAt != null) {
       const elapsed = Date.now() - startedAt;
       if (elapsed < MIN_VIDEO_RECORD_MS) {
-        await new Promise((r) => setTimeout(r, MIN_VIDEO_RECORD_MS - elapsed));
+        await new Promise(/* Allow a very short native recording to reach the minimum usable clip duration before stopping it. */ (r) => setTimeout(r, MIN_VIDEO_RECORD_MS - elapsed));
       }
     }
     cameraRef.current?.stopRecording();
@@ -840,8 +926,9 @@ export default function MainScreen({ navigation }: Props) {
     web: {},
   };
   const audioRecorder = useAudioRecorder(AZURE_RECORDING_OPTIONS);
-  useEffect(() => () => stopVoiceMeteringPoll(), []);
+  useEffect(/* Install cleanup for the microphone level polling timer. */ () => /* Stop microphone level polling when the main screen unmounts. */ () => stopVoiceMeteringPoll(), []);
 
+  /** Release the microphone metering interval without changing the actual recorder state. */
   function stopVoiceMeteringPoll(): void {
     if (voiceMeteringTimerRef.current) {
       clearInterval(voiceMeteringTimerRef.current);
@@ -879,6 +966,7 @@ export default function MainScreen({ navigation }: Props) {
   const LISTENING_PLACEHOLDER = "🎙 Listening… speak your question";
   const TRANSCRIBING_PLACEHOLDER = "⏳ Transcribing your question…";
 
+  /** Exclude UI-only listening/transcribing placeholder text from submitted questions. */
   function isVoiceStatusText(text: string): boolean {
     const t = text.trim();
     return t === LISTENING_PLACEHOLDER || t === TRANSCRIBING_PLACEHOLDER;
@@ -886,6 +974,10 @@ export default function MainScreen({ navigation }: Props) {
 
   /** Clear the on-screen Q&A/capture state and start a fresh server AI session. */
   const resetConversationState = useCallback(
+    /**
+     * Start a clean conversation context by cancelling pending navigation, stopping speech, and
+     * clearing staged media, answers, and saved-message references.
+     */
     (options?: { announceReset?: boolean }) => {
       rotateConversationId();
       void stopSpeaking();
@@ -920,6 +1012,10 @@ export default function MainScreen({ navigation }: Props) {
     [],
   );
 
+  /**
+   * End active voice capture before starting a new field-test conversation and recording its
+   * telemetry event.
+   */
   async function startNewTest(): Promise<void> {
     await cleanupVoiceCapture();
     resetConversationState({ announceReset: true });
@@ -929,14 +1025,22 @@ export default function MainScreen({ navigation }: Props) {
   // Force a clean AI session when the app is backgrounded/closed so a new
   // launch never inherits the previous session's chat history.
   useEffect(() => {
+    // Subscribe to app background transitions so a later interaction receives a fresh
+    // conversation context.
     const sub = AppState.addEventListener("change", (state) => {
+      // Rotate the conversation ID when the app leaves the foreground to avoid reusing an old
+      // person's question context.
       if (state === "background" || state === "inactive") {
         rotateConversationId();
       }
     });
-    return () => sub.remove();
+    return /* Remove the conversation-reset app-state subscription. */ () => sub.remove();
   }, []);
 
+  /**
+   * Abort browser capture, stop any native recording, clear transcript state, and restore playback
+   * audio mode.
+   */
   async function cleanupVoiceCapture(): Promise<void> {
     webAudioSessionRef.current?.abort();
     webAudioSessionRef.current = null;
@@ -953,6 +1057,10 @@ export default function MainScreen({ navigation }: Props) {
     await resetAudioForPlayback();
   }
 
+  /**
+   * Reset listening/transcription state and release capture resources after a failed or cancelled
+   * voice interaction.
+   */
   async function resetVoiceUiState(): Promise<void> {
     setIsListening(false);
     setIsTranscribing(false);
@@ -961,6 +1069,10 @@ export default function MainScreen({ navigation }: Props) {
     await cleanupVoiceCapture();
   }
 
+  /**
+   * Route recognized speech according to the staged media and destination intent, avoiding an
+   * ordinary auto-submit that would consume a Last Meters photo.
+   */
   async function submitVoiceQuestion(transcript: string): Promise<void> {
     const trimmed = transcript.trim();
     if (!trimmed) {
@@ -1002,6 +1114,10 @@ export default function MainScreen({ navigation }: Props) {
     await handleSubmit(trimmed);
   }
 
+  /**
+   * Stop the active microphone interaction or start a new one according to the latest listening
+   * state.
+   */
   async function toggleListening() {
     if (isListeningRef.current) {
       await stopListening();
@@ -1018,6 +1134,8 @@ export default function MainScreen({ navigation }: Props) {
    */
   function handleMagicTap(): void {
     void (async () => {
+      // Handle the screen reader's magic tap by ending listening, stopping current speech,
+      // replaying the answer, or starting voice input in that order.
       if (isListeningRef.current) {
         await stopListening();
         return;
@@ -1038,6 +1156,10 @@ export default function MainScreen({ navigation }: Props) {
     })();
   }
 
+  /**
+   * Translate Azure recognition results into usable text, an empty silence result, or null for a
+   * service failure.
+   */
   async function transcribeWithAzure(
     audioBody: Blob | ArrayBuffer,
     contentType: string,
@@ -1095,6 +1217,10 @@ export default function MainScreen({ navigation }: Props) {
     void stopListening();
   }
 
+  /**
+   * Prepare microphone permissions, speech credentials, and the recording audio session before
+   * starting native or browser speech capture.
+   */
   async function startListening() {
     if (Platform.OS === "web") unlockWebAudioForPlayback();
 
@@ -1149,14 +1275,23 @@ export default function MainScreen({ navigation }: Props) {
         if (auth) {
           const speech = startWebSpeechRecognition(
             auth,
+            /**
+             * Show interim recognized speech while retaining it as the latest transcript
+             * candidate.
+             */
             (interim) => {
               voiceTranscriptRef.current = interim;
               setUserInput(interim);
             },
+            /** Store the final live-recognition result in both the input field and transcript ref. */
             (final) => {
               voiceTranscriptRef.current = final;
               setUserInput(final);
             },
+            /**
+             * Record browser live-recognition diagnostic messages without replacing the user's
+             * input.
+             */
             (message) => console.warn("live speech:", message),
           );
           if (speech) {
@@ -1187,6 +1322,7 @@ export default function MainScreen({ navigation }: Props) {
       audioRecordingRef.current = audioRecorder;
       stopVoiceMeteringPoll();
       voiceMeteringTimerRef.current = setInterval(() => {
+        // Poll native recording levels to detect real speech followed by trailing silence.
         handleVoiceMetering(audioRecorder.getStatus());
       }, VOICE_METERING_INTERVAL_MS);
       voiceRecordingStartedAtRef.current = Date.now();
@@ -1202,6 +1338,10 @@ export default function MainScreen({ navigation }: Props) {
     }
   }
 
+  /**
+   * End recording, reject clips that are too short, transcribe captured audio, and pass usable
+   * speech into the normal voice-question routing path.
+   */
   async function stopListening() {
     if (Platform.OS === "web") unlockWebAudioForPlayback();
 
@@ -1242,7 +1382,7 @@ export default function MainScreen({ navigation }: Props) {
 
         // Safari needs the mic fully released before speechSynthesis can run.
         if (isSafariBrowser()) {
-          await new Promise((resolve) => setTimeout(resolve, 50));
+          await new Promise(/* Allow Safari's microphone release to settle before trying to play synthesized feedback. */ (resolve) => setTimeout(resolve, 50));
           unlockWebAudioForPlayback();
         }
         void cueCaptured();
@@ -1314,7 +1454,7 @@ export default function MainScreen({ navigation }: Props) {
       setUserInput(TRANSCRIBING_PLACEHOLDER);
       void track(Events.VoiceStopped);
       const uri = await stopNativeRecording();
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      await new Promise(/* Allow native recorder teardown to settle before restoring speech playback. */ (resolve) => setTimeout(resolve, 150));
       await resetAudioForPlayback();
       void cueCaptured();
 
@@ -1364,6 +1504,11 @@ export default function MainScreen({ navigation }: Props) {
     return true;
   }
 
+  /**
+   * Submit a staged photo and its original sensor evidence to Last Meters, or cancel the active
+   * request on a second tap. Keep request generations separate and recheck live sensors before
+   * speaking a turn.
+   */
   async function handleLastMileNavigation(destinationOverride?: string) {
     if (cancelLastMileRequest()) {
       speak("Last Meters cancelled.", { preferDevice: true });
@@ -1404,6 +1549,7 @@ export default function MainScreen({ navigation }: Props) {
     if (slowResponseTimerRef.current)
       clearTimeout(slowResponseTimerRef.current);
     slowResponseTimerRef.current = setTimeout(() => {
+      // Announce a slow Last Meters request only if it is still the active, uncancelled request.
       if (lastMileAbortRef.current === controller)
         speak(
           "Still checking your surroundings. Tap Last Meters again to cancel.",
@@ -1414,6 +1560,10 @@ export default function MainScreen({ navigation }: Props) {
     try {
       const loc = capturedPhotoLocationRef.current;
       const metadata = capturedSensorMetadataRef.current;
+      /**
+       * Combine the original capture timestamps with the latest observed location and heading,
+       * preserving missing/invalid readings instead of inventing evidence.
+       */
       const makeSensors = (): LastMileSensors | undefined => {
         const latest = locationRef.current;
         if (!metadata || !latest) return undefined;
@@ -1501,6 +1651,10 @@ export default function MainScreen({ navigation }: Props) {
 
   // ─── Submit to backend ────────────────────────────────────────────────────
 
+  /**
+   * Prepare a typed or media question with saved-place context and bounded location/transit
+   * lookups, then own its API response, cancellation, timers, and busy-state cleanup.
+   */
   async function handleSubmit(questionOverride?: string) {
     const raw = (questionOverride ?? userInput).trim();
     if (!raw || isVoiceStatusText(raw)) {
@@ -1543,6 +1697,7 @@ export default function MainScreen({ navigation }: Props) {
       if (slowResponseTimerRef.current)
         clearTimeout(slowResponseTimerRef.current);
       slowResponseTimerRef.current = setTimeout(() => {
+        // Announce a slow question request only while the request is still pending.
         if (loadingRef.current)
           speak("Still working on your answer.", { preferDevice: true });
       }, SLOW_RESPONSE_HINT_MS);
@@ -1554,8 +1709,9 @@ export default function MainScreen({ navigation }: Props) {
             Location.getCurrentPositionAsync({
               accuracy: Location.Accuracy.Balanced,
             }),
-            new Promise<never>((_, reject) =>
+            new Promise<never>(/* Bound the time spent waiting for an initial location fix before sending an otherwise answerable question. */ (_, reject) =>
               setTimeout(
+                /** Reject the location wait when its short request-preparation deadline expires. */
                 () => reject(new Error("location_timeout")),
                 LOCATION_WAIT_MS,
               ),
@@ -1599,7 +1755,7 @@ export default function MainScreen({ navigation }: Props) {
       const { text: resolvedText, matched } =
         await expandSavedAliases(question);
       if (matched.length > 0) {
-        const aliasNames = matched.map((m) => m.alias).join(", ");
+        const aliasNames = matched.map(/* Include the matched saved-place alias names in request context and telemetry. */ (m) => m.alias).join(", ");
         AccessibilityInfo.announceForAccessibility(
           `Using saved place: ${aliasNames}`,
         );
@@ -1645,8 +1801,8 @@ export default function MainScreen({ navigation }: Props) {
         try {
           const arrivals = await Promise.race([
             fetchMtaArrivals(trainLine, coords.latitude, coords.longitude),
-            new Promise<string>((_, reject) =>
-              setTimeout(() => reject(new Error("mta_timeout")), MTA_LOOKUP_MS),
+            new Promise<string>(/* Bound the live transit lookup so unavailable MTA data does not stall the whole question indefinitely. */ (_, reject) =>
+              setTimeout(/* Reject the transit wait when its request-specific deadline expires. */ () => reject(new Error("mta_timeout")), MTA_LOOKUP_MS),
             ),
           ]);
           mtaDirectAnswer = arrivals;
@@ -1804,6 +1960,7 @@ export default function MainScreen({ navigation }: Props) {
 
   // ─── Sign out ─────────────────────────────────────────────────────────────
 
+  /** Ask for explicit confirmation before clearing the active conversation and signing out. */
   function handleSignOutPress() {
     Alert.alert(
       "Sign out?",
@@ -1813,6 +1970,7 @@ export default function MainScreen({ navigation }: Props) {
         {
           text: "Sign Out",
           style: "destructive",
+          /** Clear AI conversation context and sign out only after the user confirms the action. */
           onPress: async () => {
             try {
               // Force a clean AI session so the next user never inherits this chat history.
@@ -1901,8 +2059,8 @@ export default function MainScreen({ navigation }: Props) {
               <View style={styles.captureActionRow}>
                 <Button
                   mode="contained"
-                  onPressIn={() => tap()}
-                  onPress={() => void takePhoto()}
+                  onPressIn={/* Provide tactile feedback on the photo-capture control. */ () => tap()}
+                  onPress={/* Capture and stage a photo from the camera button. */ () => void takePhoto()}
                   disabled={isRecordingVideo}
                   style={[
                     styles.captureActionButton,
@@ -1917,8 +2075,8 @@ export default function MainScreen({ navigation }: Props) {
                 </Button>
                 <Button
                   mode="contained"
-                  onPressIn={() => tapMedium()}
-                  onPress={() => void toggleVideoCapture()}
+                  onPressIn={/* Provide a stronger tactile cue for the video-recording control. */ () => tapMedium()}
+                  onPress={/* Start or stop video capture from its accessible button. */ () => void toggleVideoCapture()}
                   style={[
                     styles.captureActionButton,
                     isRecordingVideo
@@ -1948,8 +2106,10 @@ export default function MainScreen({ navigation }: Props) {
           ) : hasCapture ? (
             <Button
               mode="contained"
-              onPressIn={() => tap()}
+              onPressIn={/* Provide tactile feedback before replacing a staged capture. */ () => tap()}
               onPress={() => {
+                // Cancel pending Last Meters work and clear staged media so the live camera can
+                // be used for a replacement capture.
                 cancelLastMileRequest();
                 cameraReadyRef.current = false;
                 setCapturedImage(null);
@@ -1976,7 +2136,7 @@ export default function MainScreen({ navigation }: Props) {
           ) : (
             <Button
               mode="contained"
-              onPressIn={() => tap()}
+              onPressIn={/* Confirm interaction with the question input through a tactile cue. */ () => tap()}
               onPress={requestCameraPermission}
               style={styles.retakeButton}
               labelStyle={styles.retakeLabel}
@@ -2011,10 +2171,12 @@ export default function MainScreen({ navigation }: Props) {
 
           <Pressable
             onPressIn={() => {
+              // Confirm the voice control touch and unlock browser audio where required by
+              // user-gesture playback rules.
               tap();
               if (Platform.OS === "web") unlockWebAudioForPlayback();
             }}
-            onPress={() => void toggleListening()}
+            onPress={/* Start or finish the microphone interaction from the voice control. */ () => void toggleListening()}
             disabled={loading && !isListening}
             style={[
               styles.voiceButton,
@@ -2050,9 +2212,9 @@ export default function MainScreen({ navigation }: Props) {
         {/* ── Green Section: Submit + Response ── */}
         <View style={styles.greenSection}>
           <Pressable
-            onPressIn={() => tapMedium()}
-            onPress={() => void handleSubmit()}
-            style={({ pressed }) => [
+            onPressIn={/* Confirm the normal question submission touch with a stronger tactile cue. */ () => tapMedium()}
+            onPress={/* Submit the current typed or staged-media question. */ () => void handleSubmit()}
+            style={/* Display the normal submission control's pressed appearance. */ ({ pressed }) => [
               styles.submitButton,
               pressed && styles.submitButtonPressed,
             ]}
@@ -2064,9 +2226,9 @@ export default function MainScreen({ navigation }: Props) {
           </Pressable>
 
           <Pressable
-            onPressIn={() => tapMedium()}
-            onPress={() => void handleLastMileNavigation()}
-            style={({ pressed }) => [
+            onPressIn={/* Confirm the Last Meters control touch with a stronger tactile cue. */ () => tapMedium()}
+            onPress={/* Start or cancel Last Meters using the staged photo and current destination input. */ () => void handleLastMileNavigation()}
+            style={/* Display the Last Meters control's pressed appearance while retaining its distinguishing color. */ ({ pressed }) => [
               styles.submitButton,
               pressed && styles.submitButtonPressed,
               { backgroundColor: "#00FFCC", marginTop: 4 },
@@ -2106,7 +2268,7 @@ export default function MainScreen({ navigation }: Props) {
               ) : null}
               <View style={styles.responseActions}>
                 <Pressable
-                  onPressIn={() => tap()}
+                  onPressIn={/* Provide tactile feedback for an answer-playback control. */ () => tap()}
                   onPress={toggleResponseSpeech}
                   style={styles.actionButton}
                   accessibilityLabel="Play or pause text to speech"
@@ -2135,9 +2297,9 @@ export default function MainScreen({ navigation }: Props) {
         {/* ── Companion + Saved Places ── */}
         <View style={styles.toolsSection}>
           <Pressable
-            onPressIn={() => tap()}
-            onPress={() => void startNewTest()}
-            style={({ pressed }) => [
+            onPressIn={/* Provide tactile feedback for the new-test control. */ () => tap()}
+            onPress={/* Clear the active interaction and begin a new field-test conversation. */ () => void startNewTest()}
+            style={/* Display the new-test tool button's pressed appearance. */ ({ pressed }) => [
               styles.toolButton,
               pressed && styles.toolButtonPressed,
             ]}
@@ -2154,12 +2316,13 @@ export default function MainScreen({ navigation }: Props) {
           </Pressable>
 
           <Pressable
-            onPressIn={() => tap()}
+            onPressIn={/* Provide tactile feedback for the companion-sharing shortcut. */ () => tap()}
             onPress={() => {
+              // Stop spoken content before opening location-sharing controls.
               void stopSpeaking();
               navigation.navigate("Companion");
             }}
-            style={({ pressed }) => [
+            style={/* Display the companion-sharing shortcut's pressed appearance. */ ({ pressed }) => [
               styles.toolButton,
               pressed && styles.toolButtonPressed,
             ]}
@@ -2176,12 +2339,13 @@ export default function MainScreen({ navigation }: Props) {
           </Pressable>
 
           <Pressable
-            onPressIn={() => tap()}
+            onPressIn={/* Provide tactile feedback for the saved-destinations shortcut. */ () => tap()}
             onPress={() => {
+              // Stop spoken content before opening saved-place management.
               void stopSpeaking();
               navigation.navigate("SavedPlaces");
             }}
-            style={({ pressed }) => [
+            style={/* Display the saved-destinations shortcut's pressed appearance. */ ({ pressed }) => [
               styles.toolButton,
               pressed && styles.toolButtonPressed,
             ]}
@@ -2198,12 +2362,13 @@ export default function MainScreen({ navigation }: Props) {
           </Pressable>
 
           <Pressable
-            onPressIn={() => tap()}
+            onPressIn={/* Provide tactile feedback before opening general feedback. */ () => tap()}
             onPress={() => {
+              // Stop spoken content and show the feedback modal.
               void stopSpeaking();
               setFeedbackVisible(true);
             }}
-            style={({ pressed }) => [
+            style={/* Display the feedback shortcut's pressed appearance. */ ({ pressed }) => [
               styles.toolButton,
               pressed && styles.toolButtonPressed,
             ]}
@@ -2220,9 +2385,9 @@ export default function MainScreen({ navigation }: Props) {
           </Pressable>
 
           <Pressable
-            onPressIn={() => tap()}
+            onPressIn={/* Provide tactile feedback before the sign-out confirmation. */ () => tap()}
             onPress={handleSignOutPress}
-            style={({ pressed }) => [
+            style={/* Display the sign-out control's pressed appearance. */ ({ pressed }) => [
               styles.signOutButton,
               pressed && styles.signOutButtonPressed,
             ]}
@@ -2236,7 +2401,7 @@ export default function MainScreen({ navigation }: Props) {
       <CallAccessARideButton />
       <FeedbackModal
         visible={feedbackVisible}
-        onDismiss={() => setFeedbackVisible(false)}
+        onDismiss={/* Dismiss the feedback modal without changing the current question or answer. */ () => setFeedbackVisible(false)}
         screen="Main"
       />
     </SafeAreaView>

@@ -29,6 +29,10 @@ const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 const BYPASS_AUTH = Constants.expoConfig?.extra?.bypassAuth === true;
 
+/**
+ * Choose the authenticated/onboarding navigation tree, manage session resets, and track screen
+ * visits and app lifecycle telemetry.
+ */
 export default function Navigation() {
   const [checking, setChecking] = useState(!BYPASS_AUTH);
   const [skipOnboarding, setSkipOnboarding] = useState(false);
@@ -36,32 +40,40 @@ export default function Navigation() {
   const [navKey, setNavKey] = useState(0);
 
   const signOut = useCallback(async () => {
+    // Clear local session state and remount navigation after sign-out, respecting builds
+    // configured to bypass authentication.
     await clearLocalAppSession();
     setSkipOnboarding(false);
     setIsAuthed(BYPASS_AUTH);
-    setNavKey((k) => k + 1);
+    setNavKey(/* Change the navigator key so no screen state survives the session reset. */ (k) => k + 1);
   }, []);
 
-  const authSession = useMemo(() => ({ signOut }), [signOut]);
+  const authSession = useMemo(/* Keep the session actions supplied to descendant screens stable between unrelated renders. */ () => ({ signOut }), [signOut]);
 
   const lastTrackedRoute = useRef<string | undefined>(undefined);
 
   // Start anonymous usage tracking once, and flush buffered events when the app
   // goes to the background so we don't lose a tester's session.
   useEffect(() => {
+    // Initialize analytics consent and telemetry once, and flush buffered events when the app
+    // becomes inactive.
     void primeAnalyticsConsent();
     const disposeTelemetry = initTelemetry();
+    /** Flush pending analytics as the app moves away from the foreground. */
     const onAppStateChange = (state: AppStateStatus) => {
       if (state === 'background' || state === 'inactive') void flush();
     };
     const sub = AppState.addEventListener('change', onAppStateChange);
     return () => {
+      // Remove the app-state subscription and telemetry lifecycle resources on navigation
+      // teardown.
       sub.remove();
       disposeTelemetry();
     };
   }, []);
 
   const handleRouteChange = useCallback(() => {
+    // Record a screen-view event only when the current navigation route actually changes.
     const current = navigationRef.getCurrentRoute()?.name;
     if (current && current !== lastTrackedRoute.current) {
       lastTrackedRoute.current = current;
@@ -70,8 +82,12 @@ export default function Navigation() {
   }, []);
 
   useEffect(() => {
+    // Resolve authentication and onboarding state before choosing the initial screen, including
+    // the explicit bypass-auth build path.
     if (BYPASS_AUTH) {
       void (async () => {
+        // Restore the onboarding flag for a bypass-auth build before dismissing its startup
+        // loading state.
         const flag = await AsyncStorage.getItem('onboardingComplete');
         setSkipOnboarding(flag === 'true');
         setChecking(false);
@@ -87,6 +103,8 @@ export default function Navigation() {
     }
 
     const unsubscribe = subscribeAuthState(async (user) => {
+      // Update the navigation gate from Firebase authentication changes and the persisted
+      // onboarding flag.
       if (user) {
         setIsAuthed(true);
         const flag = await AsyncStorage.getItem('onboardingComplete');

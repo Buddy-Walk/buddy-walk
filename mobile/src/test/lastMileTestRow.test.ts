@@ -46,6 +46,7 @@ test("toLastMileTestResponse reports no panorama for approach-mode rows", () => 
 });
 
 test("rows read without images produce the same list response as stripping them", () => {
+  // Regression test: rows read without images produce the same list response as stripping them.
   const rows: { destination: string; userPhoto?: string; panoramaPhoto?: string; destinationPhoto?: string }[] = [
     { destination: "CVS", userPhoto: PHOTO, panoramaPhoto: PANORAMA },
     { destination: "UPS", userPhoto: PHOTO, panoramaPhoto: "[legacy]", destinationPhoto: "" },
@@ -67,6 +68,7 @@ test("toLastMileTestResponse keeps the user photo but not Street View images", (
 });
 
 test("single-trial opt-in returns saved panorama and destination images", () => {
+  // Regression test: single-trial opt-in returns saved panorama and destination images.
   const original = { userPhoto: PHOTO, panoramaPhoto: PANORAMA, destinationPhoto: PHOTO };
   const row = toLastMileTestResponse(original, true, true);
   assert.equal(row.panoramaPhoto, PANORAMA);

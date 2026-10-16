@@ -18,9 +18,12 @@ const blockedCaptures = [
 
 for (const scenario of blockedCaptures) {
   test(`blocked mobile capture saves review imagery: ${scenario.name}`, { timeout: 5000 }, async t => {
+    // Regression test: blocked mobile capture saves review imagery: ${scenario.name}.
     const oldKey = process.env.GOOGLE_MAPS_API_KEY;
     process.env.GOOGLE_MAPS_API_KEY = "unit-test";
     t.after(() => {
+      // Restore the previous Maps credential after this test, including its originally absent
+      // state.
       if (oldKey === undefined) delete process.env.GOOGLE_MAPS_API_KEY;
       else process.env.GOOGLE_MAPS_API_KEY = oldKey;
     });
@@ -29,15 +32,17 @@ for (const scenario of blockedCaptures) {
     const jpeg = await sharp(pixels, { raw: { width: 640, height: 640, channels: 3 } }).jpeg().toBuffer();
     const image = `data:image/jpeg;base64,${jpeg.toString("base64")}`;
     let allowDownload!: () => void;
-    const downloadGate = new Promise<void>(resolve => { allowDownload = resolve; });
-    t.after(() => allowDownload());
+    const downloadGate = new Promise<void>(resolve => { /* Expose a gate that keeps the background panorama download pending until the response timing has been checked. */  allowDownload = resolve; });
+    t.after(/* Release the download gate during teardown even if an earlier assertion failed. */ () => allowDownload());
     let finishAttachment!: (update: any) => void;
-    const attached = new Promise<any>(resolve => { finishAttachment = resolve; });
+    const attached = new Promise<any>(resolve => { /* Expose the completion signal used to await the asynchronous panorama attachment. */  finishAttachment = resolve; });
     let answer: any;
     let logged: any;
     let lookups = 0;
     let tileRequests = 0;
     t.mock.method(axios, "get", async (url: string) => {
+      // Stub metadata and tile downloads while asserting that the withheld response was already
+      // sent before review imagery was requested.
       assert.ok(answer, "The recovery answer must be sent before review imagery is fetched");
       if (url.endsWith("/metadata")) {
         lookups++;
@@ -54,13 +59,17 @@ for (const scenario of blockedCaptures) {
     const service = new OpenAIService();
     let classificationCalls = 0;
     (service as any)._client = { chat: { completions: { create: async (request: any) => {
+      // Allow only scene classification for a sensor-blocked capture; simulate indoor or outdoor
+      // imagery without permitting a turn calculation.
       assert.match(request.messages[0].content, /^Classify the CAMERA/,
         "A sensor-blocked capture may validate review imagery, never calculate a turn");
       classificationCalls++;
       return { choices: [{ message: { content: scenario.name === "indoor imagery" ? "INDOOR" : "OUTDOOR" } }] };
     } } } };
-    t.mock.method(lastMileTestLogService, "record", async (row: any) => { logged = row; return "blocked-trial"; });
+    t.mock.method(lastMileTestLogService, "record", async (row: any) => { /* Capture the original failed trial record and return its stable fixture ID. */  logged = row; return "blocked-trial"; });
     t.mock.method(lastMileTestLogService, "attachPanorama", async (id: string, update: any) => {
+      // Assert that the background panorama updates the original trial, then signal attachment
+      // completion.
       assert.equal(id, "blocked-trial");
       finishAttachment(update);
     });
@@ -76,7 +85,7 @@ for (const scenario of blockedCaptures) {
     const accuracy = scenario.name === "poor GPS" ? 35 : 14;
     const captureSensors = scenario.reason === "capture_metadata_missing" ? undefined : sensors;
     const originalSensors = JSON.stringify(captureSensors);
-    const res = { status: () => res, json: (body: any) => { answer = body; } };
+    const res = { status: /* Keep the response stub chainable like the server's response adapter. */ () => res, json: (body: any) => { /* Capture the mobile response before any deferred download proceeds. */  answer = body; } };
     await service.lastMileRequest({ res } as any, 40.7, -74, image, "Citi", heading, accuracy, 3, captureSensors);
     assert.equal(answer.guidanceKind, "withheld");
     assert.equal(answer.targetHeading, null);
@@ -108,11 +117,12 @@ for (const scenario of blockedCaptures) {
 }
 
 test("older mobile questions route to Q&A without requiring turn sensors", async t => {
+  // Regression test: older mobile questions route to Q&A without requiring turn sensors.
   const service = new OpenAIService();
   let forwarded: any;
-  t.mock.method(service, "textRequest", async (_ctx: any, content: any) => { forwarded = content; });
-  t.mock.method(lastMileTestLogService, "record", async () => "question-trial");
-  t.mock.method(axios, "get", async () => { assert.fail("Questions must not fetch a panorama"); });
+  t.mock.method(service, "textRequest", async (_ctx: any, content: any) => { /* Capture the question forwarded to ordinary photo Q&A for assertions about its text, image, and context. */  forwarded = content; });
+  t.mock.method(lastMileTestLogService, "record", /* Provide a stable trial ID for the question-routing case. */ async () => "question-trial");
+  t.mock.method(axios, "get", async () => { /* Fail immediately if a question-only request attempts Street View lookup. */  assert.fail("Questions must not fetch a panorama"); });
   const photo = await sharp({ create: { width: 32, height: 32, channels: 3, background: "gray" } }).jpeg().toBuffer();
   await service.lastMileRequest({} as any, 40.7, -74, `data:image/jpeg;base64,${photo.toString("base64")}`, "When is the 2 train arriving?");
   assert.equal(forwarded.analytics.feature, "mta");

@@ -30,6 +30,10 @@ async function urlToGenerativePart(url: string, mimeType: string = "image/jpeg")
   };
 }
 
+/**
+ * Reverse-geocode a coordinate pair for the Gemini request context, propagating provider failures
+ * to the caller.
+ */
 async function geocodeCoordinates(latitude: number, longitude: number) {
   const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${process.env.GOOGLE_API_KEY}`;
   try {
@@ -70,8 +74,14 @@ interface StreetViewMetadataResponse {
 
 
 // --- 3. The Math Helper ---
+/**
+ * Compute the initial compass bearing from one coordinate to another, normalized into a full
+ * circle.
+ */
 function calculateHeading(from: LatLng, to: LatLng): number {
+  /** Convert latitude/longitude angles from degrees to radians for bearing arithmetic. */
   const toRad = (deg: number): number => (deg * Math.PI) / 180;
+  /** Convert the calculated bearing from radians back to degrees. */
   const toDeg = (rad: number): number => (rad * 180) / Math.PI;
 
   const phi1 = toRad(from.lat);
@@ -91,6 +101,10 @@ function calculateHeading(from: LatLng, to: LatLng): number {
 }
 
 // --- 4. Main Logic ---
+/**
+ * Geocode an address and construct a Street View URL aimed from a validated outdoor panorama
+ * toward that address.
+ */
 async function getStreetViewWithHeading(address: string): Promise<string | null> {
   try {
     console.log(`\n1. Geocoding address: "${address}"...`);
@@ -146,6 +160,10 @@ async function getStreetViewWithHeading(address: string): Promise<string | null>
 
 
 
+/**
+ * Fetch and decode the legacy ACE transit feed; entity processing is currently a placeholder and
+ * this helper returns no arrival answer.
+ */
 async function getTrainInfo(url: string) {
   try {
     const response = await fetch("https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-ace"
@@ -191,6 +209,10 @@ export class GeminiService {
     model: "gemini-2.5-flash", // or "gemini-1.5-pro"
   });
 
+  /**
+   * Ask Gemini to select a supported tool for the question and location, returning a controlled
+   * error if routing fails.
+   */
   async parseUserRequest(ctx: AppContext, text: string, lat: number, lng: number) {
     const { res } = ctx
     try {
@@ -214,6 +236,10 @@ export class GeminiService {
     }
   }
 
+  /**
+   * Build a Gemini question with available images and location, execute its selected data tool,
+   * and answer using conversation history and fetched evidence.
+   */
   async textRequest(ctx: AppContext, content: textRequestBody) {
     const { res } = ctx;
 
@@ -290,6 +316,10 @@ export class GeminiService {
             if (places.data.results) {
               completeAIPrompt += nearbyPlacesPrompt;
               relevantData = places.data.results.map(
+                /**
+                 * Format a fetched place's identity, coordinates, address, and rating for Gemini's
+                 * context.
+                 */
                 (place: { name: string, geometry: { location: { lat: number, lng: number } }, rating: number, vicinity: string }) =>
                   `\n{name: ${place.name}, location(lat,lng): ${place.geometry.location.lat},${place.geometry.location.lng}, address: ${place.vicinity}, rating: ${place.rating} stars}`).join(', ');
               systemContent += `\nNearby Places in order of nearest distance: ${relevantData}`;
@@ -352,6 +382,7 @@ export class GeminiService {
             }
             relevantData = `Entrance Information and Features for ${location.data.candidates[0].formatted_address}:`
             relevantData += panoramaData.human_labels[0].labels.map(
+              /** Describe one Doorfront label and its bounding box for the image-answer prompt. */
               (label: { label: string, subtype: number, box: { x: number, y: number, width: number, height: number } }) =>
                 `\n${label.label} (${label.subtype ? label.subtype : 'exists'}), Bounding Box: x = ${label.box.x}, y = ${label.box.y}, width: ${label.box.width}, height: ${label.box.height}`
             ).join('; ');
@@ -385,7 +416,7 @@ export class GeminiService {
 
           let staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?&zoom=18&size=640x640&maptype=roadmap`;
           staticMapUrl += `&markers=color:blue%7Clabel:U%7C${content.coords.latitude},${content.coords.longitude}`;
-          staticMapUrl += `&markers=color:green%7Clabel:T%7C${trees.map(tree => `${tree.location.coordinates[1]},${tree.location.coordinates[0]}`).join('%7C')}`;
+          staticMapUrl += `&markers=color:green%7Clabel:T%7C${trees.map(/* Convert a tree's stored longitude/latitude pair into map-marker latitude/longitude order. */ tree => `${tree.location.coordinates[1]},${tree.location.coordinates[0]}`).join('%7C')}`;
 
           const materialColors: Record<string, string> = {
             tactile: "yellow",
@@ -396,14 +427,16 @@ export class GeminiService {
           };
 
           Object.entries(materialColors).forEach(([material, color]) => {
+            // Add one material-colored group of sidewalk markers to the contextual static map.
             const locations = sidewalkMaterials
-              .filter(m => m.material.toLowerCase() === material)
-              .map(m => `${m.location.coordinates[1]},${m.location.coordinates[0]}`);
+              .filter(/* Select sidewalks that belong to the current material/color group. */ m => m.material.toLowerCase() === material)
+              .map(/* Format a sidewalk location as a map-marker coordinate pair. */ m => `${m.location.coordinates[1]},${m.location.coordinates[0]}`);
             if (locations.length > 0) {
               staticMapUrl += `&markers=color:${color}%7Clabel:S%7C${locations.join('%7C')}`;
             }
           });
           staticMapUrl += `&markers=color:purple%7Clabel:R%7C${pedestrianRamps.map(
+            /** Format a pedestrian-ramp location as a map-marker coordinate pair. */
             ramp => `${ramp.location.coordinates[1]},${ramp.location.coordinates[0]}`).join('%7C')}`;
 
           staticMapUrl += `&key=${process.env.GOOGLE_API_KEY}`;
@@ -516,6 +549,10 @@ export class GeminiService {
 
   // ----------------------------------------------------------------------------------------------------------------
   //* Audio API
+  /**
+   * Return an explicit unsupported response because this Gemini integration has no text-to-speech
+   * implementation.
+   */
   async audioRequest(ctx: AppContext, text: string) {
     const { res } = ctx;
     // Note: Gemini's Generative AI API (gemini-1.5-flash) does not currently have a direct text-to-MP3 endpoint

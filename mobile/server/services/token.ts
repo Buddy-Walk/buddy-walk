@@ -12,6 +12,10 @@ dotenv.config();
 const subscriptionKey = process.env.AZURE_SUBSCRIPTION_KEY;
 const region = process.env.AZURE_REGION;
 export class TokenService {
+  /**
+   * Exchange the configured Azure subscription key for a short-lived speech token and return its
+   * region to the mobile client.
+   */
   async getToken(ctx:AppContext) {
     const {res} = ctx;
 

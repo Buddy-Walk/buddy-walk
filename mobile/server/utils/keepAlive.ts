@@ -10,6 +10,7 @@ export function startRenderKeepAlive(): void {
   const intervalMs = Number(process.env.KEEP_ALIVE_INTERVAL_MS ?? 10 * 60 * 1000);
   const healthUrl = `${baseUrl}/api/health`;
 
+  /** Probe the configured health URL with a timeout and log failures without stopping the API. */
   const ping = async (): Promise<void> => {
     try {
       const res = await fetch(healthUrl, { signal: AbortSignal.timeout(25_000) });
@@ -22,6 +23,6 @@ export function startRenderKeepAlive(): void {
   };
 
   void ping();
-  setInterval(() => void ping(), intervalMs);
+  setInterval(/* Run the periodic health probe without making the timer callback wait for its result. */ () => void ping(), intervalMs);
   console.log(`[keepalive] pinging ${healthUrl} every ${Math.round(intervalMs / 1000)}s`);
 }

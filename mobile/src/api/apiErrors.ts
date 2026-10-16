@@ -1,6 +1,10 @@
 import axios from 'axios';
 import { API_ROOT, COMPANION_API_ROOT } from './client';
 
+/**
+ * Turn HTTP and connection failures into actionable backend setup messages, choosing the companion
+ * or main API address for the affected feature.
+ */
 export function describeApiError(error: unknown, feature = 'request'): string {
   if (axios.isAxiosError(error)) {
     const status = error.response?.status;

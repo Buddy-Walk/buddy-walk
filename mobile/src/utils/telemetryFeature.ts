@@ -9,6 +9,10 @@ export type TelemetryFeature =
   | 'location_qa'
   | 'general';
 
+/**
+ * Recognize short place/address inputs that imply navigation without classifying ordinary
+ * questions or greetings as destinations.
+ */
 export function looksLikeBareDestination(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed || trimmed.length > 120 || /[?!]/.test(trimmed)) return false;
@@ -32,6 +36,10 @@ export function looksLikeBareDestination(text: string): boolean {
   );
 }
 
+/**
+ * Assign a consistent analytics feature to a request based on saved aliases, transit intent,
+ * directions, and attached media.
+ */
 export function classifyFeature(input: {
   text: string;
   hasImage?: boolean;
@@ -57,6 +65,10 @@ export function classifyFeature(input: {
   return 'general';
 }
 
+/**
+ * Create a lightweight correlation ID used to connect events from one request across app and API
+ * logs.
+ */
 export function createRequestId(): string {
   return `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
