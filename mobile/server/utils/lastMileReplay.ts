@@ -107,8 +107,8 @@ export const REPLAY_INPUT_UPGRADES: Record<number, ReplayUpgrade> = {
   0: () => ({
     ok: false,
     reason:
-      "Recorded before replay input v1, which requires the phone's capture timestamps " +
-      "(sensors). The safety-gated pipeline withholds every turn without them.",
+      "This test was recorded before the app saved the phone's capture timestamps. " +
+      "A retry needs them, or every turn is withheld.",
   }),
 };
 
@@ -261,7 +261,7 @@ function validateCurrentInput(input: StoredReplayInput): ReplayInput | string {
   const receivedAt = finiteNumber(input.receivedAt);
   if (receivedAt === undefined) return "The time the request was received was not recorded.";
   if (!input.sensors || typeof input.sensors !== "object") {
-    return "The phone's capture timestamps (sensors) were not recorded, so the safety gate would withhold every turn.";
+    return "The phone's capture timestamps weren't recorded for this test. A retry needs them, or every turn is withheld.";
   }
   return {
     schemaVersion: REPLAY_INPUT_VERSION,

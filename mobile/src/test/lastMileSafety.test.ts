@@ -66,7 +66,7 @@ test("replays require original versioned inputs and an available photo", () => {
   assert.equal(assessReplay({ replayInput, userPhoto: "data:image/jpeg;base64,test" }).status, "replayable");
   assert.equal(assessReplay({ replayInput: { ...replayInput, lat: NaN }, userPhoto: "data:image/jpeg;base64,test" }).status, "not_replayable");
   const { sensors: _omitted, ...noSensors } = replayInput;
-  assert.match(assessReplay({ replayInput: noSensors, userPhoto: "data:image/jpeg;base64,test" }).reason ?? "", /sensors/);
+  assert.match(assessReplay({ replayInput: noSensors, userPhoto: "data:image/jpeg;base64,test" }).reason ?? "", /capture timestamps/);
 });
 test("evaluation separates versions, excludes replays and does not infer field success", () => {
   const base = { serverTs: new Date("2026-10-07"), destination: "Citi", pipelineVersion: "v3" };
