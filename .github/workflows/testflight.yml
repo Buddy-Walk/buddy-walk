@@ -15,8 +15,14 @@ on:
           - build
           - submit
           - inspect
+          - inspect-submission
       build_id:
         description: "Existing EAS build ID for submit or inspect"
+        required: false
+        default: ""
+        type: string
+      submission_id:
+        description: "Existing EAS submission ID for inspection"
         required: false
         default: ""
         type: string
@@ -103,6 +109,59 @@ jobs:
               const message = event.msg ?? event.message ?? raw;
               if (/INSTALL_DEPENDENCIES/i.test(event.phase || '') ||
                   /npm (?:error|ERR!)|ERESOLVE|EUSAGE|EBADENGINE|lock ?file|error:|error |requires|expected|could not resolve|npm ci|yarn install/i.test(message)) {
+                relevant.push(clean(message));
+              }
+            }
+          }
+          console.log(relevant.slice(-100).join('\n'));
+          NODE
+
+      - name: Inspect existing EAS submission
+        if: ${{ inputs.operation == 'inspect-submission' }}
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_INSPECT_SUBMISSION_ID: ${{ inputs.submission_id }}
+        run: |
+          test -n "$EAS_INSPECT_SUBMISSION_ID"
+          node --input-type=module <<'NODE'
+          // Read existing submission metadata and logs without scheduling an upload.
+          const response = await fetch('https://api.expo.dev/graphql', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${process.env.EXPO_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              query: `query InspectSubmission($submissionId: ID!) {
+                submissions {
+                  byId(submissionId: $submissionId) {
+                    id status error { errorCode message } logFiles
+                  }
+                }
+              }`,
+              variables: { submissionId: process.env.EAS_INSPECT_SUBMISSION_ID },
+            }),
+          });
+          if (!response.ok) throw new Error(`Submission lookup returned HTTP ${response.status}`);
+          const result = await response.json();
+          // Remove credentials and signed URL query strings from diagnostic output.
+          const clean = value => String(value)
+            .replace(/\u001b\[[0-9;]*m/g, '')
+            .replace(/https?:\/\/[^\s"'<>]+/g, url => url.split('?')[0])
+            .replaceAll(process.env.EXPO_TOKEN || '\u0000', '[REDACTED]');
+          if (result.errors?.length) throw new Error(clean(JSON.stringify(result.errors)));
+          const submission = result.data?.submissions?.byId;
+          if (!submission) throw new Error('Submission was not found');
+          console.log(clean(JSON.stringify({ id: submission.id, status: submission.status, error: submission.error })));
+          const relevant = [];
+          for (const entry of submission.logFiles || []) {
+            const logResponse = await fetch(typeof entry === 'string' ? entry : entry.url);
+            if (!logResponse.ok) throw new Error(`Submission log download returned HTTP ${logResponse.status}`);
+            for (const raw of (await logResponse.text()).split('\n')) {
+              let event;
+              try { event = JSON.parse(raw); } catch { event = { msg: raw }; }
+              const message = event.msg ?? event.message ?? raw;
+              if (/error|fail|invalid|reject|agreement|forbidden|unauthor|upload|success|processing|bundle|version|SDK|asset validation/i.test(message)) {
                 relevant.push(clean(message));
               }
             }
