@@ -119,6 +119,8 @@ eas submit --platform ios --profile production --latest
 
 TestFlight uses **`https://buddy-walk-api.onrender.com`** (not your local `.env` or legacy buddywalk.app). `EXPO_PUBLIC_BYPASS_AUTH=true` is set in `eas.json`. Build number auto-increments on EAS.
 
+Production EAS builds set `SHARP_IGNORE_GLOBAL_LIBVIPS=1` so the server's Sharp dependency uses its prebuilt binaries instead of compiling against the Mac builder's global libvips. The TestFlight workflow supports building without submission, submitting an existing build ID, and inspecting a failed build; this allows a completed binary to be submitted after Apple account agreements are resolved.
+
 ---
 
 ## Environment Variables

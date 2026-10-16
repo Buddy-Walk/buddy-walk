@@ -5,8 +5,18 @@ name: Build and Submit iOS to TestFlight
 on:
   workflow_dispatch:
     inputs:
-      inspect_build_id:
-        description: "Inspect an existing EAS build without starting or submitting another build"
+      operation:
+        description: "Release operation"
+        required: true
+        default: "build-and-submit"
+        type: choice
+        options:
+          - build-and-submit
+          - build
+          - submit
+          - inspect
+      build_id:
+        description: "Existing EAS build ID for submit or inspect"
         required: false
         default: ""
         type: string
@@ -41,22 +51,37 @@ jobs:
         run: npm install --global eas-cli
 
       - name: Build and submit production iOS app
-        if: ${{ inputs.inspect_build_id == '' }}
+        if: ${{ inputs.operation == 'build-and-submit' || inputs.operation == 'build' }}
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          RELEASE_OPERATION: ${{ inputs.operation }}
         run: |
           if [ -z "$EXPO_TOKEN" ]; then
             echo "EXPO_TOKEN repository secret is required for automated EAS builds." >&2
             exit 1
           fi
-          eas build --platform ios --profile production --auto-submit --non-interactive
+          if [ "$RELEASE_OPERATION" = "build" ]; then
+            eas build --platform ios --profile production --non-interactive
+          else
+            eas build --platform ios --profile production --auto-submit --non-interactive
+          fi
 
-      - name: Inspect existing EAS build
-        if: ${{ inputs.inspect_build_id != '' }}
+      - name: Submit existing production iOS build
+        if: ${{ inputs.operation == 'submit' }}
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          EAS_INSPECT_BUILD_ID: ${{ inputs.inspect_build_id }}
+          EAS_SUBMIT_BUILD_ID: ${{ inputs.build_id }}
         run: |
+          test -n "$EAS_SUBMIT_BUILD_ID"
+          eas submit --platform ios --profile production --id "$EAS_SUBMIT_BUILD_ID" --non-interactive --wait
+
+      - name: Inspect existing EAS build
+        if: ${{ inputs.operation == 'inspect' }}
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_INSPECT_BUILD_ID: ${{ inputs.build_id }}
+        run: |
+          test -n "$EAS_INSPECT_BUILD_ID"
           eas build:view "$EAS_INSPECT_BUILD_ID" --json > "$RUNNER_TEMP/eas-build.json"
           node --input-type=module <<'NODE'
           import fs from 'node:fs';

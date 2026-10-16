@@ -21,7 +21,8 @@
         "simulator": false
       },
       "env": {
-        "EXPO_PUBLIC_BYPASS_AUTH": "true"
+        "EXPO_PUBLIC_BYPASS_AUTH": "true",
+        "SHARP_IGNORE_GLOBAL_LIBVIPS": "1"
       }
     }
   },
