@@ -3171,3 +3171,6 @@ function pinnedPanorama(
   audit?.(attempt);
   return { metadata, attempts: [attempt] };
 }
+
+// Share the existing review-only saver with the mobile adapter without changing the pipeline.
+export { saveBackgroundPanorama };

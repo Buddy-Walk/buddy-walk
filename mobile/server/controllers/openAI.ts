@@ -1,4 +1,5 @@
 import {OpenAIService} from "../services/openAI";
+import { MobileLastMileService } from "../services/mobileLastMile";
 import { GeminiService } from "../services/gemini";
 import {textRequestBody} from "../types";
 import { Request, Response } from "express";
@@ -16,7 +17,7 @@ function createTextAiService(): OpenAIService | GeminiService {
 }
 
 const openAIService = createTextAiService();
-const lastMileOpenAIService = new OpenAIService();
+const lastMileOpenAIService = new MobileLastMileService();
 
 export class OpenAIController {
 
