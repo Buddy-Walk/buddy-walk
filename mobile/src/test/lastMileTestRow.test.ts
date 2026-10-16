@@ -6,6 +6,7 @@ import {
   isStoredImage,
   toLastMileTestResponse,
   toLastMileTestSummaryResponse,
+  toRetryHistoryEntry,
 } from "../../server/utils/lastMileTestRow";
 
 const PANORAMA = "data:image/jpeg;base64,AAAA";
@@ -74,4 +75,28 @@ test("single-trial opt-in returns saved panorama and destination images", () => 
   assert.equal(row.hasPanorama, true);
   assert.equal(row.hasDestinationPhoto, true);
   assert.equal(toLastMileTestResponse(original, false, true).panoramaPhoto, imagePlaceholder(PANORAMA));
+});
+
+test("toRetryHistoryEntry marks retries and keeps the facts the history shows", () => {
+  const entry = toRetryHistoryEntry({
+    _id: "abc",
+    retryOf: "orig",
+    retryPanoramaMode: "original",
+    panoId: "pano-1",
+    testScenario: "test_a_visible",
+    success: true,
+    pipelineVersion: "3.0.0-safety-gated",
+    deployedCommit: "deadbeef",
+    safetyReasons: ["photo_stale"],
+  });
+  assert.equal(entry.id, "abc");
+  assert.equal(entry.isRetry, true);
+  assert.equal(entry.panoramaMode, "original");
+  assert.deepEqual(entry.defaultsApplied, []);
+  assert.equal(entry.pipelineVersion, "3.0.0-safety-gated");
+  assert.equal(entry.deployedCommit, "deadbeef");
+  assert.deepEqual(entry.safetyReasons, ["photo_stale"]);
+  assert.equal("userPhoto" in entry, false);
+
+  assert.equal(toRetryHistoryEntry({ _id: "orig" }).isRetry, false);
 });

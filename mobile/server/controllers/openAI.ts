@@ -4,6 +4,7 @@ import {textRequestBody} from "../types";
 import { Request, Response } from "express";
 import { getPanoramaData } from "../services/doorfront"
 import { canRunLocalLastMile } from "../config/serverMode";
+import { parseLastMetersRequest } from "../utils/lastMileReplay";
 
 function createTextAiService(): OpenAIService | GeminiService {
   const hasOpenAi = Boolean(process.env.OPENAI_API_KEY?.trim());
@@ -61,19 +62,9 @@ export class OpenAIController {
   
   async lastMileRequest(req: Request, res: Response) {
     try {
-      const {
-        lat,
-        lng,
-        image,
-        destination,
-        heading,
-        gpsAccuracyMeters,
-        compassAccuracyLevel,
-        sensors,
-      } = req.body;
-      const validCoordinates = typeof lat === "number" && Number.isFinite(lat) && Math.abs(lat) <= 90 &&
-        typeof lng === "number" && Number.isFinite(lng) && Math.abs(lng) <= 180;
-      if (!validCoordinates || typeof image !== "string" || !image.startsWith("data:image/") || typeof destination !== "string" || !destination.trim()) {
+      const request = parseLastMetersRequest(req.body);
+      const image = req.body?.image;
+      if (!request || typeof image !== "string" || !image.startsWith("data:image/")) {
         return res.status(400).json({ error: "Missing or invalid required fields" });
       }
       if (!canRunLocalLastMile()) {
@@ -82,30 +73,9 @@ export class OpenAIController {
             "Last Meters requires OPENAI_API_KEY and GOOGLE_MAPS_API_KEY (or GOOGLE_API_KEY) on this backend.",
         });
       }
-      const deviceHeading =
-        typeof heading === "number" && Number.isFinite(heading) ? heading : undefined;
-      const accuracy =
-        typeof gpsAccuracyMeters === "number" && Number.isFinite(gpsAccuracyMeters)
-          ? gpsAccuracyMeters
-          : undefined;
-      const compassLevel =
-        typeof compassAccuracyLevel === "number" &&
-        Number.isFinite(compassAccuracyLevel)
-          ? compassAccuracyLevel
-          : undefined;
-      await lastMileOpenAIService.lastMileRequest(
-        { req, res },
-        Number(lat),
-        Number(lng),
-        image,
-        destination.trim(),
-        deviceHeading,
-        accuracy,
-        compassLevel,
-        sensors,
-      );
+      await lastMileOpenAIService.lastMileRequest({ req, res }, request, image);
     } catch (error) {
-      res.status(500).json({ error: "Internal server error" });
+      if (!res.headersSent) res.status(500).json({ error: "Internal server error" });
     }
   }
 }

@@ -17,3 +17,11 @@ export function outdoorPanoramaRejection(metadata: OutdoorPanoramaMetadata): str
   if (!/\bGoogle\b/i.test(metadata.copyright ?? "")) return "NON_GOOGLE_PANORAMA";
   return null;
 }
+
+// Rejections that say the panorama itself is gone or unusable. Any other
+// status, such as REQUEST_DENIED or OVER_QUERY_LIMIT, is about the request.
+const PANORAMA_GONE = new Set(["ZERO_RESULTS", "NOT_FOUND", "INVALID_METADATA", "NON_GOOGLE_PANORAMA"]);
+
+export function panoramaIsGone(rejection: string): boolean {
+  return PANORAMA_GONE.has(rejection);
+}

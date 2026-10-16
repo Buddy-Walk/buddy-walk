@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { sensorSafetyReasons, LastMileSensors, bearingBetween } from "../utils/lastMileSafety";
 import { evaluateWalkingLeg, preciseTurnReasons } from "../../server/utils/lastMilePolicy";
-import { replayCompatibility, photoHash } from "../../server/utils/lastMileReplay";
+import { assessReplay, photoHash } from "../../server/utils/lastMileReplay";
 import { summarizeFieldEvaluation } from "../../server/utils/lastMileEvaluation";
 
 const now = 1_800_000_000_000;
@@ -59,14 +59,14 @@ test("camera-origin bearings are different evidence from user-origin bearings", 
   assert.equal(bearingBetween({ lat: 40.7009, lng: -74 }, target), 180);
 });
 test("replays require original versioned inputs and an available photo", () => {
-  assert.equal(replayCompatibility({}).replayable, false);
+  assert.equal(assessReplay({}).status, "not_replayable");
   const replayInput = { schemaVersion: 1 as const, receivedAt: now, ...origin, destination: "Citi", sensors: sensors(),
     photoRepresentation: "stored-compressed" as const, originalPhotoSha256: photoHash("original") };
-  assert.equal(replayCompatibility({ replayInput }).replayable, false);
-  const result = replayCompatibility({ replayInput, userPhoto: "data:image/jpeg;base64,test" });
-  assert.equal(result.replayable, true);
-  assert.match(result.reason, /not a field test/);
-  assert.equal(replayCompatibility({ replayInput: { ...replayInput, lat: NaN }, userPhoto: "data:image/jpeg;base64,test" }).replayable, false);
+  assert.equal(assessReplay({ replayInput }).status, "not_replayable");
+  assert.equal(assessReplay({ replayInput, userPhoto: "data:image/jpeg;base64,test" }).status, "replayable");
+  assert.equal(assessReplay({ replayInput: { ...replayInput, lat: NaN }, userPhoto: "data:image/jpeg;base64,test" }).status, "not_replayable");
+  const { sensors: _omitted, ...noSensors } = replayInput;
+  assert.match(assessReplay({ replayInput: noSensors, userPhoto: "data:image/jpeg;base64,test" }).reason ?? "", /sensors/);
 });
 test("evaluation separates versions, excludes replays and does not infer field success", () => {
   const base = { serverTs: new Date("2026-10-07"), destination: "Citi", pipelineVersion: "v3" };

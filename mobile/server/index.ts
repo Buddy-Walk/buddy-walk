@@ -26,6 +26,7 @@ import { isMongoConnected } from "./database/usageStore";
 import { probeUpstreamText } from "./middleware/upstreamProxy";
 import { TranscribeController } from "./controllers/transcribe";
 import lastMileTestLogModel from "./database/models/lastMileTestLog";
+import { lastMileRetryRunService } from "./services/lastMileRetryRuns";
 import { startRenderKeepAlive } from "./utils/keepAlive";
 
 dotenv.config();
@@ -45,19 +46,40 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   const app: Application = express();
   const port = process.env.PORT || 8000;
 
+  let mongoConnected = false;
   try {
     await mongoose.connect(config.link!, {
       ...config.options,
       serverSelectionTimeoutMS: 4000,
     });
+    mongoConnected = true;
     console.log(
       `[server] MongoDB connected (${mongoose.connection.name || "default database"}).`
     );
-    await lastMileTestLogModel.collection.createIndex({ serverTs: -1 });
-    console.log("[server] Last Meters dashboard index ready.");
   } catch (error) {
     console.warn("MongoDB unavailable — using in-memory store for metrics, chat logs, and companion:", error);
     setCompanionMemoryStore(true);
+  }
+
+  if (mongoConnected) {
+    try {
+      await lastMileTestLogModel.collection.createIndex({ serverTs: -1 });
+      // Retry history and per-row retry counts; field tests are left out.
+      await lastMileTestLogModel.collection.createIndex(
+        { retryOf: 1, serverTs: 1 },
+        { partialFilterExpression: { retryOf: { $exists: true } } }
+      );
+      console.log("[server] Last Meters dashboard indexes ready.");
+    } catch (error) {
+      console.warn("[server] Could not create the Last Meters dashboard indexes; history queries may be slow:", error);
+    }
+    // One running retry per original, enforced across server instances.
+    // Without this index, dashboard retries stay off.
+    try {
+      await lastMileRetryRunService.ensureIndexes();
+    } catch (error) {
+      console.error("[server] Could not create the one-running-retry index; dashboard retries are off:", error);
+    }
   }
 
   const routing = getServiceRouting();
@@ -244,6 +266,15 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     res.set('Cache-Control', 'no-store');
     res.type('html').send(html);
   });
+
+  // The dashboard has no bundler; it loads uuid's browser build from here to
+  // make UUIDv7 idempotency keys for retries.
+  app.use(
+    '/vendor/uuid',
+    express.static(path.join(path.dirname(require.resolve('uuid/package.json')), 'dist', 'esm-browser'), {
+      maxAge: '1d',
+    })
+  );
 
   const rootDir = __dirname.includes('dist') 
   ? path.join(__dirname, '..')       // Production: go up 1 level to /dist

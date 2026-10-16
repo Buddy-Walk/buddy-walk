@@ -4,7 +4,7 @@ import axios from "axios";
 import sharp from "sharp";
 import { outdoorPanoramaRejection } from "../../server/utils/outdoorPanorama";
 import { LAST_MILE_HEADINGS } from "../../server/utils/lastMileNavigation";
-import { buildPanoramaDebugImage, createPanoramaOverlaySvg, processPanoramaTiles, classifyPanoramaScene } from "../../server/services/openAI";
+import { buildPanoramaDebugImage, createPanoramaOverlaySvg, fetchStreetViewPanoramaById, processPanoramaTiles, classifyPanoramaScene } from "../../server/services/openAI";
 import { parseSceneVerdict, selectOutdoorPanorama } from "../../server/services/outdoorPanoramaSelection";
 import LastMileTestLog from "../../server/database/models/lastMileTestLog";
 
@@ -69,6 +69,55 @@ test("all sixteen requests use outdoor metadata and the same panorama ID", async
   });
   await assert.rejects(processPanoramaTiles(40.7, -74, async () => { throw new Error("Should not classify missing imagery"); }), { code: "STREET_VIEW_NO_VALIDATED_OUTDOOR_PANORAMA" });
   assert.equal(calls, 5);
+});
+
+test("a pinned panorama downloads its views without looking up its metadata again", async (t) => {
+  const original = process.env.GOOGLE_MAPS_API_KEY;
+  process.env.GOOGLE_MAPS_API_KEY = "unit-test-key";
+  t.after(() => {
+    if (original === undefined) delete process.env.GOOGLE_MAPS_API_KEY;
+    else process.env.GOOGLE_MAPS_API_KEY = original;
+  });
+  const requests: string[] = [];
+  t.mock.method(axios, "get", async (url: string) => {
+    requests.push(url);
+    return { status: 200, data: Buffer.alloc(10_001) };
+  });
+  const result = await processPanoramaTiles(
+    40.7, -74, async () => { throw new Error("A pinned panorama is not reclassified"); },
+    undefined, undefined, metadata,
+  );
+  assert.equal(result.metadata, metadata);
+  assert.equal(result.attempts[0].status, "pinned");
+  assert.equal(requests.length, 16);
+  assert.ok(requests.every(url => !url.includes("/metadata")));
+});
+
+test("a pinned panorama is retired only when Google says the panorama is gone", async (t) => {
+  const original = process.env.GOOGLE_MAPS_API_KEY;
+  process.env.GOOGLE_MAPS_API_KEY = "unit-test-key";
+  t.after(() => {
+    if (original === undefined) delete process.env.GOOGLE_MAPS_API_KEY;
+    else process.env.GOOGLE_MAPS_API_KEY = original;
+  });
+  let reply: object = metadata;
+  t.mock.method(axios, "get", async () => ({ data: reply }));
+  assert.equal((await fetchStreetViewPanoramaById("outdoor-test-pano")).pano_id, "outdoor-test-pano");
+  for (const status of ["ZERO_RESULTS", "NOT_FOUND"]) {
+    reply = { status };
+    await assert.rejects(fetchStreetViewPanoramaById("gone"), { code: `STREET_VIEW_PANO_${status}` });
+  }
+  reply = { ...metadata, copyright: "Business owner" };
+  await assert.rejects(fetchStreetViewPanoramaById("gone"), { code: "STREET_VIEW_PANO_NON_GOOGLE_PANORAMA" });
+  // Key, quota and service errors say nothing about the panorama.
+  for (const status of ["REQUEST_DENIED", "OVER_QUERY_LIMIT", "INVALID_REQUEST", "UNKNOWN_ERROR"]) {
+    reply = { status };
+    await assert.rejects(fetchStreetViewPanoramaById("kept"), (error: any) => {
+      assert.equal(error.code, undefined);
+      assert.match(error.message, new RegExp(status));
+      return true;
+    });
+  }
 });
 
 test("visual verdict parsing fails closed", () => {

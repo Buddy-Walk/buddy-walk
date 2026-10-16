@@ -184,6 +184,127 @@
     .candidate-rejected { color: #f85149; font-weight: 700; }
 
     .small { color: var(--quiet); font-size: 0.78rem; }
+
+    /* Retries: one violet "replay" accent marks everything a retry touches. */
+    :root {
+      --replay: #a78bfa;
+      --replay-text: #ddd6fe;
+      --replay-soft: #1f1936;
+      --replay-line: #4c3d86;
+    }
+    .field label.toggle { display: flex; margin: 0; align-items: center; gap: 8px; height: 36px; color: var(--text); font-size: 0.88rem; cursor: pointer; }
+    .field label.toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--replay); }
+    .retry-off { display: none; margin: 0 0 14px; color: var(--muted); font-size: 0.85rem; }
+    .retry-off b { color: var(--text); }
+
+    button.retry-trigger { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px 6px 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    button.retry-trigger::after { content: ""; width: 10px; height: 10px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23a9b1be' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center / 10px 10px; }
+    button.retry-trigger:hover:not(:disabled), button.retry-trigger[aria-expanded="true"] { border-color: var(--replay); }
+    button.retry-trigger.running { border-color: var(--replay-line); background: var(--replay-soft); color: var(--replay-text); opacity: 1; cursor: progress; }
+    button.retry-trigger.running::after { display: none; }
+    .retry-cell { min-width: 140px; }
+    .retry-reason { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 200px; margin-top: 6px; color: var(--quiet); font-size: 0.76rem; line-height: 1.35; }
+    .retry-fills { max-width: 200px; margin-top: 6px; color: #fcd34d; font-size: 0.76rem; line-height: 1.35; }
+
+    .spinner { width: 12px; height: 12px; flex: none; border: 2px solid var(--replay-line); border-top-color: var(--replay); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Panorama menu: positioned against the viewport so table scrolling never clips it. */
+    .retry-menu { position: fixed; z-index: 80; width: min(320px, calc(100vw - 32px)); padding: 6px; border: 1px solid var(--replay-line); border-radius: 10px; background: #1a1d23; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55); }
+    .retry-menu[hidden] { display: none; }
+    .retry-menu .menu-title { padding: 8px 10px 6px; color: var(--muted); font-size: 0.78rem; }
+    .retry-option { display: block; width: 100%; padding: 9px 10px; border: 0; border-radius: 7px; background: transparent; text-align: left; font-weight: 400; }
+    .retry-option b { display: block; margin-bottom: 2px; font-size: 0.9rem; }
+    .retry-option span { display: block; color: var(--muted); font-size: 0.8rem; line-height: 1.4; }
+    .retry-option:hover:not(:disabled), .retry-option:focus-visible { background: var(--replay-soft); outline: none; }
+    .retry-option:hover:not(:disabled) b, .retry-option:focus-visible b { color: var(--replay-text); }
+    .retry-option:disabled { opacity: 1; }
+    .retry-option:disabled b { color: var(--quiet); }
+    .retry-menu .menu-foot { margin: 4px 0 0; padding: 8px 10px 6px; border-top: 1px solid var(--line); color: var(--quiet); font-size: 0.76rem; line-height: 1.4; }
+    .retry-menu .menu-foot.fills { color: #fcd34d; }
+
+    /* Retry rows in the list, and the count on their original. */
+    tr.trial-row.is-retry > td:first-child { box-shadow: inset 3px 0 0 var(--replay); }
+    .retry-tag { margin-top: 4px; color: var(--replay-text); font-size: 0.8rem; }
+    button.retry-count { display: inline-flex; align-items: center; margin-top: 5px; padding: 2px 9px; border: 1px solid var(--replay-line); border-radius: 999px; background: var(--replay-soft); color: var(--replay-text); font-size: 0.74rem; font-weight: 700; white-space: nowrap; }
+    button.retry-count:hover { border-color: var(--replay); }
+
+    /* Result toasts stay put while the list scrolls, then fade after a few seconds. */
+    .toasts { position: fixed; right: 16px; bottom: 16px; z-index: 90; display: flex; flex-direction: column; gap: 10px; width: min(380px, calc(100vw - 32px)); }
+    .toast { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 12px 12px 12px 14px; border: 1px solid var(--replay-line); border-left: 3px solid var(--replay); border-radius: 8px; background: #1a1d23; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); animation: toast-in 0.18s ease-out; }
+    .toast.failed { border-color: #6b2a2e; border-left-color: var(--red); }
+    .toast-title { font-weight: 700; font-size: 0.92rem; }
+    .toast-body { grid-column: 1 / -1; color: var(--muted); font-size: 0.84rem; line-height: 1.45; }
+    .toast-body .module-badge { margin-right: 6px; }
+    .toast-actions { grid-column: 1 / -1; margin-top: 6px; }
+    .toast-actions button { padding: 5px 10px; font-size: 0.82rem; }
+    .toast-close { padding: 0 6px; border: 0; background: transparent; color: var(--quiet); font-size: 1.1rem; line-height: 1; }
+    .toast-close:hover { color: var(--text); }
+    .toast.leaving { opacity: 0; transform: translateY(4px); transition: opacity 0.18s ease-in, transform 0.18s ease-in; }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+
+    /* Paid-retry confirmation: the toast's surface and violet edge, as a modal. */
+    .confirm-dialog { width: min(440px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--replay-line); border-left: 3px solid var(--replay); border-radius: 10px; background: #1a1d23; color: var(--text); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6); }
+    .confirm-dialog::backdrop { background: rgba(5, 6, 9, 0.66); }
+    .confirm-dialog[open] { animation: confirm-in 0.16s ease-out; }
+    @keyframes confirm-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
+    .confirm-dialog form { padding: 20px 20px 16px; }
+    .confirm-dialog h2 { margin: 0 0 10px; font-size: 1.05rem; }
+    .confirm-dialog p { margin: 0 0 8px; font-size: 0.9rem; line-height: 1.5; }
+    .confirm-dialog p b { color: var(--replay-text); }
+    .confirm-dialog p.confirm-cost { color: var(--muted); font-size: 0.85rem; }
+    .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+    button.replay { background: var(--replay); border-color: var(--replay); color: #17112e; }
+    button.replay:hover { background: var(--replay-text); border-color: var(--replay-text); }
+
+    /* Detail: which run this is, and every run of the same original. */
+    .retry-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 16px; padding: 12px 16px; border: 1px solid var(--replay-line); border-left: 3px solid var(--replay); border-radius: 8px; background: var(--replay-soft); line-height: 1.5; }
+    .retry-banner b { color: var(--replay-text); }
+    .retry-banner .small { display: block; }
+    .retry-banner button { padding: 5px 10px; font-size: 0.82rem; }
+    .history-block { border-color: var(--replay-line); }
+    .history-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .history-head h3 { margin: 0; font-size: 1.05rem; }
+    .history-head .small { margin-top: 2px; }
+    .history-scroll { max-height: min(400px, 60vh); overflow: auto; border: 1px solid var(--line); border-radius: 8px; overscroll-behavior: contain; }
+    .history-table { border: 0; border-radius: 0; overflow: visible; }
+    .history-table thead th { position: sticky; top: 0; z-index: 1; background: #1b1f25; border-bottom: 0; box-shadow: inset 0 -1px 0 var(--line); }
+    .history-table tbody tr:last-child td { border-bottom: 0; }
+    .history-table th, .history-table td { padding: 9px 10px; font-size: 0.82rem; vertical-align: top; }
+    .history-table td.nowrap { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .history-table td.review-cell { min-width: 120px; }
+    .history-table tr.original td { border-bottom: 2px solid #3b4351; }
+    .history-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
+    .history-order { display: inline-flex; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+    .history-order button { padding: 4px 10px; border: 0; border-radius: 6px; background: none; color: var(--muted); font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
+    .history-order button:hover { color: var(--text); }
+    .history-order button[aria-pressed="true"] { background: var(--replay-soft); color: var(--replay-text); box-shadow: inset 0 0 0 1px var(--replay-line); }
+    .review-mark { display: flex; gap: 7px; align-items: baseline; line-height: 1.35; }
+    .review-mark::before { content: ''; flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; transform: translateY(-1px); }
+    .review-mark.pass::before { background: var(--green); }
+    .review-mark.partial::before { background: var(--yellow); }
+    .review-mark.fail::before { background: var(--red); }
+    .review-mark.unscored { color: var(--quiet); }
+    .review-mark.unscored::before { background: none; box-shadow: inset 0 0 0 1.5px currentColor; }
+    .history-row[data-id]:not(.current) { cursor: pointer; }
+    .history-row:hover { background: #1b1f25; }
+    .history-row.current, .history-row.current:hover { background: var(--replay-soft); }
+    .history-row.current > td:first-child { box-shadow: inset 3px 0 0 var(--replay); }
+    .history-row.pending td { color: var(--muted); }
+    button.run-link { padding: 0; border: 0; background: none; color: var(--text); font-size: 0.86rem; font-weight: 700; text-align: left; white-space: nowrap; }
+    button.run-link:hover { color: var(--replay-text); text-decoration: underline; }
+    .run-viewing { display: block; margin-top: 3px; color: var(--replay); font-size: 0.74rem; font-weight: 700; }
+    .run-pending { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; color: var(--replay-text); font-weight: 700; font-variant-numeric: tabular-nums; }
+    .code-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; }
+    .history-output { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; max-width: 46ch; margin-top: 5px; color: var(--text); line-height: 1.4; }
+    .changed { color: #fcd34d; }
+    .history-foot { margin-top: 10px; }
+
+    .retry-trigger:focus-visible, .retry-count:focus-visible, .run-link:focus-visible, .toast button:focus-visible, .retry-banner button:focus-visible, .history-scroll:focus-visible, .history-order button:focus-visible, .confirm-dialog button:focus-visible { outline: 2px solid var(--replay); outline-offset: 2px; }
+    @media (prefers-reduced-motion: reduce) {
+      .spinner { animation: none; border-top-color: var(--replay-line); }
+      .toast, .toast.leaving, .confirm-dialog[open] { animation: none; transition: none; }
+    }
     
     @media (max-width: 768px) {
       .review-section { grid-template-columns: 1fr; }
@@ -257,6 +378,10 @@
         <label for="textFilter">Destination / Address</label>
         <input id="textFilter" class="filter" type="text" placeholder="e.g. CVS" />
       </div>
+      <div class="field">
+        <label for="includeRetries">Dashboard retries</label>
+        <label class="toggle"><input id="includeRetries" type="checkbox" /> Show in list</label>
+      </div>
     </div>
     <div class="presets">
       <span class="small">Quick filters:</span>
@@ -269,6 +394,7 @@
     
     <div class="status" id="status">Loading...</div>
     <div class="error" id="error"></div>
+    <div class="retry-off" id="retryOff"></div>
     <div class="summary-grid" id="summary"></div>
     
     <div style="overflow-x: auto;">
@@ -285,11 +411,12 @@
             <th>Mod C (Destination)</th>
             <th>Mod D (Confidence)</th>
             <th>Mod E (Guidance)</th>
+            <th>Retry</th>
             <th>View</th>
           </tr>
         </thead>
         <tbody id="lmTestsList">
-          <tr><td colspan="11" class="empty">Loading...</td></tr>
+          <tr><td colspan="12" class="empty">Loading...</td></tr>
         </tbody>
       </table>
     </div>
@@ -310,9 +437,28 @@
     </div>
   </div>
 
+  <div class="retry-menu" id="retryMenu" role="menu" aria-label="Choose a panorama for the retry" hidden></div>
+  <div class="toasts" id="toasts"></div>
+
+  <dialog class="confirm-dialog" id="retryConfirm" aria-labelledby="retryConfirmTitle" aria-describedby="retryConfirmBody">
+    <form method="dialog">
+      <h2 id="retryConfirmTitle">Run a paid retry?</h2>
+      <div id="retryConfirmBody"></div>
+      <div class="confirm-actions">
+        <button class="secondary" value="cancel">Cancel</button>
+        <button class="replay" value="run" autofocus>Run retry</button>
+      </div>
+    </form>
+  </dialog>
+
   <script>
     var TOKEN = '__ADMIN_TOKEN__';
     var activeTests = [];
+    // Whether this server can run Last Meters; sent with every list and detail.
+    let retryInfo = { available: true };
+    // The test open in the detail view, so a finished retry can refresh its history.
+    let currentDetailId = null;
+    let currentDetail = null;
 
     var OUTCOME_LABELS = {
       got_there: 'Would get me there',
@@ -366,7 +512,8 @@
     }
 
     function renderSummary(rows) {
-      var trials = rows.filter(function (r) { return r.testScenario !== 'question_routed' && r.runKind !== 'replay'; });
+      // Dashboard retries are not field tests, so they never count toward the rate.
+      const trials = rows.filter(function (r) { return !r.retryOf && r.runKind !== 'replay' && r.testScenario !== 'question_routed'; });
       var scored = trials.filter(function (r) { return outcomeOf(r) !== 'unscored'; });
       var success = scored.filter(function (r) { return outcomeOf(r) === 'got_there'; }).length;
       var byWeek = {};
@@ -420,6 +567,7 @@
       var params = new URLSearchParams();
       if (TOKEN && TOKEN !== '__ADMIN_TOKEN__') params.set('token', TOKEN);
       if (includeImages) params.set('includeImages', 'true');
+      if (document.getElementById('includeRetries').checked) params.set('includeRetries', 'true');
       params.set('limit', document.getElementById('limit').value || '50');
       return '?' + params.toString();
     }
@@ -605,37 +753,662 @@
     }
 
     // --- Detail Modal Render ---
-    var detailRequest = 0;
     function openDetail(index) {
-      var request = ++detailRequest;
       var summary = activeTests[index];
       if (!summary) return;
+      openDetailById(idOf(summary), summary);
+    }
 
-      var testId = idOf(summary);
-      document.getElementById('lmDetailTitle').textContent = summary.destinationPlaceName || summary.destination || 'Test detail';
-      document.getElementById('lmDetailSubtitle').textContent = fmtDate(summary.serverTs || summary.createdAt);
-      document.getElementById('lmDetailOverlay').style.display = 'block';
-      // Show every logged field immediately so a slow or failed image fetch
-      // cannot blank out the trial the way the old "loading panorama" screen did.
-      renderDetail(summary, index);
-
-      if (!testId) return;
-
-      var baseUrl = window.location.origin;
-      fetch(baseUrl + '/api/last-mile-tests/' + encodeURIComponent(testId) + qs(true) + '&includeStreetView=true', { headers: authHeaders() })
+    /**
+     * withImages adds the user photo and the saved panorama and destination
+     * images; without them the detail is just its fields and history.
+     */
+    function fetchDetail(testId, withImages) {
+      const baseUrl = window.location.origin;
+      return fetch(baseUrl + '/api/last-mile-tests/' + encodeURIComponent(testId) + qs(withImages) +
+        (withImages ? '&includeStreetView=true' : ''), { headers: authHeaders() })
         .then(function (res) {
           if (!res.ok) throw new Error('HTTP ' + res.status);
           return res.json();
         })
         .then(function (payload) {
-          if (request !== detailRequest) return;
-          var next = Object.assign({}, summary, payload.data || {});
-          renderDetail(next, index);
+          if (payload.retry) setRetryInfo(payload.retry);
+          const history = payload.data && payload.data.history;
+          if (history && syncRemoteRetry(history.originalId, history.runningRetry)) refreshRetryControls(history.originalId);
+          return payload.data;
+        });
+    }
+
+    /**
+     * Opens any test by id, including retries that are not in the table.
+     * With toHistory, the view jumps to the retry history once it loads.
+     */
+    function openDetailById(testId, summary, toHistory) {
+      closeRetryMenu();
+      currentDetailId = testId;
+      currentDetail = summary || null;
+
+      const overlay = document.getElementById('lmDetailOverlay');
+      document.getElementById('lmDetailTitle').textContent = (summary && (summary.destinationPlaceName || summary.destination)) || 'Loading…';
+      document.getElementById('lmDetailSubtitle').textContent = summary ? fmtDate(summary.serverTs || summary.createdAt) : '';
+      overlay.style.display = 'block';
+      overlay.scrollTop = 0;
+      // Show every logged field immediately so a slow or failed image fetch
+      // cannot blank out the trial the way the old "loading panorama" screen did.
+      if (summary) renderDetail(summary);
+      else document.getElementById('lmDetailBody').innerHTML = '<div class="empty">Loading test…</div>';
+
+      if (!testId) return;
+
+      fetchDetail(testId, true)
+        .then(function (data) {
+          if (currentDetailId !== testId) return;
+          currentDetail = Object.assign({}, summary || {}, data || {});
+          renderDetail(currentDetail);
+          const history = document.getElementById('retryHistory');
+          if (history) revealHistoryRow(history.querySelector('.history-row.current'));
+          if (toHistory && history) history.scrollIntoView({ block: 'start' });
         })
         .catch(function (error) {
-          if (request !== detailRequest) return;
-          showError('Could not load the saved images for this test. Reopen the trial to retry. ' + error.message);
+          if (currentDetailId !== testId) return;
+          if (summary) {
+            showError('Could not load the saved images for this test. Reopen the trial to retry. ' + error.message);
+            return;
+          }
+          document.getElementById('lmDetailBody').innerHTML = '<div class="empty">Could not load this test (' + esc(error.message) + '). ' +
+            '<button class="secondary reload-detail" data-id="' + esc(testId) + '">Try again</button></div>';
         });
+    }
+
+    function closeDetail() {
+      closeRetryMenu();
+      currentDetailId = null;
+      currentDetail = null;
+      document.getElementById('lmDetailOverlay').style.display = 'none';
+    }
+
+    // --- Retries ---
+    const PANORAMA_MODE_LABELS = { fresh: 'Fresh panorama', original: 'Original panorama' };
+    // Retries in flight, keyed by the original they replay: { mode, startedAt, remote }.
+    // Remote ones were started in another tab or before a reload; the server reports them.
+    const runningRetries = {};
+    let elapsedTimer = null;
+    let remotePollTimer = null;
+    const REMOTE_POLL_MS = 15000;
+    const RESEND_DELAY_MS = 5000;
+    // How long to keep re-sending while the server cannot be reached. A little past
+    // the server's 2-minute lease, so a restarted server reports the run as interrupted.
+    const UNREACHABLE_FOR_MS = 3 * 60 * 1000;
+    const MAX_TOASTS = 4;
+    const HISTORY_ORDER_KEY = 'lastMeters.historyNewestFirst';
+    let historyNewestFirst = readHistoryOrder();
+    const TOAST_MS = 5000;
+
+    // The history order is a per-browser preference; storage can be unavailable.
+    function readHistoryOrder() {
+      try { return localStorage.getItem(HISTORY_ORDER_KEY) === '1'; } catch (err) { return false; }
+    }
+
+    function saveHistoryOrder() {
+      try { localStorage.setItem(HISTORY_ORDER_KEY, historyNewestFirst ? '1' : '0'); } catch (err) { /* keep it for this visit */ }
+    }
+
+    /** A retry of a retry replays the same original, so runs are grouped by it. */
+    function originalIdOf(test) { return test.retryOf || idOf(test); }
+
+    function testName(test) { return test.destinationPlaceName || test.destination || 'this test'; }
+
+    function shortDate(value) {
+      const date = new Date(value);
+      if (!value || Number.isNaN(date.getTime())) return '-';
+      return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    }
+
+    function setRetryInfo(info) {
+      retryInfo = info;
+      const el = document.getElementById('retryOff');
+      el.style.display = info.available ? 'none' : 'block';
+      el.innerHTML = info.available ? '' : '<b>Retries are off.</b> ' + esc(info.reason);
+    }
+
+    /** Why this test cannot be retried, or '' when it can. */
+    function retryBlockedReason(test) {
+      if (!retryInfo.available) return retryInfo.reason || 'Retries are off on this server.';
+      const replay = test.replay || {};
+      return replay.status === 'not_replayable' ? (replay.reason || 'This test cannot be replayed.') : '';
+    }
+
+    function elapsedText(startedAt) {
+      return Math.max(0, Math.round((Date.now() - startedAt) / 1000)) + 's';
+    }
+
+    function elapsedHtml(startedAt) {
+      return '<span class="elapsed" data-since="' + startedAt + '">' + elapsedText(startedAt) + '</span>';
+    }
+
+    /** The Retry button. The panorama is chosen in the menu it opens. */
+    function retryTriggerHtml(test) {
+      const running = runningRetries[originalIdOf(test)];
+      if (running) {
+        return '<button class="secondary retry-trigger running" disabled>' +
+          '<span class="spinner" aria-hidden="true"></span>Running ' + elapsedHtml(running.startedAt) + '</button>';
+      }
+      const blocked = retryBlockedReason(test);
+      return '<button class="secondary retry-trigger" aria-haspopup="menu" aria-expanded="false"' +
+        (blocked ? ' disabled title="' + esc(blocked) + '"' : '') + '>Retry</button>';
+    }
+
+    /** List cell: the trigger, plus why it is off or which values a replay fills in. */
+    function retryCellHtml(test) {
+      const replay = test.replay || {};
+      const fills = replay.defaultsApplied || [];
+      // A server-wide reason is shown once above the list, not on every row.
+      const reason = retryInfo.available ? retryBlockedReason(test) : '';
+      return '<div class="retry-cell">' + retryTriggerHtml(test) +
+        (reason ? '<div class="retry-reason" title="' + esc(reason) + '">' + esc(reason) + '</div>' : '') +
+        (!reason && fills.length
+          ? '<div class="retry-fills" title="' + esc(fills.join('; ')) + '">Fills in ' + fills.length + (fills.length === 1 ? ' value' : ' values') + '</div>'
+          : '') +
+      '</div>';
+    }
+
+    /** Re-renders every Retry control for one original, without touching the rest of the page. */
+    function refreshRetryControls(originalId) {
+      document.querySelectorAll('#lmTestsList tr.trial-row').forEach(function (row) {
+        const test = activeTests[Number(row.getAttribute('data-idx'))];
+        const cell = row.querySelector('.retry-cell');
+        if (test && cell && originalIdOf(test) === originalId) cell.outerHTML = retryCellHtml(test);
+      });
+      if (currentDetail && currentDetail.history && currentDetail.history.originalId === originalId) renderHistoryBlock();
+    }
+
+    function tickElapsed() {
+      document.querySelectorAll('.elapsed[data-since]').forEach(function (el) {
+        el.textContent = elapsedText(Number(el.getAttribute('data-since')));
+      });
+      if (!Object.keys(runningRetries).length) {
+        clearInterval(elapsedTimer);
+        elapsedTimer = null;
+      }
+    }
+
+    // --- Retry menu ---
+    let menuTrigger = null;
+    let menuTest = null;
+
+    function retryOptionHtml(mode, description, disabled) {
+      return '<button class="retry-option" role="menuitem" data-mode="' + mode + '"' + (disabled ? ' disabled' : '') + '>' +
+        '<b>' + esc(PANORAMA_MODE_LABELS[mode]) + '</b><span>' + description + '</span></button>';
+    }
+
+    function openRetryMenu(trigger, test) {
+      const menu = document.getElementById('retryMenu');
+      const replay = test.replay || {};
+      const pano = replay.originalPanorama || {};
+      const fills = replay.defaultsApplied || [];
+      const originalDescription = pano.available
+        ? 'Reuse the field test\'s Street View image so only the code differs. ' +
+          (pano.panoramaDate ? 'Captured ' + esc(pano.panoramaDate) + ', ' : '') + '<span class="code-id">' + esc(pano.panoId) + '</span>'
+        : esc(pano.reason || 'The original panorama is unknown.');
+      menu.innerHTML =
+        '<div class="menu-title">Re-run ' + esc(testName(test)) + ' with</div>' +
+        retryOptionHtml('fresh', 'Fetch Street View the way a field test would today.', false) +
+        retryOptionHtml('original', originalDescription, !pano.available) +
+        (fills.length ? '<div class="menu-foot fills">Fills in values the original did not record: ' + esc(fills.join('; ')) + '</div>' : '') +
+        '<div class="menu-foot">Runs the current pipeline with paid API calls, usually in about a minute. Up to 3 retries run at once, one per test. The result is saved as a new test.</div>';
+
+      menu.hidden = false;
+      const rect = trigger.getBoundingClientRect();
+      const left = Math.min(Math.max(16, rect.right - menu.offsetWidth), window.innerWidth - menu.offsetWidth - 16);
+      const fitsBelow = rect.bottom + 6 + menu.offsetHeight <= window.innerHeight - 8;
+      const top = fitsBelow || rect.top - menu.offsetHeight - 6 < 8 ? rect.bottom + 6 : rect.top - menu.offsetHeight - 6;
+      menu.style.left = left + 'px';
+      menu.style.top = top + 'px';
+
+      menuTrigger = trigger;
+      menuTest = test;
+      trigger.setAttribute('aria-expanded', 'true');
+      menu.querySelector('.retry-option:not(:disabled)').focus();
+    }
+
+    function closeRetryMenu(restoreFocus) {
+      const menu = document.getElementById('retryMenu');
+      if (menu.hidden) return;
+      menu.hidden = true;
+      if (menuTrigger) {
+        menuTrigger.setAttribute('aria-expanded', 'false');
+        if (restoreFocus && document.body.contains(menuTrigger)) menuTrigger.focus();
+      }
+      menuTrigger = null;
+      menuTest = null;
+    }
+
+    /** The test a Retry button belongs to: its table row, or the open detail. */
+    function testForTrigger(trigger) {
+      const row = trigger.closest('tr.trial-row');
+      if (row) return activeTests[Number(row.getAttribute('data-idx'))];
+      return trigger.closest('#lmDetailBody') ? currentDetail : null;
+    }
+
+    // --- Toasts ---
+    /** bodyHtml and actionsHtml are trusted markup built with esc(). */
+    function showToast(failed, title, bodyHtml, actionsHtml) {
+      const container = document.getElementById('toasts');
+      const toast = document.createElement('div');
+      toast.className = 'toast' + (failed ? ' failed' : '');
+      toast.setAttribute('role', failed ? 'alert' : 'status');
+      toast.innerHTML = '<div class="toast-title">' + esc(title) + '</div>' +
+        '<button class="toast-close" aria-label="Dismiss">×</button>' +
+        '<div class="toast-body">' + bodyHtml + '</div>' +
+        (actionsHtml ? '<div class="toast-actions">' + actionsHtml + '</div>' : '');
+      container.appendChild(toast);
+      while (container.children.length > MAX_TOASTS) container.removeChild(container.firstChild);
+
+      let timer = null;
+      // Restarts the countdown, unless the reader is hovering, focused inside, or on another tab.
+      toast.scheduleDismiss = function () {
+        clearTimeout(timer);
+        if (document.hidden || toast.matches(':hover') || toast.contains(document.activeElement)) return;
+        timer = setTimeout(function () { dismissToast(toast); }, TOAST_MS);
+      };
+      toast.addEventListener('mouseenter', function () { clearTimeout(timer); });
+      toast.addEventListener('focusin', function () { clearTimeout(timer); });
+      toast.addEventListener('mouseleave', toast.scheduleDismiss);
+      toast.addEventListener('focusout', function (e) { if (!toast.contains(e.relatedTarget)) toast.scheduleDismiss(); });
+      toast.scheduleDismiss();
+    }
+
+    function dismissToast(toast) {
+      if (!toast.isConnected || toast.classList.contains('leaving')) return;
+      toast.classList.add('leaving');
+      setTimeout(function () { toast.remove(); }, 180);
+    }
+
+    // A retry can finish while the dashboard is in a background tab; count down once it is back.
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) return;
+      Array.prototype.forEach.call(document.getElementById('toasts').children, function (toast) {
+        if (toast.scheduleDismiss) toast.scheduleDismiss();
+      });
+    });
+
+    function findLoadedTest(id) {
+      return allTests.find(function (row) { return idOf(row) === id; }) ||
+        (currentDetail && currentDetail.history && currentDetail.history.original && currentDetail.history.original.id === id
+          ? currentDetail.history.original : null);
+    }
+
+    // --- Running a retry ---
+    // uuid's browser build, served by this server and loaded on the first retry.
+    let uuidModule = null;
+
+    /** A new UUIDv7 idempotency key. */
+    function newIdempotencyKey() {
+      if (!uuidModule) {
+        uuidModule = import(window.location.origin + '/vendor/uuid/index.js').catch(function (error) {
+          uuidModule = null;
+          throw new Error('Could not load the UUID library: ' + error.message);
+        });
+      }
+      return uuidModule.then(function (uuid) { return uuid.v7(); });
+    }
+
+    // Retries this tab sent that have no final answer yet, by original:
+    // { key, id, name, mode, startedAt }. Kept per tab so a reload re-sends them
+    // with the same key and shows their result instead of losing them.
+    const PENDING_RETRIES_KEY = 'lastMeters.pendingRetries';
+
+    function readPendingRetries() {
+      try { return JSON.parse(sessionStorage.getItem(PENDING_RETRIES_KEY) || '{}') || {}; } catch (err) { return {}; }
+    }
+
+    function savePendingRetry(originalId, entry) {
+      try {
+        const pending = readPendingRetries();
+        if (entry) pending[originalId] = entry;
+        else delete pending[originalId];
+        sessionStorage.setItem(PENDING_RETRIES_KEY, JSON.stringify(pending));
+      } catch (err) { /* Without storage, a reload only loses the result toast; the server still dedupes. */ }
+    }
+
+    /** Picks up retries a reload interrupted, before the list marks them as remote. */
+    function resumePendingRetries() {
+      const pending = readPendingRetries();
+      Object.keys(pending).forEach(function (originalId) {
+        const entry = pending[originalId];
+        if (!entry || !entry.key) {
+          savePendingRetry(originalId, null);
+          return;
+        }
+        runRetry(entry.id, originalId, entry.name, entry.mode, entry);
+      });
+    }
+
+    function wait(ms) {
+      return new Promise(function (resolve) { setTimeout(resolve, ms); });
+    }
+
+    /**
+     * Sends one retry under its idempotency key. When the connection drops, the
+     * proxy gives up, or the server is still running this key, it asks again with
+     * the same key, which returns the first run's result instead of starting another.
+     * A run the server reports in progress is still renewing its lease, so it is
+     * waited for however long it takes; an unreachable server is given up on.
+     */
+    function postRetry(id, panoramaMode, key, lastHeardAt) {
+      var baseUrl = window.location.origin;
+      return fetch(baseUrl + '/api/last-mile-tests/' + encodeURIComponent(id) + '/retry' + (TOKEN && TOKEN !== '__ADMIN_TOKEN__' ? '?token=' + encodeURIComponent(TOKEN) : ''), {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json', 'Idempotency-Key': key }),
+        body: JSON.stringify({ panoramaMode: panoramaMode })
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (body) {
+            if (!res.ok) {
+              const error = new Error(body.error || 'HTTP ' + res.status);
+              error.status = res.status;
+              error.code = body.code;
+              // A gateway error without our JSON body came from the proxy, not the retry.
+              error.resend = !body.error && res.status >= 502 && res.status <= 504;
+              throw error;
+            }
+            return body;
+          });
+        }, function (networkError) {
+          networkError.resend = true;
+          throw networkError;
+        })
+        .catch(function (error) {
+          const inProgress = error.code === 'retry_in_progress';
+          if (inProgress) lastHeardAt = Date.now();
+          else if (!error.resend || Date.now() - lastHeardAt > UNREACHABLE_FOR_MS) throw error;
+          return wait(RESEND_DELAY_MS).then(function () { return postRetry(id, panoramaMode, key, lastHeardAt); });
+        });
+    }
+
+    /**
+     * Shows retries the server reports for one original. Returns whether a
+     * remote run appeared or finished.
+     */
+    function syncRemoteRetry(originalId, reported) {
+      const current = runningRetries[originalId];
+      if (reported && !current) {
+        runningRetries[originalId] = { mode: reported.panoramaMode, startedAt: reported.startedAt, remote: true };
+        if (!elapsedTimer) elapsedTimer = setInterval(tickElapsed, 1000);
+        scheduleRemotePoll();
+        return true;
+      }
+      if (!reported && current && current.remote) {
+        delete runningRetries[originalId];
+        return true;
+      }
+      return false;
+    }
+
+    /**
+     * Syncs remote runs against a fresh list. The list only reports runs of
+     * the originals on it, so runs of other tests, such as one opened from
+     * the history, are left for their detail to report.
+     */
+    function syncRemoteRetries(rows) {
+      const listed = {};
+      const reported = {};
+      rows.forEach(function (row) {
+        listed[originalIdOf(row)] = true;
+        if (row.runningRetry) reported[originalIdOf(row)] = row.runningRetry;
+      });
+      const finished = Object.keys(runningRetries).filter(function (originalId) {
+        return runningRetries[originalId].remote && listed[originalId] && !reported[originalId];
+      });
+      finished.forEach(function (originalId) { syncRemoteRetry(originalId, null); });
+      Object.keys(reported).forEach(function (originalId) { syncRemoteRetry(originalId, reported[originalId]); });
+      const unlisted = Object.keys(runningRetries).filter(function (originalId) {
+        return runningRetries[originalId].remote && !listed[originalId];
+      });
+      return { finished: finished, unlisted: unlisted };
+    }
+
+    function hasRemoteRetries() {
+      return Object.keys(runningRetries).some(function (originalId) { return runningRetries[originalId].remote; });
+    }
+
+    function scheduleRemotePoll() {
+      if (!remotePollTimer && hasRemoteRetries()) remotePollTimer = setTimeout(pollRemoteRetries, REMOTE_POLL_MS);
+    }
+
+    /**
+     * Checks whether retries started elsewhere have finished, and shows the
+     * fresh list when one has. A run of a test that is not on the list is
+     * checked through its open detail, and forgotten once nothing shows it.
+     */
+    function pollRemoteRetries() {
+      remotePollTimer = null;
+      if (!hasRemoteRetries()) return;
+      const loadAtStart = latestLoad;
+      fetchList()
+        .then(function (payload) {
+          // A load started after this poll asked later, so its answer wins.
+          if (latestLoad !== loadAtStart) return;
+          const synced = syncRemoteRetries(payload.data || []);
+          if (synced.finished.length) {
+            // This answer is newer than any load still in flight.
+            latestLoad += 1;
+            showList(payload);
+            synced.finished.forEach(refreshHistory);
+          }
+          synced.unlisted.forEach(function (originalId) {
+            const open = currentDetail && currentDetail.history && currentDetail.history.originalId === originalId;
+            if (open) refreshHistory(originalId);
+            else delete runningRetries[originalId];
+          });
+        })
+        .catch(function () { /* Try again on the next poll. */ })
+        .then(scheduleRemotePoll);
+    }
+
+    /** Asks before a retry spends money; resolves true when the reviewer runs it. */
+    function confirmPaidRetry(name, panoramaMode) {
+      const dialog = document.getElementById('retryConfirm');
+      const panorama = panoramaMode === 'original' ? 'its original panorama' : 'a fresh panorama';
+      document.getElementById('retryConfirmBody').innerHTML =
+        '<p><b>' + esc(name) + '</b> runs again with ' + panorama + ', from its stored photo and inputs.</p>' +
+        '<p class="confirm-cost">This makes paid Google and OpenAI calls. The original test is kept, and the result is saved as a retry, not a field test.</p>';
+      dialog.returnValue = '';
+      dialog.showModal();
+      return new Promise(function (resolve) {
+        dialog.addEventListener('close', function () { resolve(dialog.returnValue === 'run'); }, { once: true });
+      });
+    }
+
+    /** Runs a retry, or with resume, re-sends one a reload interrupted under its saved key. */
+    function runRetry(id, originalId, name, panoramaMode, resume) {
+      if (runningRetries[originalId] && !resume) return;
+      const startedAt = resume ? resume.startedAt : Date.now();
+      runningRetries[originalId] = { mode: panoramaMode, startedAt: startedAt };
+      if (!elapsedTimer) elapsedTimer = setInterval(tickElapsed, 1000);
+      refreshRetryControls(originalId);
+
+      const modeText = PANORAMA_MODE_LABELS[panoramaMode].toLowerCase();
+      // One key per click: every re-send of this retry, including after a reload, reuses it.
+      (resume ? Promise.resolve(resume.key) : newIdempotencyKey())
+        .then(function (key) {
+          savePendingRetry(originalId, { key: key, id: id, name: name, mode: panoramaMode, startedAt: startedAt });
+          return postRetry(id, panoramaMode, key, Date.now());
+        })
+        .then(function (payload) {
+          const retry = payload.data || {};
+          const original = findLoadedTest(originalId);
+          const scenario = retry.testScenario || 'no scenario';
+          const changed = original && original.testScenario && original.testScenario !== retry.testScenario;
+          showToast(false, 'Retry finished',
+            '<b>' + esc(name) + '</b>, ' + esc(modeText) + '<br>' +
+            badge(retry.success ? 'pass' : 'fail', retry.success ? 'Answered' : 'Failed') +
+            '<span' + (changed ? ' class="changed"' : '') + '>' + esc(scenario) +
+              (changed ? ' (was ' + esc(original.testScenario) + ')' : '') + '</span>' +
+            (retry.error ? '<br>' + esc(retry.error) : ''),
+            payload.testLogId ? '<button class="secondary open-history" data-id="' + esc(payload.testLogId) + '">Open history</button>' : '');
+        })
+        .catch(function (error) {
+          // Only a retired original panorama is fixed by a fresh one. Other refusals,
+          // and Street View being unreachable, would stop a fresh retry too.
+          const offerFresh = panoramaMode === 'original' && error.code === 'original_panorama_retired';
+          showToast(true, 'Retry did not run',
+            '<b>' + esc(name) + '</b>, ' + esc(modeText) + '<br>' + esc(error.message),
+            offerFresh
+              ? '<button class="secondary toast-retry" data-id="' + esc(id) + '" data-original-id="' + esc(originalId) +
+                '" data-name="' + esc(name) + '" data-mode="fresh">Retry with fresh panorama</button>'
+              : '');
+        })
+        .then(function () {
+          savePendingRetry(originalId, null);
+          delete runningRetries[originalId];
+          refreshRetryControls(originalId);
+          load();
+          refreshHistory(originalId);
+        });
+    }
+
+    /** Reloads the open detail's history in place, leaving its review form untouched. */
+    function refreshHistory(originalId) {
+      if (!currentDetail || !currentDetail.history || currentDetail.history.originalId !== originalId) return;
+      const testId = currentDetailId;
+      fetchDetail(testId, false).then(function (data) {
+        if (currentDetailId !== testId || !currentDetail || !data) return;
+        currentDetail.history = data.history;
+        currentDetail.replay = data.replay;
+        renderHistoryBlock();
+      }).catch(function () { /* The history keeps its last state; reopening retries the load. */ });
+    }
+
+    /** A git hash shortened the usual way; other markers such as local-unversioned stay whole. */
+    function shortCommit(commit) {
+      return /^[0-9a-f]{12,}$/i.test(commit) ? commit.slice(0, 7) : commit;
+    }
+
+    function pipelineHtml(entry) {
+      if (!entry.pipelineVersion && !entry.deployedCommit) return 'Not recorded';
+      return esc(entry.pipelineVersion || 'unversioned') +
+        (entry.deployedCommit ? '<br><span class="code-id" title="' + esc(entry.deployedCommit) + '">' + esc(shortCommit(entry.deployedCommit)) + '</span>' : '');
+    }
+
+    function reviewMarkHtml(entry) {
+      const outcome = outcomeOf(entry);
+      if (outcome === 'unscored') return '<span class="review-mark unscored">Not scored</span>';
+      return '<span class="review-mark ' + STATUS_FOR_OUTCOME[outcome] + '">' + esc(OUTCOME_LABELS[outcome]) + '</span>';
+    }
+
+    function retryBannerHtml(test) {
+      if (!test.retryOf) return '';
+      const history = test.history || {};
+      const original = history.original;
+      const number = (history.retries || []).map(function (r) { return r.id; }).indexOf(idOf(test)) + 1;
+      const fills = test.retryDefaultsApplied || [];
+      return '<div class="retry-banner"><div>' +
+        '<b>Retry' + (number ? ' ' + number : '') + '</b> of the field test from ' +
+        esc(original ? shortDate(original.serverTs) : 'an original that no longer exists') + ', ' +
+        esc((PANORAMA_MODE_LABELS[test.retryPanoramaMode] || PANORAMA_MODE_LABELS.fresh).toLowerCase()) + '.' +
+        '<span class="small">Same stored photo and inputs as the original' +
+          (fills.length ? '; filled in ' + esc(fills.join('; ')) : '') + '.</span></div>' +
+        (original ? '<button class="secondary open-test" data-id="' + esc(original.id) + '">Open original</button>' : '') +
+      '</div>';
+    }
+
+    function historyRowHtml(entry, label, test, original) {
+      const isCurrent = entry.id === idOf(test);
+      const panoChanged = entry.isRetry && original && entry.panoId && entry.panoId !== original.panoId;
+      const scenarioChanged = entry.isRetry && original && entry.testScenario !== original.testScenario;
+      const mode = entry.isRetry ? (PANORAMA_MODE_LABELS[entry.panoramaMode] || '-') : 'Field test';
+      const panorama = entry.panoId || entry.panoramaDate
+        ? esc(entry.panoramaDate || 'Undated') + (entry.panoId ? ' <span class="code-id">' + esc(entry.panoId) + '</span>' : '')
+        : esc(entry.panoramaStatus || 'None');
+      const output = entry.finalOutput || '';
+      return '<tr class="history-row' + (entry.isRetry ? '' : ' original') + (isCurrent ? ' current' : '') + '" data-id="' + esc(entry.id) + '">' +
+        '<td><button class="run-link" data-id="' + esc(entry.id) + '"' + (isCurrent ? ' aria-current="true"' : '') + '>' + esc(label) + '</button>' +
+          (isCurrent ? '<span class="run-viewing">Viewing</span>' : '') + '</td>' +
+        '<td class="nowrap" title="' + esc(fmtDate(entry.serverTs)) + '">' + esc(shortDate(entry.serverTs)) + '</td>' +
+        '<td>' + esc(mode) +
+          '<div class="cell-sub' + (panoChanged ? ' changed' : '') + '"' +
+            (entry.panoramaSource === 'background' ? ' title="Saved after the answer, for review only"' : '') + '>' + panorama +
+            (panoChanged ? '<br>(was <span class="code-id">' + esc(original.panoId) + '</span>)' : '') + '</div></td>' +
+        '<td>' + badge(entry.success ? 'pass' : 'fail', entry.success ? 'Answered' : 'Failed') +
+          '<div class="cell-sub' + (scenarioChanged ? ' changed' : '') + '">' + esc(entry.testScenario || '-') +
+            (scenarioChanged ? ' (was ' + esc(original.testScenario || '-') + ')' : '') +
+            (entry.error ? '<br>' + esc(entry.error) : '') +
+            ((entry.safetyReasons || []).length ? '<br>Withheld: ' + esc(entry.safetyReasons.join(', ')) : '') + '</div>' +
+          ((entry.defaultsApplied || []).length ? '<div class="cell-sub changed">Filled in: ' + esc(entry.defaultsApplied.join('; ')) + '</div>' : '') +
+          (output ? '<div class="history-output" title="' + esc(output) + '">' + esc(output) + '</div>' : '') + '</td>' +
+        '<td class="review-cell">' + reviewMarkHtml(entry) + '</td>' +
+        '<td class="nowrap">' + pipelineHtml(entry) + '</td>' +
+      '</tr>';
+    }
+
+    function retryHistoryHtml(test) {
+      const history = test.history;
+      if (!history) return '';
+      const original = history.original;
+      const retries = history.retries || [];
+      const running = runningRetries[history.originalId];
+      // The original stays pinned first; retries keep their numbers in either order.
+      const runs = retries.map(function (entry, i) { return historyRowHtml(entry, 'Retry ' + (i + 1), test, original); });
+      if (running) {
+        runs.push('<tr class="history-row pending">' +
+          '<td><span class="run-pending"><span class="spinner" aria-hidden="true"></span>Retry ' + (retries.length + 1) + '</span></td>' +
+          '<td class="nowrap">Running ' + elapsedHtml(running.startedAt) + '</td>' +
+          '<td>' + esc(PANORAMA_MODE_LABELS[running.mode]) + '</td>' +
+          '<td colspan="3">Waiting for the pipeline. This can take up to a minute.</td>' +
+        '</tr>');
+      }
+      if (historyNewestFirst) runs.reverse();
+      const originalHtml = original
+        ? historyRowHtml(original, 'Original', test, original)
+        : '<tr class="original"><td colspan="6" class="small">The original test no longer exists.</td></tr>';
+      const blocked = retryBlockedReason(test);
+      const subtitle = retries.length
+        ? retries.length + (retries.length === 1 ? ' retry' : ' retries') + ' of this field test.'
+        : 'No retries yet. A retry re-runs the stored photo and inputs through the current pipeline.';
+      return '<section class="module-block history-block" id="retryHistory">' +
+        '<div class="history-head"><div><h3>Retry history</h3><div class="small">' + esc(subtitle) + '</div></div>' +
+          '<div class="history-tools">' + (retries.length > 1 || (retries.length && running) ? historyOrderHtml() : '') +
+            retryTriggerHtml(test) + '</div></div>' +
+        (blocked && !running ? '<div class="retry-reason" style="max-width:none;-webkit-line-clamp:unset;margin:-4px 0 12px">' + esc(blocked) + '</div>' : '') +
+        '<div class="history-scroll" tabindex="0" role="region" aria-label="Retry runs"><table class="history-table"><thead><tr>' +
+          '<th>Run</th><th>Ran at</th><th>Panorama</th><th>Result and final output</th><th>Review</th><th>Pipeline</th>' +
+        '</tr></thead><tbody>' + originalHtml + runs.join('') + '</tbody></table></div>' +
+        '<div class="small history-foot">Retries are saved as their own tests. Score them like field tests; they never count toward the success rate.</div>' +
+      '</section>';
+    }
+
+    function historyOrderHtml() {
+      return '<div class="history-order" role="group" aria-label="Order of retries">' +
+        '<button data-order="oldest" aria-pressed="' + !historyNewestFirst + '">Oldest first</button>' +
+        '<button data-order="newest" aria-pressed="' + historyNewestFirst + '">Newest first</button>' +
+      '</div>';
+    }
+
+    /** resetScroll starts the table at its top, for a new order. */
+    function renderHistoryBlock(resetScroll) {
+      const el = document.getElementById('retryHistory');
+      if (!el || !currentDetail) return;
+      if (menuTrigger && el.contains(menuTrigger)) closeRetryMenu();
+      const oldScroll = el.querySelector('.history-scroll');
+      const scrollTop = oldScroll ? oldScroll.scrollTop : 0;
+      el.outerHTML = retryHistoryHtml(currentDetail);
+      // A quiet refresh keeps the reader's place; a retry that just started is shown.
+      const scroller = document.querySelector('#retryHistory .history-scroll');
+      if (!scroller) return;
+      scroller.scrollTop = resetScroll ? 0 : scrollTop;
+      revealHistoryRow(scroller.querySelector('.history-row.pending'));
+    }
+
+    /** Scrolls the capped history table, not the page, so the row is fully visible. */
+    function revealHistoryRow(row) {
+      const scroller = row && row.closest('.history-scroll');
+      if (!scroller) return;
+      const box = scroller.getBoundingClientRect();
+      const rowBox = row.getBoundingClientRect();
+      const top = box.top + scroller.querySelector('thead').offsetHeight;
+      if (rowBox.top < top) scroller.scrollTop -= top - rowBox.top;
+      else if (rowBox.bottom > box.bottom) scroller.scrollTop += rowBox.bottom - box.bottom;
     }
 
     function noPanoramaReason(test) {
@@ -737,12 +1510,12 @@
       
       var hasUserPhoto = test.userPhoto && test.userPhoto.startsWith('data:');
       var imagesHtml = '<div class="images-grid">' +
-        '<div class="image-wrap"><div class="image-label"><span>User photo</span>' +
+        '<div class="image-wrap"><div class="image-label"><span>User photo' + (test.retryOf ? ' (original\'s)' : '') + '</span>' +
           (hasUserPhoto ? '<button type="button" class="rotate-btn">Rotate</button>' : '') +
         '</div>' +
         (hasUserPhoto
           ? '<div class="img-container"><img class="rotatable-img" data-angle="0" src="' + imgSrc(test.userPhoto) + '" alt="User photo" /></div>'
-          : '<div class="empty">' + (test.hasUserPhoto ? 'Loading photo…' : 'No photo') + '</div>') +
+          : '<div class="empty">' + (test.hasUserPhoto || test.retryOf ? 'Loading photo…' : 'No photo') + '</div>') +
         '</div></div>' + streetViewImagesHtml(test);
       if (test.panoramaValidation && test.panoramaValidation.length) {
         imagesHtml += '<div class="module-block"><div class="module-head">Outdoor panorama validation</div>' +
@@ -804,7 +1577,8 @@
       '</div>';
 
       var failureHtml = failureExplanation(test);
-      document.getElementById('lmDetailBody').innerHTML = imagesHtml + metaHtml + failureHtml +
+      document.getElementById('lmDetailBody').innerHTML = retryBannerHtml(test) + imagesHtml + metaHtml + failureHtml +
+        retryHistoryHtml(test) +
         dataSourcesHtml(test) +
         candidatesHtml(test) +
         renderModuleBlock(modules.step0) +
@@ -814,16 +1588,10 @@
         renderModuleBlock(modules.moduleE) +
         finalGuidanceHtml +
         reviewHtml;
-      var replay = test.replayCompatibility;
-      if (replay) {
-        document.getElementById('lmDetailBody').insertAdjacentHTML('beforeend',
-          '<p>' + esc(replay.reason) + '</p><button type="button" class="replay-btn" data-id="' + esc(idOf(test)) + '"' +
-          (replay.replayable ? '' : ' disabled') + '>Run replay</button><p class="replay-result" role="status"></p>');
-      }
     }
 
     // --- Row Facts ---
-    var TABLE_COLUMNS = 11;
+    const TABLE_COLUMNS = 12;
 
     function distanceGate(test) {
       var mode = ['exact', 'approach', 'aligned'].indexOf(test.navigationMode) >= 0 ? test.navigationMode : 'none';
@@ -940,6 +1708,8 @@
         (filtered ? activeTests.length + ' of ' + allTests.length : activeTests.length) +
         ' trial' + (allTests.length === 1 ? '' : 's') + ' shown - updated ' + new Date().toLocaleTimeString();
 
+      // The rows are rebuilt, so a menu opened from one would point at nothing.
+      if (menuTrigger && !menuTrigger.closest('#lmDetailBody')) closeRetryMenu();
       var el = document.getElementById('lmTestsList');
       if (!activeTests.length) {
         el.innerHTML = '<tr><td colspan="' + TABLE_COLUMNS + '" class="empty">No tests match the current filters.</td></tr>';
@@ -953,9 +1723,16 @@
           ? badge('na', 'None')
           : t.panoramaSource === 'background' ? badge('pass', 'Review only') : badge('pass', 'Yes');
 
-        return '<tr class="trial-row" data-idx="' + idx + '">' +
+        return '<tr class="trial-row' + (t.retryOf ? ' is-retry' : '') + '" data-idx="' + idx + '">' +
           '<td>' + esc(fmtDate(t.serverTs || t.createdAt)) + '</td>' +
-          '<td>' + destinationHtml(t) + '</td>' +
+          '<td>' + destinationHtml(t) +
+            (t.retryOf
+              ? '<div class="retry-tag">↻ Dashboard retry, ' + esc((PANORAMA_MODE_LABELS[t.retryPanoramaMode] || PANORAMA_MODE_LABELS.fresh).toLowerCase()) + '</div>'
+              : t.retryCount
+                ? '<div><button class="retry-count open-history" data-id="' + esc(idOf(t)) + '" title="Open the retry history">↻ ' +
+                  t.retryCount + (t.retryCount === 1 ? ' retry' : ' retries') + '</button></div>'
+                : '') +
+          '</td>' +
           '<td><div class="gate-line"><span class="gate gate-' + gate.mode + '">' + esc(gate.label) + '</span>' +
             (gate.meters ? '<span class="gate-meters">' + esc(gate.meters) + '</span>' : '') + '</div>' +
             '<div class="cell-sub">' + esc(t.testScenario || '-') + '</div></td>' +
@@ -967,27 +1744,45 @@
           '<td>' + badge(modules.moduleC.status) + '</td>' +
           '<td>' + badge(modules.moduleD.status) + '</td>' +
           '<td>' + badge(modules.moduleE.status) + '</td>' +
+          '<td>' + retryCellHtml(t) + '</td>' +
           '<td><button class="secondary view-btn">View</button></td>' +
         '</tr>';
       }).join('');
     }
 
     // --- API Interactions ---
-    function load() {
-      var baseUrl = window.location.origin;
-      document.getElementById('download').href = baseUrl + '/api/last-mile-tests/export.csv' + qs(false);
+    /** Counts loads; a response is shown only while its load is the latest. */
+    let latestLoad = 0;
 
-      fetch(baseUrl + '/api/last-mile-tests' + qs(false), { headers: authHeaders() })
+    function fetchList() {
+      return fetch(window.location.origin + '/api/last-mile-tests' + qs(false), { headers: authHeaders() })
         .then(function (res) {
           if (!res.ok) throw new Error('HTTP ' + res.status);
           return res.json();
-        })
+        });
+    }
+
+    function showList(payload) {
+      showError('');
+      if (payload.retry) setRetryInfo(payload.retry);
+      allTests = payload.data || [];
+      applyFilters();
+    }
+
+    /** Reloads the list. Loads can overlap, so only the newest one is shown. */
+    function load() {
+      document.getElementById('download').href = window.location.origin + '/api/last-mile-tests/export.csv' + qs(false);
+      const thisLoad = ++latestLoad;
+
+      fetchList()
         .then(function (payload) {
-          showError('');
-          allTests = payload.data || [];
-          applyFilters();
+          if (thisLoad !== latestLoad) return;
+          const synced = syncRemoteRetries(payload.data || []);
+          showList(payload);
+          synced.finished.forEach(refreshHistory);
         })
         .catch(function (error) {
+          if (thisLoad !== latestLoad) return;
           showError('Could not load tests. Check token and logs. ' + error.message);
           document.getElementById('lmTestsList').innerHTML = '<tr><td colspan="' + TABLE_COLUMNS + '" class="empty">Failed to load data.</td></tr>';
         });
@@ -996,6 +1791,7 @@
     // --- Event Listeners ---
     document.getElementById('refresh').addEventListener('click', load);
     document.getElementById('limit').addEventListener('change', load);
+    document.getElementById('includeRetries').addEventListener('change', load);
 
     document.querySelectorAll('.filter').forEach(function (control) {
       control.addEventListener(control.tagName === 'INPUT' ? 'input' : 'change', applyFilters);
@@ -1020,33 +1816,114 @@
       applyFilters();
     });
 
-    document.getElementById('lmDetailClose').addEventListener('click', function () {
-      document.getElementById('lmDetailOverlay').style.display = 'none';
+    document.getElementById('lmDetailClose').addEventListener('click', closeDetail);
+
+    // The menu is placed against the viewport, so it closes when anything under it moves.
+    document.addEventListener('scroll', function (e) {
+      if (!e.target.closest || !e.target.closest('#retryMenu')) closeRetryMenu();
+    }, true);
+    window.addEventListener('resize', function () { closeRetryMenu(); });
+
+    document.addEventListener('keydown', function (e) {
+      const menu = document.getElementById('retryMenu');
+      if (menu.hidden) return;
+      if (e.key === 'Escape' || e.key === 'Tab') {
+        if (e.key === 'Escape') e.preventDefault();
+        closeRetryMenu(e.key === 'Escape');
+        return;
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const options = Array.prototype.slice.call(menu.querySelectorAll('.retry-option:not(:disabled)'));
+        const at = options.indexOf(document.activeElement);
+        options[(at + (e.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length].focus();
+      }
     });
     
     document.getElementById('lmDetailOverlay').addEventListener('click', function (e) {
-      if (e.target === this) this.style.display = 'none';
+      if (e.target === this) closeDetail();
+    });
+
+    // The dialog has no padding of its own, so a click on it directly is on the backdrop.
+    document.getElementById('retryConfirm').addEventListener('click', function (e) {
+      if (e.target === this) this.close('cancel');
     });
 
     document.body.addEventListener('click', function (e) {
-      if (e.target.classList.contains('replay-btn')) {
-        if (!window.confirm('Run a new replay using paid Google/OpenAI calls? The original trial is preserved. This is not a field test.')) return;
-        var replayButton = e.target;
-        replayButton.disabled = true;
-        var replayStatus = document.querySelector('.replay-result');
-        replayStatus.textContent = 'Running replay...';
-        fetch(window.location.origin + '/api/last-mile-tests/' + encodeURIComponent(replayButton.getAttribute('data-id')) + '/replay' + qs(false), {
-          method: 'POST', headers: authHeaders()
-        }).then(function(res) { return res.json().then(function(payload) {
-          if (!res.ok) throw new Error(payload.error || 'HTTP ' + res.status);
-          return payload;
-        }); }).then(function(payload) {
-          replayStatus.textContent = 'Replay trial: ' + (payload.result.testLogId || 'not persisted') + '. ' + payload.result.output;
-          load();
-        }).catch(function(error) { replayStatus.textContent = 'Replay failed: ' + error.message; })
-          .finally(function() { replayButton.disabled = false; });
+      // Retry controls are checked before rows, since they sit inside trial rows.
+      const option = e.target.closest('.retry-option');
+      if (option) {
+        const test = menuTest;
+        const mode = option.getAttribute('data-mode');
+        closeRetryMenu(true);
+        if (!test) return;
+        confirmPaidRetry(testName(test), mode).then(function (confirmed) {
+          if (confirmed) runRetry(idOf(test), originalIdOf(test), testName(test), mode);
+        });
         return;
       }
+      const trigger = e.target.closest('.retry-trigger');
+      if (trigger) {
+        if (menuTrigger === trigger) { closeRetryMenu(); return; }
+        closeRetryMenu();
+        const triggerTest = testForTrigger(trigger);
+        if (triggerTest) openRetryMenu(trigger, triggerTest);
+        return;
+      }
+      if (!e.target.closest('#retryMenu')) closeRetryMenu();
+
+      const toastRetry = e.target.closest('.toast-retry');
+      if (toastRetry) {
+        const toast = toastRetry.closest('.toast');
+        const name = toastRetry.getAttribute('data-name');
+        const mode = toastRetry.getAttribute('data-mode');
+        confirmPaidRetry(name, mode).then(function (confirmed) {
+          if (!confirmed) return;
+          toast.remove();
+          runRetry(toastRetry.getAttribute('data-id'), toastRetry.getAttribute('data-original-id'), name, mode);
+        });
+        return;
+      }
+      if (e.target.closest('.toast-close')) {
+        e.target.closest('.toast').remove();
+        return;
+      }
+
+      const historyOpener = e.target.closest('.open-history');
+      if (historyOpener) {
+        const toast = historyOpener.closest('.toast');
+        if (toast) toast.remove();
+        openDetailById(historyOpener.getAttribute('data-id'), null, true);
+        return;
+      }
+
+      const orderButton = e.target.closest('.history-order button');
+      if (orderButton) {
+        const order = orderButton.getAttribute('data-order');
+        if ((order === 'newest') !== historyNewestFirst) {
+          historyNewestFirst = order === 'newest';
+          saveHistoryOrder();
+          renderHistoryBlock(true);
+          const pressed = document.querySelector('#retryHistory .history-order [data-order="' + order + '"]');
+          if (pressed) pressed.focus();
+        }
+        return;
+      }
+
+      const opener = e.target.closest('.open-test, .reload-detail, .run-link');
+      if (opener) {
+        openDetailById(opener.getAttribute('data-id'));
+        return;
+      }
+
+      // A run in the retry history opens that run's own detail.
+      const historyRow = e.target.closest('tr.history-row[data-id]');
+      if (historyRow) {
+        // The run being viewed is already open; reopening it would jump to the top.
+        if (!historyRow.classList.contains('current') && !String(window.getSelection()).length) openDetailById(historyRow.getAttribute('data-id'));
+        return;
+      }
+
       // Clicking anywhere on a trial row opens its detail, same as the View button.
       // Any other control placed in a row keeps its own behavior, and a click that
       // ends a drag-selection is ignored so addresses can still be copied.
@@ -1136,6 +2013,7 @@
     });
 
     writeFilters(filtersFromHash());
+    resumePendingRetries();
     load();
   </script>
 </body>

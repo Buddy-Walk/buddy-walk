@@ -1,5 +1,7 @@
 /** Shapes Last Meters test log rows for the admin API and dashboard. */
 
+import type { lastMileTestLogInterface } from "../database/models/lastMileTestLog";
+
 export interface LastMileTestImageFields {
   userPhoto?: string;
   panoramaPhoto?: string;
@@ -18,6 +20,11 @@ export type LastMileTestImageField = (typeof LAST_MILE_TEST_IMAGE_FIELDS)[number
 /** What list views need to know about each image, read without the image itself. */
 export interface LastMileTestImageStats {
   imageStats: Record<LastMileTestImageField, { length: number; stored: boolean }>;
+}
+
+/** A log row's id as a string, whether Mongo or the in-memory store gave it. */
+export function rowId(row: object): string {
+  return String((row as { _id?: unknown })._id ?? "");
 }
 
 /** Only data URLs are stored images the dashboard can render. */
@@ -40,6 +47,18 @@ export function imageStatsOf(row: LastMileTestImageFields): LastMileTestImageSta
     panoramaPhoto: stats(row.panoramaPhoto),
     destinationPhoto: stats(row.destinationPhoto),
   };
+}
+
+/**
+ * A retry with the photo of the original it ran on, since retries don't store
+ * their own copy. Callers pass the original they already loaded.
+ */
+export function withOriginalPhoto<T extends LastMileTestImageFields & { retryOf?: string }>(
+  row: T,
+  original: LastMileTestImageFields | null,
+): T {
+  if (!row.retryOf || row.userPhoto !== undefined || original?.userPhoto === undefined) return row;
+  return { ...row, userPhoto: original.userPhoto };
 }
 
 /** The same list-view shape as toLastMileTestResponse(row, false), for rows read without images. */
@@ -85,5 +104,57 @@ export function toLastMileTestResponse<T extends LastMileTestImageFields>(
     userPhoto: imagePlaceholder(row.userPhoto),
     panoramaPhoto: imagePlaceholder(row.panoramaPhoto),
     destinationPhoto: imagePlaceholder(row.destinationPhoto),
+  };
+}
+
+/** The facts the retry history shows for one run, typed from the log model. */
+export type RetryHistoryFields = { _id?: unknown } & Partial<
+  Pick<
+    lastMileTestLogInterface,
+    | "serverTs"
+    | "retryOf"
+    | "retryPanoramaMode"
+    | "retryDefaultsApplied"
+    | "panoId"
+    | "panoramaDate"
+    | "panoramaSource"
+    | "panoramaStatus"
+    | "navigationMode"
+    | "testScenario"
+    | "success"
+    | "error"
+    | "finalOutput"
+    | "reviewerStatus"
+    | "reviewOutcome"
+    | "pipelineVersion"
+    | "deployedCommit"
+    | "safetyReasons"
+    | "latencyMs"
+  >
+>;
+
+/** One history entry: the original test or one of its retries, without images. */
+export function toRetryHistoryEntry(row: RetryHistoryFields) {
+  return {
+    id: String(row._id ?? ""),
+    serverTs: row.serverTs,
+    isRetry: Boolean(row.retryOf),
+    panoramaMode: row.retryPanoramaMode,
+    defaultsApplied: row.retryDefaultsApplied ?? [],
+    panoId: row.panoId,
+    panoramaDate: row.panoramaDate,
+    panoramaSource: row.panoramaSource,
+    panoramaStatus: row.panoramaStatus,
+    navigationMode: row.navigationMode,
+    testScenario: row.testScenario,
+    success: row.success,
+    error: row.error,
+    finalOutput: row.finalOutput,
+    reviewerStatus: row.reviewerStatus,
+    reviewOutcome: row.reviewOutcome,
+    pipelineVersion: row.pipelineVersion,
+    deployedCommit: row.deployedCommit,
+    safetyReasons: row.safetyReasons ?? [],
+    latencyMs: row.latencyMs,
   };
 }

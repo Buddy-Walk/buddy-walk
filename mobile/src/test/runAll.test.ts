@@ -6,6 +6,8 @@ import './lastMilePipeline.test.ts';
 import './lastMileSafety.test.ts';
 import './lastMileReplay.test.ts';
 import './lastMileTestRow.test.ts';
+import './lastMileReplayInput.test.ts';
+import './lastMileRetry.test.ts';
 import './nearbyPlaces.test.ts';
 import './lastMetersInput.test.ts';
 import './openingHours.test.ts';

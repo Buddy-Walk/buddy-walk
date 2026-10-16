@@ -12,6 +12,8 @@ export const ENTRANCE_CORRECTNESS = ["correct", "wrong", "not_identified"] as co
 export type ReviewOutcome = (typeof REVIEW_OUTCOMES)[number];
 export type TurnCorrectness = (typeof TURN_CORRECTNESS)[number];
 export type EntranceCorrectness = (typeof ENTRANCE_CORRECTNESS)[number];
+export const RETRY_PANORAMA_MODES = ["fresh", "original"] as const;
+export type RetryPanoramaMode = (typeof RETRY_PANORAMA_MODES)[number];
 
 export interface lastMileTestStepInterface {
   name: string;
@@ -27,10 +29,17 @@ export interface lastMileTestStepInterface {
 }
 
 export interface lastMileTestLogInterface {
+  /** Bumped by hand whenever a change could alter results. */
   pipelineVersion?: string;
   deployedCommit?: string;
+  /** "replay" for dashboard retries, which are not field tests. */
   runKind?: "field" | "replay";
+  /** Set on dashboard retries: the original field test this re-ran. */
   retryOf?: string;
+  retryPanoramaMode?: RetryPanoramaMode;
+  /** Values the replay compatibility check filled in for this retry. */
+  retryDefaultsApplied?: string[];
+  /** Versioned snapshot of exactly what the pipeline received. */
   replayInput?: ReplayInput;
   safetyReasons?: string[];
   walkingEvidence?: WalkingEvidence;
@@ -41,7 +50,8 @@ export interface lastMileTestLogInterface {
   destinationQuery?: string;
   lat: number;
   lng: number;
-  userPhoto: string;
+  /** Absent on dashboard retries, which reuse the original's photo. */
+  userPhoto?: string;
   panoramaPhoto?: string;
   panoramaDate?: string;
   panoramaStatus?: string;
@@ -140,13 +150,15 @@ const LastMileTestLogSchema = new Schema<lastMileTestLogInterface>({
   destinationQuery: { type: String },
   lat: { type: Number, required: true },
   lng: { type: Number, required: true },
-  userPhoto: { type: String, required: true },
+  userPhoto: { type: String },
   panoramaPhoto: { type: String },
   panoramaDate: { type: String },
   pipelineVersion: String,
   deployedCommit: String,
   runKind: { type: String, enum: ["field", "replay"] },
   retryOf: String,
+  retryPanoramaMode: { type: String, enum: [...RETRY_PANORAMA_MODES] },
+  retryDefaultsApplied: [{ type: String }],
   replayInput: Schema.Types.Mixed,
   safetyReasons: [String],
   walkingEvidence: Schema.Types.Mixed,
