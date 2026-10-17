@@ -65,6 +65,8 @@ export async function sendLastMileRequest(
   warning?: string;
   safetyReasons?: string[];
   guidanceKind?: 'withheld' | 'orientation';
+  targetHeading?: number | null;
+  currentHeading?: number;
 }> {
   // Last Meters hits Render; when Maps+OpenAI keys are absent it is rewritten to
   // buddywalk.app /api/text upstream.
