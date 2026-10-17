@@ -32,6 +32,7 @@ import {
 } from "../database/models/features";
 import sharp from "sharp";
 import { sensorSafetyReasons, RECAPTURE_MESSAGE } from "../../src/utils/lastMileSafety";
+import { strictLastMileGuidancePolicy, type LastMileGuidancePolicy } from "../utils/lastMileGuidancePolicy";
 import { evaluateWalkingLeg, preciseTurnReasons, WalkingEvidence } from "../utils/lastMilePolicy";
 import {
   LAST_MILE_PIPELINE_VERSION,
@@ -656,6 +657,11 @@ const OPENAI_MAX_RETRIES = 2;
 export class OpenAIService {
   private _client: OpenAI | null = null;
 
+  /** Use the existing policy by default; a mobile subclass can choose its own field-only policy. */
+  protected lastMileGuidancePolicy(_options: LastMetersRunOptions): LastMileGuidancePolicy {
+    return strictLastMileGuidancePolicy;
+  }
+
   private get client(): OpenAI {
     if (!this._client) {
       const apiKey = process.env.OPENAI_API_KEY;
@@ -734,6 +740,7 @@ export class OpenAIService {
     image: string,
     options: LastMetersRunOptions = {},
   ): Promise<LastMetersRunResult> {
+    const guidancePolicy = this.lastMileGuidancePolicy(options);
     const {
       lat,
       lng,
@@ -748,6 +755,7 @@ export class OpenAIService {
     // A retry keeps the original's snapshot and judges sensor freshness as of
     // the original request.
     const evaluationTime = retry?.replayInput.receivedAt ?? startedAt;
+    const guidanceHeading = guidancePolicy.guidanceHeading(request, evaluationTime);
     const safetyNow = () => evaluationTime + Date.now() - startedAt;
     let safetyReasons: string[] = [];
     let walkingEvidence: WalkingEvidence = { verified: false, reason: "walking_route_not_checked" };
@@ -811,6 +819,11 @@ export class OpenAIService {
       panoId?: string;
     }[] = [];
 
+    // Identify field policy changes separately from the shared pipeline and replay schema versions.
+    if (guidancePolicy.version) testSteps.push({
+      name: "mobile_guidance_policy", prompt: "Analyze the capture before applying turn-only prerequisites.",
+      response: guidancePolicy.version, model: "mobile-field-policy", success: true,
+    });
     const trialContext = () => ({
       replayInput,
       safetyReasons,
@@ -913,13 +926,14 @@ export class OpenAIService {
 
     const withhold = async (reasons: string[], message = RECAPTURE_MESSAGE) => {
       safetyReasons = [...new Set(reasons)];
+      message = guidancePolicy.withheldMessage(safetyReasons, message, trialContext());
       testSteps.push({ name: "turn_safety_gate", prompt: "Require sufficient evidence before any precise turn.",
         response: safetyReasons.join("; "), model: "deterministic-safety-policy", success: false });
       const testLogId = await recordTrial({ finalOutput: message, success: false, error: "turn_withheld" });
       return respond(200, { output: message, testLogId, warning: "turn_withheld", safetyReasons,
         guidanceKind: "withheld", targetHeading: null, pipelineVersion: LAST_MILE_PIPELINE_VERSION });
     };
-    const initialSensorReasons = sensorSafetyReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow());
+    const initialSensorReasons = guidancePolicy.initialSensorReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow());
     if (initialSensorReasons.length) return withhold(initialSensorReasons);
 
     console.log("\n==================================================");
@@ -1146,7 +1160,7 @@ export class OpenAIService {
       const place = verifiedDestination;
       const distanceMeters = destinationDistanceMeters;
       const bearing = destinationBearing;
-      const gate = resolveExactModeGate(distanceMeters, gpsAccuracyMeters);
+      const gate = guidancePolicy.analysisGate(distanceMeters, gpsAccuracyMeters);
       gpsAllowanceMeters = gate.allowanceMeters;
       exactGateWidened = gate.widened;
 
@@ -1422,9 +1436,9 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
             : undefined,
       });
       if (currentHeading === undefined) {
-        const finalOutput =
+        const finalOutput = guidancePolicy.withheldMessage(["current_heading_unavailable"],
           "Your phone compass was unavailable or not calibrated, so I will not calculate a turn. " +
-          "Stay where you are, move the phone in a slow figure eight to recalibrate the compass, then take a new photo.";
+          "Stay where you are, move the phone in a slow figure eight to recalibrate the compass, then take a new photo.", trialContext());
         const testLogId = await recordTrial({
           finalOutput,
           success: false,
@@ -1738,14 +1752,15 @@ Use VISIBLE only when the storefront, sign, or entrance clearly corresponds to t
           ? evaluateWalkingLeg(route.data.routes?.[0]?.legs?.[0], { lat, lng }, targetLocation)
           : { verified: false, reason: "walking_route_unavailable" };
       } catch { walkingEvidence = { verified: false, reason: "walking_route_unavailable" }; }
-      const turnReasons = preciseTurnReasons({ confidenceLevel: confidence.level,
+      const turnReasons = guidancePolicy.turnReasons({ confidenceLevel: confidence.level,
         photoMatched: panoramaMatchedHeading !== undefined, headingAgrees: headingComparisonAgrees,
         compassAccuracy: compassAccuracyLevel, gpsAccuracy: gpsAccuracyMeters, distanceMeters,
         entranceListed: entranceSource === "geocoding_entrance",
         visualTargetMatched: visualMatchAgreesWithMap || signTextMatched === true || destinationReferenceUsed,
-        walking: walkingEvidence, sensorReasons: sensorSafetyReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime) });
+        walking: walkingEvidence, sensorReasons: guidancePolicy.turnSensorReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime) });
       if (turnReasons.length) return withhold(turnReasons, "I cannot verify the entrance and your orientation well enough for a precise turn. Stay in a safe place and use your primary walking navigation or ask for assistance. Entrance accessibility has not been verified.");
       // Visual bearings remain camera-origin evidence. Guidance uses phone-origin geometry.
+      currentHeading = guidanceHeading ?? currentHeading;
       targetHeading = destinationBearing;
       targetBearing = destinationBearing;
 
@@ -1753,7 +1768,7 @@ Use VISIBLE only when the storefront, sign, or entrance clearly corresponds to t
       // TYPESCRIPT MATH CALCULATION (Bulletproof Turn Logic)
       // ==========================================
       const turnInstruction = buildLastMileTurnInstruction(
-        deviceHeading ?? currentHeading,
+        guidanceHeading ?? currentHeading,
         targetBearing ?? targetHeading,
       );
       const distanceSentence = buildLastMileDistanceSentence(
@@ -1778,7 +1793,7 @@ Only mention stable, cane-detectable or tactile features such as a wall edge, cu
 Do not name, describe, or direct the user toward any business other than "${destinationPlaceName || destination}". If the requested destination's entrance is not verified, omit entrance guidance rather than substituting a neighboring storefront.
 Never claim that a reference-image feature is currently present or visible from the user's position. Never invent an object. Never say "look", "see", "watch", "keep an eye out", or promise that a path is clear.
 Do not instruct the user to walk forward or cross a street. If no reliable landmark is visible, reply exactly: NO_RELIABLE_LANDMARKS.
-Keep the response to two short sentences and do not repeat the turn instruction.`;
+Keep the response to two short sentences and do not repeat the turn instruction.` + (guidancePolicy.landmarkContext ?? "");
       const step3UserContent: any[] = [
         { type: "text", text: "--- USER'S CURRENT PHOTO ---" },
         { type: "image_url", image_url: { url: image, detail: "high" } },
@@ -1836,12 +1851,11 @@ Keep the response to two short sentences and do not repeat the turn instruction.
       );
       console.log("=========================================\n");
 
-      const lateReasons = sensorSafetyReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime);
+      const lateReasons = guidancePolicy.turnSensorReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime);
       if (lateReasons.length) return withhold(lateReasons);
-      const finalOutput =
-        `${turnInstruction} ${distanceSentence} Landmarks: ${landmarksGuidance}` +
-        closedNotice +
-        " Entrance accessibility has not been verified. " + buildLastMileSourceNote(panoramaDate);
+      const finalOutput = guidancePolicy.finalOutput({
+        turnInstruction, distanceSentence, landmarksGuidance, closedNotice, panoramaDate, walkingEvidence,
+      });
       const testLogId = await recordTrial({
         finalOutput,
         success: true,

@@ -16,6 +16,7 @@ COPY server ./server
 COPY src/utils/trainLine.ts ./src/utils/trainLine.ts
 COPY src/utils/lastMetersInput.ts ./src/utils/lastMetersInput.ts
 COPY src/utils/lastMileSafety.ts ./src/utils/lastMileSafety.ts
+COPY src/utils/mobileLastMileGuidance.ts ./src/utils/mobileLastMileGuidance.ts
 
 EXPOSE 8000
 

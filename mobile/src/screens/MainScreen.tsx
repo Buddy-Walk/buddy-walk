@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
-import { LastMileSensors, sensorSafetyReasons, RECAPTURE_MESSAGE } from "../utils/lastMileSafety";
+import { LastMileSensors, validPoint, RECAPTURE_MESSAGE } from "../utils/lastMileSafety";
+import { mobileResponseSensorReasons } from "../utils/mobileLastMileGuidance";
 import {
   View,
   ScrollView,
@@ -1364,6 +1365,7 @@ export default function MainScreen({ navigation }: Props) {
     return true;
   }
 
+  /** Analyze the original capture, then check current sensors only before speaking a precise turn. */
   async function handleLastMileNavigation(destinationOverride?: string) {
     if (cancelLastMileRequest()) {
       speak("Last Meters cancelled.", { preferDevice: true });
@@ -1414,6 +1416,7 @@ export default function MainScreen({ navigation }: Props) {
     try {
       const loc = capturedPhotoLocationRef.current;
       const metadata = capturedSensorMetadataRef.current;
+      /** Combine the immutable capture timestamps with the latest genuine phone readings. */
       const makeSensors = (): LastMileSensors | undefined => {
         const latest = locationRef.current;
         if (!metadata || !latest) return undefined;
@@ -1425,7 +1428,8 @@ export default function MainScreen({ navigation }: Props) {
       const position = { lat: loc?.coords.latitude ?? NaN, lng: loc?.coords.longitude ?? NaN };
       const captureHeading = capturedPhotoHeadingRef.current ?? undefined;
       const sensors = makeSensors();
-      if (!loc || sensorSafetyReasons(sensors, position, captureHeading, loc.coords.accuracy ?? undefined).length) {
+      const requestedAt = Date.now();
+      if (!loc || !validPoint(position)) {
         setAiResponse(RECAPTURE_MESSAGE);
         speak(RECAPTURE_MESSAGE, { preferDevice: true });
         return;
@@ -1447,7 +1451,7 @@ export default function MainScreen({ navigation }: Props) {
       );
 
       if (controller.signal.aborted || lastMileAbortRef.current !== controller) return;
-      if (sensorSafetyReasons(makeSensors(), position, captureHeading, loc.coords.accuracy ?? undefined).length) {
+      if (mobileResponseSensorReasons(data, makeSensors(), position, captureHeading, loc.coords.accuracy ?? undefined, requestedAt).length) {
         setAiResponse(RECAPTURE_MESSAGE);
         speak(RECAPTURE_MESSAGE, { preferDevice: true });
         return;
