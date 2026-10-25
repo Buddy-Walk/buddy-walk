@@ -7,6 +7,7 @@ import { MobileLastMileService, mobileReviewPanoramaStatus } from "../../server/
 import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
 import { buildReplayInput, type LastMetersRequestInput } from "../../server/utils/lastMileReplay";
 import { mobileResponseSensorReasons } from "../utils/mobileLastMileGuidance";
+import { setTestEnv } from "./testEnv";
 
 /** Produce a valid request without assuming Google's optional entrance listing exists. */
 function capture(now: number): LastMetersRequestInput {
@@ -28,19 +29,8 @@ for (const scenario of [
 ] as const) {
   test(`mobile guidance runs the real pipeline: ${scenario}`, async t => {
     // Exercise real place selection, panorama validation, image matching, logging, and HTTP delivery.
-    const previousKey = process.env.GOOGLE_MAPS_API_KEY;
-    process.env.GOOGLE_MAPS_API_KEY = "test-maps";
-    t.after(() => {
-      // Restore provider configuration for the remaining shared/retry tests.
-      if (previousKey === undefined) delete process.env.GOOGLE_MAPS_API_KEY;
-      else process.env.GOOGLE_MAPS_API_KEY = previousKey;
-    });
-    const previousOpenAIKey = process.env.OPENAI_API_KEY;
-    process.env.OPENAI_API_KEY = "test-openai";
-    t.after(() => {
-      if (previousOpenAIKey === undefined) delete process.env.OPENAI_API_KEY;
-      else process.env.OPENAI_API_KEY = previousOpenAIKey;
-    });
+    // Restored afterwards for the remaining shared/retry tests.
+    setTestEnv(t, { GOOGLE_MAPS_API_KEY: "test-maps", OPENAI_API_KEY: "test-openai" });
     let clock = Date.now();
     const submittedAt = clock;
     t.mock.method(Date, "now", () => clock);

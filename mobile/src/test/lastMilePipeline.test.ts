@@ -5,21 +5,11 @@ import OpenAI from "openai";
 import sharp from "sharp";
 import { LastMetersService } from "../../server/services/lastMetersService";
 import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
+import { setTestEnv } from "./testEnv";
 
 for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallback", "verified-turn", "detour", "low-confidence", "ambiguous", "missing-sensors"] as const) {
   test(`Last Meters integration: ${scenario}`, async t => {
-    const oldKey = process.env.GOOGLE_MAPS_API_KEY;
-    process.env.GOOGLE_MAPS_API_KEY = "unit-test";
-    t.after(() => {
-      if (oldKey === undefined) delete process.env.GOOGLE_MAPS_API_KEY;
-      else process.env.GOOGLE_MAPS_API_KEY = oldKey;
-    });
-    const oldOpenAIKey = process.env.OPENAI_API_KEY;
-    process.env.OPENAI_API_KEY = "unit-test";
-    t.after(() => {
-      if (oldOpenAIKey === undefined) delete process.env.OPENAI_API_KEY;
-      else process.env.OPENAI_API_KEY = oldOpenAIKey;
-    });
+    setTestEnv(t, { GOOGLE_MAPS_API_KEY: "unit-test", OPENAI_API_KEY: "unit-test" });
     const pixels = Buffer.alloc(640 * 640 * 3);
     for (let i = 0; i < pixels.length; i++) pixels[i] = (i * 13 + Math.floor(i / 19)) % 256;
     const jpeg = await sharp(pixels, { raw: { width: 640, height: 640, channels: 3 } }).jpeg().toBuffer();

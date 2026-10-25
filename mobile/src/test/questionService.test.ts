@@ -6,25 +6,17 @@ import { OpenAIQuestionService } from "../../server/services/openAIQuestionServi
 import { aiRequestLogService } from "../../server/services/aiRequestLog";
 import { formatHistoryForPrompt } from "../../server/utils/conversationHistory";
 import { AIPrompt, imagePrompt, trainPrompt, videoPrompt, type textRequestBody } from "../../server/types";
+import { setTestEnv } from "./testEnv";
 
 // Characterization tests: they pin what Question answering does today so the
 // code can be moved without changing it. Providers are faked at the axios,
 // fetch, and OpenAI SDK boundaries, not inside the service.
 
-const KEY_NAMES = ["OPENAI_API_KEY", "GOOGLE_MAPS_API_KEY", "GOOGLE_API_KEY"];
 const TIMES_SQUARE = { latitude: 40.7559, longitude: -73.9871 };
 let installCounter = 0;
 
 function setUp(t: TestContext) {
-  const saved = KEY_NAMES.map((name) => [name, process.env[name]] as const);
-  process.env.OPENAI_API_KEY = "question-test-openai";
-  process.env.GOOGLE_MAPS_API_KEY = "question-test-google";
-  t.after(() => {
-    for (const [name, value] of saved) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    }
-  });
+  setTestEnv(t, { OPENAI_API_KEY: "question-test-openai", GOOGLE_MAPS_API_KEY: "question-test-google" });
 
   const logged: any[] = [];
   t.mock.method(aiRequestLogService, "record", async (row: any) => { logged.push(row); });
