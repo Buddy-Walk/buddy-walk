@@ -177,7 +177,7 @@ async function getDestinationStreetViewReference(
   };
 }
 
-export class OpenAIService {
+export class LastMetersService {
   /** Question-routed inputs are answered by OpenAI, whichever provider the Question box uses. */
   constructor(private readonly questionService: OpenAIQuestionService = new OpenAIQuestionService()) {}
 

@@ -6,7 +6,7 @@ import {
   strictLastMileGuidancePolicy,
   type LastMileGuidancePolicy,
 } from "../utils/lastMileGuidancePolicy";
-import { OpenAIService, type LastMetersRunOptions, type LastMetersRunResult } from "./openAI";
+import { LastMetersService, type LastMetersRunOptions, type LastMetersRunResult } from "./lastMetersService";
 
 export const MOBILE_REVIEW_PANORAMA_VERSION = MOBILE_LAST_MILE_GUIDANCE_VERSION;
 
@@ -20,7 +20,7 @@ export function mobileReviewPanoramaStatus() {
 }
 
 /** Run complete field analysis before deciding whether mobile evidence supports a precise turn. */
-export class MobileLastMileService extends OpenAIService {
+export class MobileLastMileService extends LastMetersService {
   /** Keep every retry and pinned execution on its existing shared policy. */
   protected override lastMileGuidancePolicy(options: LastMetersRunOptions): LastMileGuidancePolicy {
     return options.retry || options.pinnedPanorama

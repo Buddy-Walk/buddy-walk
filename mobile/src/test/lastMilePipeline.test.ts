@@ -3,7 +3,7 @@ import test from "node:test";
 import axios from "axios";
 import OpenAI from "openai";
 import sharp from "sharp";
-import { OpenAIService } from "../../server/services/openAI";
+import { LastMetersService } from "../../server/services/lastMetersService";
 import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
 
 for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallback", "verified-turn", "detour", "low-confidence", "ambiguous", "missing-sensors"] as const) {
@@ -49,7 +49,7 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
     let referenceCalls = 0;
     let signCalls = 0;
     let guidanceCalls = 0;
-    const service = new OpenAIService();
+    const service = new LastMetersService();
     t.mock.method(OpenAI.Chat.Completions.prototype, "create", async (request: any) => {
       const prompt = request.messages[0].content as string;
       let text = "NOT_VISIBLE";
@@ -130,7 +130,7 @@ test("Last Meters hands a question to the Question service it was given", async 
     asked.push(content);
     ctx.res.status(200).json({ output: "answered" });
   } };
-  const service = new OpenAIService(questionService as any);
+  const service = new LastMetersService(questionService as any);
   let answer: any;
   const res = { status: () => res, json: (body: any) => { answer = body; } };
   const now = Date.now();

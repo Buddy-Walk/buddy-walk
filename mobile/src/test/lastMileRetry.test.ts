@@ -30,7 +30,7 @@ import { asyncRoute } from "../../server/utils/asyncRoute";
 import { parseIdempotencyKey } from "../../server/utils/idempotencyKey";
 import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
 import { getOpenAIClient } from "../../server/services/openAIClient";
-import type { LastMetersRunOptions } from "../../server/services/openAI";
+import type { LastMetersRunOptions } from "../../server/services/lastMetersService";
 import {
   LAST_MILE_PIPELINE_VERSION,
   UPSTREAM_PIPELINE_VERSION,
