@@ -75,23 +75,15 @@ import {
 } from "../utils/lastMileNavigation";
 import type { LastMileTestScenario } from "../utils/lastMileNavigation";
 import {
-  describeNearbyPlaceCandidates,
   extractNearbyPlaceQuery,
   isNearbyPlaceCandidateRelevant,
   looksLikeBareDestinationQuery,
   MAX_LOCAL_PLACE_DISTANCE_METERS,
-  mergeNearbyPlaceCandidates,
   normalizeNearbyPlaceQuery,
   selectNearbyPlaceCandidate,
-  selectNearbyPlaceCandidates,
   signTextMatchesPlaceName,
-  summarizePlaceCandidates,
 } from "../utils/nearbyPlaces";
-import type {
-  NearbyPlaceCandidate,
-  NearbyPlaceSelection,
-  PlaceCandidateLog,
-} from "../utils/nearbyPlaces";
+import type { PlaceCandidateLog } from "../utils/nearbyPlaces";
 import {
   isBesideBuilding,
   parseBuildingGeometry,
@@ -101,75 +93,22 @@ import {
 import type { BuildingGeometry } from "../utils/buildingEntrances";
 import { describeOpeningStatus, placeHoursFromDetails } from "../utils/openingHours";
 import { parseLastMetersInput } from "../../src/utils/lastMetersInput";
+import {
+  calculateHeading,
+  geocodeCoordinates,
+  getGoogleMapsApiKey,
+  getStreetViewWithHeading,
+  type LatLng,
+} from "./googleMaps";
+import {
+  DestinationNotVerifiedError,
+  getVerifiedNearbyDestination,
+  getVerifiedNearbyWalkingDirections,
+  type VerifiedNearbyDestination,
+  type VerifiedWalkingDirections,
+  type VerifiedWalkingRoute,
+} from "./verifiedDestination";
 dotenv.config();
-
-function getGoogleMapsApiKey(): string {
-  const apiKey =
-    process.env.GOOGLE_MAPS_API_KEY?.trim() ||
-    process.env.GOOGLE_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error("Google Maps API key is not configured on the server.");
-  }
-  return apiKey;
-}
-
-async function geocodeCoordinates(latitude: number, longitude: number) {
-  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${getGoogleMapsApiKey()}`;
-  try {
-    const response = await axios.get(url);
-    //console.log('Google Geocoding API response:', response.data);
-    return response.data.results;
-  } catch (error) {
-    console.error("Error fetching nearby places:", error);
-    throw error;
-  }
-}
-
-// streetview-heading.ts
-
-// --- 1. Type Definitions ---
-
-interface LatLng {
-  lat: number;
-  lng: number;
-}
-
-interface GeocodeResponse {
-  status: string;
-  results: {
-    geometry: {
-      location: LatLng;
-    };
-  }[];
-}
-
-interface StreetViewMetadataResponse {
-  status: string;
-  pano_id?: string;
-  copyright?: string;
-  location?: LatLng; // 'location' is the car's position
-}
-
-// --- 3. The Math Helper ---
-function calculateHeading(from: LatLng, to: LatLng): number {
-  const toRad = (deg: number): number => (deg * Math.PI) / 180;
-  const toDeg = (rad: number): number => (rad * 180) / Math.PI;
-
-  const phi1 = toRad(from.lat);
-  const phi2 = toRad(to.lat);
-  const deltaLambda = toRad(to.lng - from.lng);
-
-  const y = Math.sin(deltaLambda) * Math.cos(phi2);
-  const x =
-    Math.cos(phi1) * Math.sin(phi2) -
-    Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
-
-  const theta = Math.atan2(y, x);
-  const heading = toDeg(theta);
-
-  // Normalize to 0-360
-  return (heading + 360) % 360;
-}
 
 interface DestinationStreetViewReference {
   photo: string;
@@ -178,185 +117,6 @@ interface DestinationStreetViewReference {
   placeName: string;
   placeAddress: string;
   targetHeading: number;
-}
-
-interface VerifiedNearbyDestination {
-  placeId: string;
-  placeName: string;
-  placeAddress: string;
-  types: string[];
-  location: LatLng;
-  distanceMeters: number;
-  /** Ranked relevant candidates and which searches ran, for the trial log. */
-  candidateSummary: string;
-  placeCandidates: PlaceCandidateLog[];
-  placesSearches: string[];
-  openNow?: boolean;
-  businessStatus?: string;
-}
-
-/** Carries what Google returned so a failed lookup can still be diagnosed. */
-class DestinationNotVerifiedError extends Error {
-  constructor(
-    message: string,
-    readonly placeCandidates: PlaceCandidateLog[],
-    readonly placesSearches: string[],
-  ) {
-    super(message);
-    this.name = "DestinationNotVerifiedError";
-  }
-}
-
-function tagSearchSource(
-  results: NearbyPlaceCandidate[] | undefined,
-  source: string,
-): NearbyPlaceCandidate[] {
-  return (results ?? []).map((result) => ({
-    ...result,
-    searchSources: [source],
-  }));
-}
-
-async function getVerifiedNearbyDestination(
-  lat: number,
-  lng: number,
-  destination: string,
-  maxDistanceMeters = MAX_LOCAL_PLACE_DISTANCE_METERS,
-): Promise<VerifiedNearbyDestination> {
-  const nearbyQuery = normalizeNearbyPlaceQuery(destination);
-  if (!nearbyQuery) {
-    throw new DestinationNotVerifiedError(
-      "Destination name was empty after normalization.",
-      [],
-      [],
-    );
-  }
-
-  const locationResponse = await axios.get(
-    "https://maps.googleapis.com/maps/api/place/nearbysearch/json",
-    {
-      params: {
-        location: `${lat},${lng}`,
-        rankby: "distance",
-        keyword: nearbyQuery,
-        key: getGoogleMapsApiKey(),
-      },
-      timeout: 20_000,
-    },
-  );
-  if (!["OK", "ZERO_RESULTS"].includes(locationResponse.data.status)) {
-    throw new Error(`Nearby Places returned ${locationResponse.data.status}.`);
-  }
-
-  let candidates = tagSearchSource(locationResponse.data.results, "nearby");
-  const rankRelevant = (): NearbyPlaceSelection[] =>
-    selectNearbyPlaceCandidates(
-      candidates.filter((candidate) =>
-        isNearbyPlaceCandidateRelevant(candidate, nearbyQuery),
-      ),
-      { lat, lng },
-      maxDistanceMeters,
-    );
-  let ranked = rankRelevant();
-  let nearbyPlace: NearbyPlaceSelection | undefined = ranked[0];
-  const searchesUsed = ["nearby"];
-
-  // if the name or type matcher rejects the result because the user entered
-  // an acronym, abbreviation, etc e.g. USPS, use google's best result
-  // if (!nearbyPlace && candidates.length > 0) {
-  //   const googleFallback = selectNearbyPlaceCandidate(
-  //     [candidates[0]],
-  //     { lat, lng },
-  //     maxDistanceMeters,
-  //   );
-
-  //   if (googleFallback) {
-  //     console.log(
-  //       `[Last Meters] Google Places fallback: "${nearbyQuery}" -> "${googleFallback.name}" (${Math.round(
-  //         googleFallback.distanceMeters,
-  //       )} m)`,
-  //     );
-
-  //     nearbyPlace = googleFallback;
-  //   }
-  // }
-
-  // Nearby Search can miss valid businesses when the user provides a full
-  // store name or address, and its keyword match can skip a closer branch of
-  // a chain. Text Search supplies a second local candidate set whenever the
-  // best Nearby result would push the user out of exact mode; distance
-  // filtering still prevents an out-of-state result.
-  if (
-    !nearbyPlace ||
-    nearbyPlace.distanceMeters > LAST_METERS_EXACT_RADIUS_METERS
-  ) {
-    searchesUsed.push("text");
-    try {
-      const textResponse = await axios.get(
-        "https://maps.googleapis.com/maps/api/place/textsearch/json",
-        {
-          params: {
-            query: nearbyQuery,
-            location: `${lat},${lng}`,
-            radius: maxDistanceMeters,
-            key: getGoogleMapsApiKey(),
-          },
-          timeout: 20_000,
-        },
-      );
-      if (textResponse.data.status === "OK") {
-        candidates = mergeNearbyPlaceCandidates(
-          candidates,
-          tagSearchSource(textResponse.data.results, "text"),
-        );
-      } else if (textResponse.data.status !== "ZERO_RESULTS") {
-        console.warn(
-          `[Last Meters] Text Search fallback unavailable: ${textResponse.data.status}`,
-        );
-      }
-    } catch (error) {
-      console.warn("[Last Meters] Text Search fallback request failed:", error);
-    }
-    ranked = rankRelevant();
-    nearbyPlace = ranked[0];
-  }
-  const placeCandidates = summarizePlaceCandidates(
-    candidates,
-    { lat, lng },
-    nearbyQuery,
-  );
-  const placeLocation = nearbyPlace?.geometry?.location;
-  if (
-    !nearbyPlace?.place_id ||
-    typeof placeLocation?.lat !== "number" ||
-    typeof placeLocation.lng !== "number"
-  ) {
-    throw new DestinationNotVerifiedError(
-      `No verified ${nearbyQuery} was found within ${Math.round(maxDistanceMeters / 1_000)} kilometers.`,
-      placeCandidates,
-      searchesUsed,
-    );
-  }
-
-  return {
-    placeId: nearbyPlace.place_id,
-    placeName: nearbyPlace.name || nearbyQuery,
-    placeAddress:
-      nearbyPlace.vicinity ||
-      nearbyPlace.formatted_address ||
-      nearbyPlace.name ||
-      nearbyQuery,
-    types: nearbyPlace.types ?? [],
-    location: { lat: placeLocation.lat, lng: placeLocation.lng },
-    distanceMeters: nearbyPlace.distanceMeters,
-    candidateSummary:
-      `Searches: ${searchesUsed.join(" + ")}; ${candidates.length} raw results\n` +
-      describeNearbyPlaceCandidates(ranked),
-    placeCandidates,
-    placesSearches: searchesUsed,
-    openNow: nearbyPlace.opening_hours?.open_now,
-    businessStatus: nearbyPlace.business_status,
-  };
 }
 
 /**
@@ -455,177 +215,6 @@ async function getDestinationStreetViewReference(
       ),
     ),
   };
-}
-
-interface VerifiedWalkingDirections {
-  placeName: string;
-  placeAddress: string;
-  distanceMeters: number;
-  directionsText: string;
-  route: VerifiedWalkingRoute;
-}
-
-interface VerifiedWalkingRouteStep {
-  index: number;
-  instruction: string;
-  distance: { text: string; value: number };
-  duration: { text: string; value: number };
-  maneuver: string;
-  startLocation: LatLng;
-  endLocation: LatLng;
-  travelMode?: string;
-}
-
-interface VerifiedWalkingRoute {
-  destination: { name?: string; address?: string } & LatLng;
-  origin: LatLng;
-  totalDistance: { text: string; value: number };
-  totalDuration: { text: string; value: number };
-  steps: VerifiedWalkingRouteStep[];
-  polyline?: string;
-  travelMode: string;
-}
-
-function plainGoogleInstruction(value: string): string {
-  return value
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/gi, '"')
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-async function getVerifiedNearbyWalkingDirections(
-  lat: number,
-  lng: number,
-  destination: string,
-): Promise<VerifiedWalkingDirections> {
-  const nearbyPlace = await getVerifiedNearbyDestination(lat, lng, destination);
-
-  const routeResponse = await axios.get(
-    "https://maps.googleapis.com/maps/api/directions/json",
-    {
-      params: {
-        mode: "walking",
-        origin: `${lat},${lng}`,
-        destination: `place_id:${nearbyPlace.placeId}`,
-        key: getGoogleMapsApiKey(),
-      },
-      timeout: 20_000,
-    },
-  );
-  const routeLeg = routeResponse.data.routes?.[0]?.legs?.[0];
-  if (routeResponse.data.status !== "OK" || !routeLeg) {
-    throw new Error(`Directions returned ${routeResponse.data.status}.`);
-  }
-
-  const routeDistanceMeters = Number(routeLeg.distance?.value ?? 0);
-  if (
-    !Number.isFinite(routeDistanceMeters) ||
-    routeDistanceMeters <= 0 ||
-    routeDistanceMeters > MAX_LOCAL_PLACE_DISTANCE_METERS
-  ) {
-    throw new Error(
-      "Verified walking route is outside the local distance limit.",
-    );
-  }
-
-  const routeSteps: VerifiedWalkingRouteStep[] = (routeLeg.steps ?? []).map(
-    (step: any, index: number) => ({
-      index,
-      instruction: plainGoogleInstruction(step.html_instructions || ""),
-      distance: step.distance,
-      duration: step.duration,
-      maneuver: step.maneuver || "",
-      startLocation: step.start_location,
-      endLocation: step.end_location,
-      travelMode: step.travel_mode,
-    }),
-  );
-  const directionsText = routeSteps
-    .map(
-      (step, index) =>
-        `Step ${index + 1}) ${step.instruction} for ${step.distance.text}`,
-    )
-    .join("\n");
-
-  return {
-    placeName: nearbyPlace.placeName,
-    placeAddress: nearbyPlace.placeAddress,
-    distanceMeters: nearbyPlace.distanceMeters,
-    directionsText,
-    route: {
-      destination: {
-        name: nearbyPlace.placeName,
-        address: nearbyPlace.placeAddress,
-        lat: nearbyPlace.location.lat,
-        lng: nearbyPlace.location.lng,
-      },
-      origin: { lat, lng },
-      totalDistance: routeLeg.distance,
-      totalDuration: routeLeg.duration,
-      steps: routeSteps,
-      polyline: routeResponse.data.routes[0].overview_polyline?.points,
-      travelMode: "WALKING",
-    },
-  };
-}
-
-// --- 4. Main Logic ---
-async function getStreetViewWithHeading(
-  address: string,
-): Promise<string | null> {
-  try {
-    console.log(`\n1. Geocoding address: "${address}"...`);
-
-    // Step A: Geocode Address (Find the House)
-    const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
-      address,
-    )}&key=${getGoogleMapsApiKey()}`;
-
-    const geoRes = await fetch(geoUrl);
-    const geoData = (await geoRes.json()) as GeocodeResponse;
-
-    if (geoData.status !== "OK" || !geoData.results.length) {
-      throw new Error(`Geocoding failed: ${geoData.status}`);
-    }
-
-    const houseLoc: LatLng = geoData.results[0].geometry.location;
-    console.log(`   House found at: ${houseLoc.lat}, ${houseLoc.lng}`);
-
-    // Step B: Find Nearest Panorama (Find the Car)
-    // The Metadata API returns the specific lat/lng where the car was standing
-    const metaUrl = `https://maps.googleapis.com/maps/api/streetview/metadata?location=${houseLoc.lat},${houseLoc.lng}&source=outdoor&key=${getGoogleMapsApiKey()}`;
-
-    const metaRes = await fetch(metaUrl);
-    const metaData = (await metaRes.json()) as StreetViewMetadataResponse;
-
-    if (outdoorPanoramaRejection(metaData) || !metaData.location) {
-      throw new Error(`No Street View found nearby: ${metaData.status}`);
-    }
-
-    const carLoc: LatLng = metaData.location;
-    console.log(`   Car found at:   ${carLoc.lat}, ${carLoc.lng}`);
-
-    // Step C: Calculate Heading
-    const heading = calculateHeading(carLoc, houseLoc);
-    console.log(`   Calculated Heading: ${heading.toFixed(2)}°`);
-
-    // Step D: Construct Final URL
-    const finalUrl = `https://maps.googleapis.com/maps/api/streetview?size=640x480&pano=${encodeURIComponent(metaData.pano_id!)}&heading=${heading.toFixed(2)}&fov=80&pitch=0&source=outdoor&return_error_code=true&key=${getGoogleMapsApiKey()}`;
-
-    console.log("Outdoor Street View reference ready.");
-    return finalUrl;
-  } catch (error) {
-    if (error instanceof Error) {
-      console.error("Error:", error.message);
-    } else {
-      console.error("An unknown error occurred");
-    }
-    return null;
-  }
 }
 
 const tools = openAITools;
