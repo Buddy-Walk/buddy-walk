@@ -121,3 +121,30 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
     }
   });
 }
+
+test("Last Meters hands a question to the Question service it was given", async t => {
+  t.mock.method(axios, "get", async (url: string) => { throw new Error(`Unexpected request: ${url}`); });
+  t.mock.method(lastMileTestLogService, "record", async () => "trial-question");
+  const asked: any[] = [];
+  const questionService = { textRequest: async (ctx: any, content: any) => {
+    asked.push(content);
+    ctx.res.status(200).json({ output: "answered" });
+  } };
+  const service = new OpenAIService(questionService as any);
+  let answer: any;
+  const res = { status: () => res, json: (body: any) => { answer = body; } };
+  const now = Date.now();
+  await service.lastMileRequest({ res } as any, { lat: 40.7, lng: -74, destination: "When is the next A train?", deviceHeading: 90,
+    gpsAccuracyMeters: 14, compassAccuracyLevel: 3, sensors: {
+    photoCapturedAt: now, positionTimestamp: now, headingTimestamp: now, headingReference: "true",
+    latestPosition: { lat: 40.7, lng: -74, accuracy: 14, timestamp: now },
+    latestHeading: 90, latestHeadingTimestamp: now, latestHeadingReference: "true",
+  } }, "data:image/jpeg;base64,photo");
+  assert.deepEqual(answer, { output: "answered" });
+  assert.deepEqual(asked, [{
+    text: "When is the next A train?",
+    image: undefined,
+    coords: { latitude: 40.7, longitude: -74, accuracy: 14, heading: 90 },
+    analytics: { feature: "mta" },
+  }]);
+});

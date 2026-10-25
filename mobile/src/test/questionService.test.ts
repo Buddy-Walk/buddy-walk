@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import axios from "axios";
 import OpenAI from "openai";
-import { OpenAIService as OpenAIQuestionService } from "../../server/services/openAI";
+import { OpenAIQuestionService } from "../../server/services/openAIQuestionService";
 import { aiRequestLogService } from "../../server/services/aiRequestLog";
 import { formatHistoryForPrompt } from "../../server/utils/conversationHistory";
 import { AIPrompt, imagePrompt, trainPrompt, videoPrompt, type textRequestBody } from "../../server/types";

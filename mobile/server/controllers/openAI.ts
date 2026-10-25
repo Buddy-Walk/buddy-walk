@@ -1,4 +1,5 @@
-import {OpenAIService} from "../services/openAI";
+import { OpenAIQuestionService } from "../services/openAIQuestionService";
+import type { QuestionService } from "../services/questionService";
 import { MobileLastMileService } from "../services/mobileLastMile";
 import { GeminiService } from "../services/gemini";
 import {textRequestBody} from "../types";
@@ -7,13 +8,13 @@ import { getPanoramaData } from "../services/doorfront"
 import { canRunLocalLastMile } from "../config/serverMode";
 import { parseLastMetersRequest } from "../utils/lastMileReplay";
 
-function createTextAiService(): OpenAIService | GeminiService {
+function createTextAiService(): QuestionService {
   const hasOpenAi = Boolean(process.env.OPENAI_API_KEY?.trim());
   const hasGemini = Boolean(process.env.GEMINI_API_KEY?.trim());
   if (hasGemini && !hasOpenAi) {
     return new GeminiService();
   }
-  return new OpenAIService();
+  return new OpenAIQuestionService();
 }
 
 const openAIService = createTextAiService();

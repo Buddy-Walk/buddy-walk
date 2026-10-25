@@ -14,6 +14,7 @@ import { getPanoramaData } from "./doorfront";
 import { getNearbyFeatures } from "./features";
 import { treeInterface, sidewalkMaterialInterface, pedestrianRampInterface } from "../database/models/features";
 import { describeOpeningStatus, placeHoursFromDetails } from "../utils/openingHours";
+import type { QuestionService } from "./questionService";
 
 dotenv.config();
 
@@ -185,7 +186,7 @@ const geminiTools: Tool[] = [
   }
 ];
 
-export class GeminiService {
+export class GeminiService implements QuestionService {
   genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || "");
   model = this.genAI.getGenerativeModel({
     model: "gemini-2.5-flash", // or "gemini-1.5-pro"
