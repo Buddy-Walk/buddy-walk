@@ -7,7 +7,8 @@ import { assessReplay, replayRequest } from "../utils/lastMileReplay";
 import { rowId } from "../utils/lastMileTestRow";
 import { lastMileRetryRunService, withRenewedLease, type RetryRun } from "./lastMileRetryRuns";
 import { lastMileTestLogService, type LastMileTestSummary } from "./lastMileTestLog";
-import { fetchStreetViewPanoramaById, OpenAIService, type StreetViewMetadata } from "./openAI";
+import { OpenAIService } from "./openAI";
+import { fetchStreetViewPanoramaById, type StreetViewMetadata } from "./streetViewPanorama";
 
 /**
  * A retry that could not run; status is the HTTP status to answer with, and
