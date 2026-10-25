@@ -1,14 +1,11 @@
 import { OpenAIQuestionService } from "../services/openAIQuestionService";
 import type { QuestionService } from "../services/questionService";
-import { MobileLastMileService } from "../services/mobileLastMile";
 import { GeminiService } from "../services/gemini";
 import {textRequestBody} from "../types";
 import { Request, Response } from "express";
 import { getPanoramaData } from "../services/doorfront"
-import { canRunLocalLastMile } from "../config/serverMode";
-import { parseLastMetersRequest } from "../utils/lastMileReplay";
 
-function createTextAiService(): QuestionService {
+function createQuestionService(): QuestionService {
   const hasOpenAi = Boolean(process.env.OPENAI_API_KEY?.trim());
   const hasGemini = Boolean(process.env.GEMINI_API_KEY?.trim());
   if (hasGemini && !hasOpenAi) {
@@ -17,10 +14,9 @@ function createTextAiService(): QuestionService {
   return new OpenAIQuestionService();
 }
 
-const openAIService = createTextAiService();
-const lastMileOpenAIService = new MobileLastMileService();
+const questionService = createQuestionService();
 
-export class OpenAIController {
+export class QuestionController {
 
   async parseUserRequest(req: Request, res: Response) {
     const { text, lat, lng } = req.body;
@@ -32,7 +28,7 @@ export class OpenAIController {
       res.status(400).json({ error: 'lat and lng must be numbers' });
       return;
     }
-    await openAIService.parseUserRequest({req, res}, text, lat, lng);
+    await questionService.parseUserRequest({req, res}, text, lat, lng);
   }
 
   async textRequest(req: Request, res: Response): Promise<void> {
@@ -41,7 +37,7 @@ export class OpenAIController {
       res.status(400).json({ error: 'text is required and must be a non-empty string' });
       return;
     }
-    await openAIService.textRequest({req, res}, body);
+    await questionService.textRequest({req, res}, body);
   }
 
   async audioRequest(req: Request, res: Response): Promise<void> {
@@ -50,7 +46,7 @@ export class OpenAIController {
       res.status(400).json({ error: 'text is required and must be a non-empty string' });
       return;
     }
-    await openAIService.audioRequest({req, res}, text);
+    await questionService.audioRequest({req, res}, text);
   }
 
   async doorfrontPanorama(req: Request, res: Response): Promise<void> {
@@ -60,24 +56,5 @@ export class OpenAIController {
       return;
     }
     await getPanoramaData({req, res}, address);
-  }
-  
-  async lastMileRequest(req: Request, res: Response) {
-    try {
-      const request = parseLastMetersRequest(req.body);
-      const image = req.body?.image;
-      if (!request || typeof image !== "string" || !image.startsWith("data:image/")) {
-        return res.status(400).json({ error: "Missing or invalid required fields" });
-      }
-      if (!canRunLocalLastMile()) {
-        return res.status(503).json({
-          error:
-            "Last Meters requires OPENAI_API_KEY and GOOGLE_MAPS_API_KEY (or GOOGLE_API_KEY) on this backend.",
-        });
-      }
-      await lastMileOpenAIService.lastMileRequest({ req, res }, request, image);
-    } catch (error) {
-      if (!res.headersSent) res.status(500).json({ error: "Internal server error" });
-    }
   }
 }

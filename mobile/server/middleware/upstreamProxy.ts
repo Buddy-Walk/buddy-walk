@@ -126,8 +126,8 @@ async function tryLocalAiHandler(
   handler: 'text' | 'parse' | 'audio'
 ): Promise<boolean> {
   if (!hasOwnAiKeys()) return false;
-  const { OpenAIController } = await import('../controllers/openAI');
-  const controller = new OpenAIController();
+  const { QuestionController } = await import('../controllers/questionController');
+  const controller = new QuestionController();
   if (handler === 'text') {
     await controller.textRequest(req, res);
   } else if (handler === 'parse') {
@@ -374,8 +374,8 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
     });
 
     if (upstreamRes.status >= 500 && canRunLocalLastMile()) {
-      const { OpenAIController } = await import('../controllers/openAI');
-      const controller = new OpenAIController();
+      const { LastMetersController } = await import('../controllers/lastMetersController');
+      const controller = new LastMetersController();
       await controller.lastMileRequest(req, res);
       return;
     }
@@ -431,8 +431,8 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
   } catch (error) {
     console.error('[upstreamProxy] last-mile via /api/text failed:', error);
     if (canRunLocalLastMile()) {
-      const { OpenAIController } = await import('../controllers/openAI');
-      const controller = new OpenAIController();
+      const { LastMetersController } = await import('../controllers/lastMetersController');
+      const controller = new LastMetersController();
       await controller.lastMileRequest(req, res);
       return;
     }
