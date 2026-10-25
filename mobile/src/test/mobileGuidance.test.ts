@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import axios from "axios";
+import OpenAI from "openai";
 import sharp from "sharp";
 import { MobileLastMileService, mobileReviewPanoramaStatus } from "../../server/services/mobileLastMile";
 import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
@@ -33,6 +34,12 @@ for (const scenario of [
       // Restore provider configuration for the remaining shared/retry tests.
       if (previousKey === undefined) delete process.env.GOOGLE_MAPS_API_KEY;
       else process.env.GOOGLE_MAPS_API_KEY = previousKey;
+    });
+    const previousOpenAIKey = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "test-openai";
+    t.after(() => {
+      if (previousOpenAIKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previousOpenAIKey;
     });
     let clock = Date.now();
     const submittedAt = clock;
@@ -75,7 +82,7 @@ for (const scenario of [
       assert.fail(`Unexpected provider call: ${url}`);
     });
     const service = new MobileLastMileService();
-    (service as any)._client = { chat: { completions: { create: async (input: any) => {
+    t.mock.method(OpenAI.Chat.Completions.prototype, "create", async (input: any) => {
       // Supply controlled visual evidence, never a model-authored turn angle.
       const prompt = input.messages[0].content as string;
       let text: string;
@@ -93,7 +100,7 @@ for (const scenario of [
         text = "A recessed doorway is on the brick wall in your photo.";
       } else assert.fail(`Unexpected visual prompt: ${prompt}`);
       return { choices: [{ message: { content: text! } }], usage: { total_tokens: 10 } };
-    } } } };
+    });
     let logged: any;
     t.mock.method(lastMileTestLogService, "record", async (row: any) => {
       // Observe the actual recorded inputs and outcome without creating a production trial.

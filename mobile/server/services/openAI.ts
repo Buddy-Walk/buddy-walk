@@ -21,6 +21,7 @@ import {
 } from "openai/resources";
 import { addPanoramaDescription, getPanoramaData } from "./doorfront";
 import { aiRequestLogService } from "./aiRequestLog";
+import { getOpenAIClient } from "./openAIClient";
 import { lastMileTestLogService } from "./lastMileTestLog";
 import { getSubwayArrivals } from "./mta";
 import { extractTrainLineFromText } from "../../src/utils/trainLine";
@@ -645,32 +646,10 @@ function maxTokensForFeature(feature?: string): number {
   }
 }
 
-/**
- * Every call here asks for a short answer, so none should wait the library's
- * default of 10 minutes per attempt. A stalled call would otherwise hold a
- * field test, or a dashboard retry's slot, for half an hour. The library's two
- * retries stay, since a third attempt often gets through a burst of 429s.
- */
-const OPENAI_TIMEOUT_MS = 90_000;
-const OPENAI_MAX_RETRIES = 2;
-
 export class OpenAIService {
-  private _client: OpenAI | null = null;
-
   /** Use the existing policy by default; a mobile subclass can choose its own field-only policy. */
   protected lastMileGuidancePolicy(_options: LastMetersRunOptions): LastMileGuidancePolicy {
     return strictLastMileGuidancePolicy;
-  }
-
-  private get client(): OpenAI {
-    if (!this._client) {
-      const apiKey = process.env.OPENAI_API_KEY;
-      if (!apiKey) {
-        throw new Error("OPENAI_API_KEY is not configured on the server");
-      }
-      this._client = new OpenAI({ apiKey, timeout: OPENAI_TIMEOUT_MS, maxRetries: OPENAI_MAX_RETRIES });
-    }
-    return this._client;
   }
 
   /** Tool-routing call used by /api/text. Returns undefined on failure instead of ending the response. */
@@ -680,7 +659,7 @@ export class OpenAIService {
     lng: number,
   ) {
     try {
-      const openAiResponse = await this.client.chat.completions.create({
+      const openAiResponse = await getOpenAIClient().chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
           { role: "user", content: text },
@@ -783,7 +762,7 @@ export class OpenAIService {
     let panoramaStatus: string | undefined;
     const panoramaValidation: PanoramaAttempt[] = [];
     const auditPanorama: PanoramaAudit = attempt => panoramaValidation.push(attempt);
-    const classifyPanorama: SceneClassifier = (images, timeoutMs) => classifyPanoramaScene(this.client, images, timeoutMs);
+    const classifyPanorama: SceneClassifier = (images, timeoutMs) => classifyPanoramaScene(getOpenAIClient(), images, timeoutMs);
     let panoramaHeadings: number[] = [];
     let destinationPhoto: string | undefined;
     let destinationPhotoDate: string | undefined;
@@ -1345,7 +1324,7 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
       Reply with exactly one heading token: ${LAST_MILE_HEADINGS.join(", ")}, or NOT_VISIBLE. Do not reply with the VIEW number. Return NOT_VISIBLE for indoor imagery.
       Use NOT_VISIBLE unless the requested destination is clearly identifiable in the panorama. A different nearby business is not a match. Do not infer a current business from nearby stores, an old sign, or the destination name alone.`;
       const step2StartedAt = Date.now();
-      const step2Request = this.client.chat.completions.create({
+      const step2Request = getOpenAIClient().chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
           { role: "system", content: step2Prompt },
@@ -1362,7 +1341,7 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
       // Observe errors even if a compass conflict returns before Step 2 is used.
       void step2Request.catch(() => undefined);
       const step1StartedAt = Date.now();
-      const step1Response = await this.client.chat.completions.create({
+      const step1Response = await getOpenAIClient().chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
           { role: "system", content: step1Prompt },
@@ -1562,7 +1541,7 @@ If no sign text is readable, reply exactly: NO_TEXT.`;
               panoramaTargetBearing,
             );
             dataSources.add("street_view_sign_closeup");
-            return this.client.chat.completions.create({
+            return getOpenAIClient().chat.completions.create({
               model: "gpt-4o-mini",
               messages: [
                 { role: "system", content: signPrompt },
@@ -1611,7 +1590,7 @@ If no sign text is readable, reply exactly: NO_TEXT.`;
           const step2bPrompt = `You will receive a destination-focused Street View image for the verified nearby place "${reference.placeName}" at "${reference.placeAddress}". ${destinationDateContext}
 Reply with exactly one token: VISIBLE or NOT_VISIBLE.
 Use VISIBLE only when the storefront, sign, or entrance clearly corresponds to the named destination. Do not infer identity from the prompt, nearby businesses, or a generic building entrance.`;
-          const step2bResponse = await this.client.chat.completions.create({
+          const step2bResponse = await getOpenAIClient().chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
               { role: "system", content: step2bPrompt },
@@ -1810,7 +1789,7 @@ Keep the response to two short sentences and do not repeat the turn instruction.
           },
         );
       }
-      const step3Response = await this.client.chat.completions.create({
+      const step3Response = await getOpenAIClient().chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
           { role: "system", content: step3Prompt },
@@ -2777,7 +2756,7 @@ Keep the response to two short sentences and do not repeat the turn instruction.
         systemContent +
         "\n\nChat history: " +
         formatHistoryForPrompt(recentHistory);
-      const chatCompletion = await this.client.chat.completions.create({
+      const chatCompletion = await getOpenAIClient().chat.completions.create({
         messages: [
           { role: "system", content: combinedSystemMessage },
           { role: "user", content: userContent },
@@ -2825,7 +2804,7 @@ Keep the response to two short sentences and do not repeat the turn instruction.
     // const speechFile = path.resolve("./speech.mp3");
     //console.log(text)
     try {
-      const mp3 = await this.client.audio.speech.create({
+      const mp3 = await getOpenAIClient().audio.speech.create({
         model: "tts-1",
         voice: "echo",
         input: text,

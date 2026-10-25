@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import axios from "axios";
+import OpenAI from "openai";
 import sharp from "sharp";
 import { OpenAIService } from "../../server/services/openAI";
 import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
@@ -12,6 +13,12 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
     t.after(() => {
       if (oldKey === undefined) delete process.env.GOOGLE_MAPS_API_KEY;
       else process.env.GOOGLE_MAPS_API_KEY = oldKey;
+    });
+    const oldOpenAIKey = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "unit-test";
+    t.after(() => {
+      if (oldOpenAIKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = oldOpenAIKey;
     });
     const pixels = Buffer.alloc(640 * 640 * 3);
     for (let i = 0; i < pixels.length; i++) pixels[i] = (i * 13 + Math.floor(i / 19)) % 256;
@@ -43,7 +50,7 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
     let signCalls = 0;
     let guidanceCalls = 0;
     const service = new OpenAIService();
-    (service as any)._client = { chat: { completions: { create: async (request: any) => {
+    t.mock.method(OpenAI.Chat.Completions.prototype, "create", async (request: any) => {
       const prompt = request.messages[0].content as string;
       let text = "NOT_VISIBLE";
       if (prompt.startsWith("Classify the CAMERA")) text = "OUTDOOR";
@@ -63,7 +70,7 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
       else if (prompt.includes("orientation assistant for a blind pedestrian")) { guidanceCalls++; text = "NO_RELIABLE_LANDMARKS"; }
       else assert.fail(`Unexpected prompt: ${prompt}`);
       return { choices: [{ message: { content: text } }], usage: { total_tokens: 10 } };
-    } } } };
+    });
     let logged: any;
     t.mock.method(lastMileTestLogService, "record", async (row: any) => { logged = row; return "trial-test"; });
     let answer: any;
