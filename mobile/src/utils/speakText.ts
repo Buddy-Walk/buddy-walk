@@ -3,7 +3,7 @@ import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 import * as Speech from 'expo-speech';
 import * as FileSystem from 'expo-file-system/legacy';
 
-import { sendAudioRequest } from '../api/openAi';
+import { sendAudioRequest } from '../api/speech';
 import { ensurePlaybackThroughSpeaker, resetAudioForPlayback } from './audioSession';
 import { isSafariBrowser, unlockWebAudioForPlayback } from './webAudioUnlock';
 

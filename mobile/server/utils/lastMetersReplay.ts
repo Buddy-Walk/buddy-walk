@@ -9,7 +9,7 @@
  * replay with a reason, but it must never invent data.
  */
 import { createHash } from "node:crypto";
-import { type LastMileSensors, validPoint } from "../../src/utils/lastMileSafety";
+import { type LastMetersSensors, validPoint } from "../../src/utils/lastMetersSafety";
 
 /** Bump by hand whenever a change could alter Last Meters results. */
 export const LAST_METERS_PIPELINE_VERSION = "3.0.0-safety-gated";
@@ -34,7 +34,7 @@ export interface LastMetersRequestInput {
   gpsAccuracyMeters?: number;
   compassAccuracyLevel?: number;
   /** Capture timestamps and live readings the safety gate checks. */
-  sensors?: LastMileSensors;
+  sensors?: LastMetersSensors;
 }
 
 /** Version 1 snapshot. The photo itself lives on the log's userPhoto. */
@@ -48,7 +48,7 @@ export interface ReplayInput {
   heading?: number;
   gpsAccuracyMeters?: number;
   compassAccuracyLevel?: number;
-  sensors?: LastMileSensors;
+  sensors?: LastMetersSensors;
   /** Hash of the photo as the app sent it, before it was compressed for storage. */
   originalPhotoSha256: string;
   photoRepresentation: "stored-compressed";
@@ -153,7 +153,7 @@ export function parseLastMetersRequest(body: unknown): LastMetersRequestInput | 
     gpsAccuracyMeters: finiteNumber(record.gpsAccuracyMeters),
     compassAccuracyLevel: finiteNumber(record.compassAccuracyLevel),
     // Checked field by field by the safety gate, which withholds on anything invalid.
-    sensors: sensors && typeof sensors === "object" ? (sensors as LastMileSensors) : undefined,
+    sensors: sensors && typeof sensors === "object" ? (sensors as LastMetersSensors) : undefined,
   };
 }
 
@@ -272,7 +272,7 @@ function validateCurrentInput(input: StoredReplayInput): ReplayInput | string {
     heading: finiteNumber(input.heading),
     gpsAccuracyMeters: finiteNumber(input.gpsAccuracyMeters),
     compassAccuracyLevel: finiteNumber(input.compassAccuracyLevel),
-    sensors: input.sensors as LastMileSensors,
+    sensors: input.sensors as LastMetersSensors,
     originalPhotoSha256:
       typeof input.originalPhotoSha256 === "string" ? input.originalPhotoSha256 : "",
     photoRepresentation: "stored-compressed",

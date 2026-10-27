@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sensorSafetyReasons, LastMileSensors, bearingBetween } from "../utils/lastMileSafety";
+import { sensorSafetyReasons, LastMetersSensors, bearingBetween } from "../utils/lastMetersSafety";
 import { evaluateWalkingLeg, preciseTurnReasons } from "../../server/utils/lastMetersPolicy";
 import { assessReplay, photoHash } from "../../server/utils/lastMetersReplay";
 import { summarizeFieldEvaluation } from "../../server/utils/lastMetersEvaluation";
@@ -8,7 +8,7 @@ import { summarizeFieldEvaluation } from "../../server/utils/lastMetersEvaluatio
 const now = 1_800_000_000_000;
 const origin = { lat: 40.7, lng: -74 };
 const target = { lat: 40.70045, lng: -74 };
-const sensors = (): LastMileSensors => ({ photoCapturedAt: now, positionTimestamp: now, headingTimestamp: now,
+const sensors = (): LastMetersSensors => ({ photoCapturedAt: now, positionTimestamp: now, headingTimestamp: now,
   headingReference: "true", latestPosition: { ...origin, accuracy: 5, timestamp: now },
   latestHeading: 359, latestHeadingTimestamp: now, latestHeadingReference: "true" });
 
@@ -26,7 +26,7 @@ test("sensor gate rejects missing, old, future, magnetic, moved and rotated read
     [{ latestHeadingTimestamp: now - 16_000 }, "current_heading_unavailable"],
     [{ latestHeading: 90 }, "turned_since_capture"],
     [{ latestPosition: { ...target, accuracy: 5, timestamp: now } }, "moved_since_capture"],
-  ] as const) assert.ok(sensorSafetyReasons({ ...sensors(), ...patch } as LastMileSensors, origin, 1, 5, now).includes(reason));
+  ] as const) assert.ok(sensorSafetyReasons({ ...sensors(), ...patch } as LastMetersSensors, origin, 1, 5, now).includes(reason));
 });
 test("server checks snapshot at receipt, client checks live sensors before speech", () => {
   assert.deepEqual(sensorSafetyReasons(sensors(), origin, 1, 5, now + 30_000, now), []);

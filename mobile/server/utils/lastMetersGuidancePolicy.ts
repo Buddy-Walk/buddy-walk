@@ -1,5 +1,5 @@
-import { sensorSafetyReasons, RECAPTURE_MESSAGE } from "../../src/utils/lastMileSafety";
-import { mobileTurnSensorReasons } from "../../src/utils/mobileLastMileGuidance";
+import { sensorSafetyReasons, RECAPTURE_MESSAGE } from "../../src/utils/lastMetersSafety";
+import { mobileTurnSensorReasons } from "../../src/utils/mobileLastMetersGuidance";
 import { preciseTurnReasons, type WalkingEvidence } from "./lastMetersPolicy";
 import { buildLastMetersSourceNote, formatLastMetersDistance, resolveExactModeGate, LAST_METERS_EXACT_RADIUS_METERS } from "./lastMetersNavigation";
 import type { LastMetersRequestInput } from "./lastMetersReplay";
