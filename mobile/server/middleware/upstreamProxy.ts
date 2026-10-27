@@ -1,6 +1,8 @@
 import axios, { AxiosResponse } from 'axios';
 import express, { Application, Request, Response } from 'express';
 import { getUpstreamApiRoot, hasOwnOpenAiKey, canRunLocalLastMile } from '../config/serverMode';
+import { LastMetersController } from '../controllers/lastMetersController';
+import { QuestionController } from '../controllers/questionController';
 import { aiRequestLogService } from '../services/aiRequestLog';
 import {
   compressUserPhoto,
@@ -126,7 +128,6 @@ async function tryLocalAiHandler(
   handler: 'text' | 'parse' | 'audio'
 ): Promise<boolean> {
   if (!hasOwnOpenAiKey()) return false;
-  const { QuestionController } = await import('../controllers/questionController');
   const controller = new QuestionController();
   if (handler === 'text') {
     await controller.textRequest(req, res);
@@ -321,7 +322,6 @@ export function mountAiProxy(app: Application): void {
 /** Runs Last Meters on this host when it can; returns false when it can't. */
 async function tryLocalLastMile(req: Request, res: Response): Promise<boolean> {
   if (!canRunLocalLastMile()) return false;
-  const { LastMetersController } = await import('../controllers/lastMetersController');
   const controller = new LastMetersController();
   await controller.lastMileRequest(req, res);
   return true;

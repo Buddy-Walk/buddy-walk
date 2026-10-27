@@ -113,9 +113,8 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     next();
   });
 
-  // Speech is registered before questionRoute because that router also declares
-  // /api/transcribe; Express keeps the first matching route, so this decides
-  // whether transcription runs locally or upstream regardless of AI routing.
+  // Speech is routed on its own, so transcription runs locally or upstream
+  // regardless of AI routing.
   if (routing.speech === 'local') {
     app.use("/api/token", tokenRoute);
     app.post(
