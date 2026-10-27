@@ -32,7 +32,6 @@ async function connectToDoorfrontDB() {
 }
 
 export async function getPanoramaData(ctx: AppContext, address: string) {
-    const { res } = ctx;
   try {
     const db = await connectToDoorfrontDB();
     if (db && address && address.trim() !== '') {
@@ -43,13 +42,10 @@ export async function getPanoramaData(ctx: AppContext, address: string) {
         if (data) { 
             console.log("Panorama data fetched successfully for address:", address);
             console.log("Image URL: ", data.url);
-            // res.status(200).json(data);
             return data; 
         }
         else return null;
-        // res.status(404).json({ message: 'No panorama data found for this address.' });
     } else {
-        // res.status(500).json({ message: 'Database connection failed or invalid address.' });
         console.error('Database connection failed or invalid address');
         return null;
     }
