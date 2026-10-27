@@ -1,6 +1,6 @@
 import axios, { AxiosResponse } from 'axios';
 import express, { Application, Request, Response } from 'express';
-import { getUpstreamApiRoot, hasOwnAiKeys, canRunLocalLastMile } from '../config/serverMode';
+import { getUpstreamApiRoot, hasOwnOpenAiKey, canRunLocalLastMile } from '../config/serverMode';
 import { aiRequestLogService } from '../services/aiRequestLog';
 import {
   compressUserPhoto,
@@ -125,7 +125,7 @@ async function tryLocalAiHandler(
   res: Response,
   handler: 'text' | 'parse' | 'audio'
 ): Promise<boolean> {
-  if (!hasOwnAiKeys()) return false;
+  if (!hasOwnOpenAiKey()) return false;
   const { QuestionController } = await import('../controllers/questionController');
   const controller = new QuestionController();
   if (handler === 'text') {

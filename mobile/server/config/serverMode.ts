@@ -18,7 +18,7 @@ function allPresent(...names: string[]): boolean {
 }
 
 /** OpenAI: /api/text, /api/parseRequest, /api/audio, /api/last-mile. */
-export function hasOwnAiKeys(): boolean {
+export function hasOwnOpenAiKey(): boolean {
   return allPresent('OPENAI_API_KEY');
 }
 
@@ -39,7 +39,7 @@ export function hasOwnMapsKey(): boolean {
 
 /** Last Meters needs OpenAI vision and Google Street View. */
 export function canRunLocalLastMile(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY?.trim()) && hasOwnMapsKey();
+  return hasOwnOpenAiKey() && hasOwnMapsKey();
 }
 
 export function getUpstreamApiRoot(): string {
@@ -82,7 +82,7 @@ export function getServiceRouting(): ServiceRouting {
       mta: 'proxy',
       lastMile: 'proxy',
     };
-    if (hasOwnAiKeys()) routing.ai = 'local';
+    if (hasOwnOpenAiKey()) routing.ai = 'local';
     if (canRunLocalLastMile()) routing.lastMile = 'local';
     return routing;
   }
@@ -90,7 +90,7 @@ export function getServiceRouting(): ServiceRouting {
     return { ai: 'local', speech: 'local', mta: 'local', lastMile: 'local' };
   }
   const routing: ServiceRouting = {
-    ai: route(hasOwnAiKeys()),
+    ai: route(hasOwnOpenAiKey()),
     speech: route(hasOwnSpeechKeys()),
     mta: route(hasOwnMtaKey()),
     lastMile: route(canRunLocalLastMile()),
