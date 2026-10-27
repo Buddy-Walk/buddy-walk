@@ -18,3 +18,8 @@ _Avoid_: Destination lookup result, place match
 **Last Meters**:
 Guidance that takes a user standing near a destination the final stretch to its door, using their photo, GPS, compass, and Street View panoramas to produce a turn instruction.
 _Avoid_: Last mile
+
+**Trial**:
+One recorded Last Meters run, from the app or replayed from the dashboard, with the evidence gathered, each step taken, and the answer given.
+The team reviews and retries Trials on the dashboard.
+_Avoid_: Test log record, field test, last mile test
