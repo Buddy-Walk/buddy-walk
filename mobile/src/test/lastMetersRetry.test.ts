@@ -833,10 +833,28 @@ test("the CSV export includes a retry's photo", async () => {
   assert.equal(csv.split(placeholder).length - 1, 2);
 });
 
+test("the CSV export says which path each test arrived on", async () => {
+  seed("old-path", { requestPath: "/api/last-mile" });
+  const { req, res } = fakeExchange("", undefined, { "x-admin-token": "secret" });
+  (req as unknown as { query: Record<string, string> }).query = {};
+  let csv = "";
+  const csvRes = Object.assign(res, {
+    send(payload: string) {
+      csv = payload;
+      return this;
+    },
+  });
+  await controller.exportCsv(req, csvRes as unknown as Response);
+  const [header, row] = csv.split("\n");
+  const column = header.split(",").indexOf("requestPath");
+  assert.notEqual(column, -1, "the export has a requestPath column");
+  assert.equal(row.split(",")[column], "/api/last-mile");
+});
+
 test("a proxied log's fields and its replay input come from the same parsed request", () => {
   const parsed = parseLastMetersRequest({ destination: "  CVS  ", lat: 40.7128, lng: -74.006, heading: 92.5, gpsAccuracyMeters: 6 });
   assert.ok(parsed);
-  const fields = proxiedRequestFields(parsed, PHOTO, RECEIVED_AT);
+  const fields = proxiedRequestFields(parsed, PHOTO, RECEIVED_AT, "/api/last-meters");
   assert.equal(fields.destination, "CVS");
   assert.equal(fields.replayInput.destination, fields.destination);
   assert.equal(fields.replayInput.lat, fields.lat);

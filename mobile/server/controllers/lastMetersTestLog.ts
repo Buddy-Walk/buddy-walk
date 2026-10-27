@@ -31,7 +31,7 @@ import { lastMetersRetryRunService, type RetryRun } from "../services/lastMeters
 import { parseIdempotencyKey } from "../utils/idempotencyKey";
 
 const LAST_METERS_TEST_CSV_COLUMNS = [
-  "pipelineVersion", "deployedCommit", "runKind", "retryOf", "retryPanoramaMode", "retryDefaultsApplied", "replayInput", "safetyReasons", "walkingEvidence", "panoramaTargetHeading", "confidenceMethod",
+  "pipelineVersion", "deployedCommit", "runKind", "requestPath", "retryOf", "retryPanoramaMode", "retryDefaultsApplied", "replayInput", "safetyReasons", "walkingEvidence", "panoramaTargetHeading", "confidenceMethod",
   "serverTs",
   "destination",
   "destinationQuery",

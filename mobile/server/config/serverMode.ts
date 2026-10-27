@@ -17,7 +17,7 @@ function allPresent(...names: string[]): boolean {
   return names.every((name) => Boolean(process.env[name]?.trim()));
 }
 
-/** OpenAI: /api/text, /api/parseRequest, /api/audio, /api/last-mile. */
+/** OpenAI: /api/text, /api/parseRequest, /api/audio, /api/last-meters. */
 export function hasOwnOpenAiKey(): boolean {
   return allPresent('OPENAI_API_KEY');
 }

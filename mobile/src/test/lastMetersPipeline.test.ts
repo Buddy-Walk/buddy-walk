@@ -71,7 +71,7 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
       photoCapturedAt: now, positionTimestamp: now, headingTimestamp: now, headingReference: "true",
       latestPosition: { lat: 40.7, lng: -74, accuracy: 14, timestamp: now },
       latestHeading: 90, latestHeadingTimestamp: now, latestHeadingReference: "true",
-    } }, `data:image/jpeg;base64,${jpeg.toString("base64")}`);
+    } }, `data:image/jpeg;base64,${jpeg.toString("base64")}`, "/api/last-meters");
     assert.equal(answer.testLogId, "trial-test");
     assert.equal(logged.runKind, "field");
     assert.equal(logged.replayInput.sensors?.photoCapturedAt, scenario === "missing-sensors" ? undefined : now);
@@ -129,7 +129,7 @@ test("Last Meters hands a question to the Question service it was given", async 
     photoCapturedAt: now, positionTimestamp: now, headingTimestamp: now, headingReference: "true",
     latestPosition: { lat: 40.7, lng: -74, accuracy: 14, timestamp: now },
     latestHeading: 90, latestHeadingTimestamp: now, latestHeadingReference: "true",
-  } }, "data:image/jpeg;base64,photo");
+  } }, "data:image/jpeg;base64,photo", "/api/last-meters");
   assert.deepEqual(answer, { output: "answered" });
   assert.deepEqual(asked, [{
     text: "When is the next A train?",

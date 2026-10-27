@@ -16,6 +16,7 @@ import {
   type ReplayInput,
 } from "../utils/lastMetersReplay";
 import type { RetryPanoramaMode } from "../database/models/lastMetersTestLog";
+import type { LastMetersPath } from "../routes/lastMetersPaths";
 import { outdoorPanoramaRejection } from "../utils/outdoorPanorama";
 import { selectOutdoorPanorama, SceneClassifier, PanoramaAudit, PanoramaAttempt, PanoramaSearchBudget } from "./outdoorPanoramaSelection";
 import {
@@ -194,8 +195,9 @@ export class LastMetersService {
     ctx: AppContext,
     request: LastMetersRequestInput,
     image: string,
+    requestPath: LastMetersPath,
   ) {
-    const result = await this.runLastMeters(request, image);
+    const result = await this.runLastMeters(request, image, { requestPath });
     if (result.kind === "question") {
       return this.questionService.textRequest(ctx, result.textRequest);
     }
@@ -221,7 +223,7 @@ export class LastMetersService {
       compassAccuracyLevel,
       sensors,
     } = request;
-    const { retry, pinnedPanorama } = options;
+    const { retry, pinnedPanorama, requestPath } = options;
     const startedAt = Date.now();
     // A retry keeps the original's snapshot and judges sensor freshness as of
     // the original request.
@@ -373,6 +375,7 @@ export class LastMetersService {
             }
           : {
               runKind: "field" as const,
+              requestPath,
               userPhoto: await resizeDataUrlImage(
                 image,
                 STORED_PHOTO_MAX_WIDTH,
@@ -408,7 +411,7 @@ export class LastMetersService {
     if (initialSensorReasons.length) return withhold(initialSensorReasons);
 
     console.log("\n==================================================");
-    console.log("📥 [BACKEND] HIT RECEIVED ON /api/last-mile route!");
+    console.log("📥 [BACKEND] HIT RECEIVED ON THE LAST METERS ROUTE!");
     console.log(`[BACKEND] Destination requested: "${destination}"`);
     console.log(`[BACKEND] Coordinates: lat=${lat}, lng=${lng}`);
     console.log(
@@ -1404,6 +1407,8 @@ export interface LastMetersRunOptions {
     /** The original's snapshot, upgraded to the current version. */
     replayInput: ReplayInput;
   };
+  /** Set for app requests: the path the request arrived on. */
+  requestPath?: LastMetersPath;
 }
 
 export type LastMetersRunResult =

@@ -8,6 +8,7 @@ import './lastMetersReplay.test.ts';
 import './lastMetersTestRow.test.ts';
 import './lastMetersReplayInput.test.ts';
 import './lastMetersRetry.test.ts';
+import './lastMetersRoutes.test.ts';
 import './questionService.test.ts';
 import './nearbyPlaces.test.ts';
 import './lastMetersInput.test.ts';

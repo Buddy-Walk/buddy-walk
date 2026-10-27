@@ -122,7 +122,7 @@ for (const scenario of [
       /** Capture what the native client actually receives. */
       json: (body: any) => { answer = body; },
     };
-    await service.lastMetersRequest({ res } as any, request, photo);
+    await service.lastMetersRequest({ res } as any, request, photo, "/api/last-meters");
     assert.ok(panoramaCalls > 0, "Sensor imperfections must not prevent the panorama search");
     assert.equal(answer.testLogId, "mobile-guidance-trial");
     assert.equal(logged.runKind, "field");

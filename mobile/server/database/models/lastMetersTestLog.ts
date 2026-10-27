@@ -5,6 +5,7 @@ import type { PlaceCandidateLog } from "../../utils/nearbyPlaces";
 import type { PanoramaAttempt } from "../../services/outdoorPanoramaSelection";
 import type { ReplayInput } from "../../utils/lastMetersReplay";
 import type { WalkingEvidence } from "../../utils/lastMetersPolicy";
+import { LAST_METERS_PATH, OLD_LAST_METERS_PATH, type LastMetersPath } from "../../routes/lastMetersPaths";
 
 export const REVIEW_OUTCOMES = ["got_there", "needed_retake", "would_not_get_there"] as const;
 export const TURN_CORRECTNESS = ["correct", "wrong", "no_turn_given"] as const;
@@ -34,6 +35,8 @@ export interface lastMetersTestLogInterface {
   deployedCommit?: string;
   /** "replay" for dashboard retries, which are not field tests. */
   runKind?: "field" | "replay";
+  /** Set on app requests: the Last Meters path the request arrived on. */
+  requestPath?: LastMetersPath;
   /** Set on dashboard retries: the original field test this re-ran. */
   retryOf?: string;
   retryPanoramaMode?: RetryPanoramaMode;
@@ -156,6 +159,7 @@ const LastMetersTestLogSchema = new Schema<lastMetersTestLogInterface>({
   pipelineVersion: String,
   deployedCommit: String,
   runKind: { type: String, enum: ["field", "replay"] },
+  requestPath: { type: String, enum: [LAST_METERS_PATH, OLD_LAST_METERS_PATH] },
   retryOf: String,
   retryPanoramaMode: { type: String, enum: [...RETRY_PANORAMA_MODES] },
   retryDefaultsApplied: [{ type: String }],

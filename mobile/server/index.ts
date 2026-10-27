@@ -4,7 +4,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import questionRoute from "./routes/question"
-import lastMetersRoute from "./routes/lastMeters"
+import lastMetersRoute, { mountLastMeters } from "./routes/lastMeters"
 import chatLogRoute from "./routes/chatLog"
 import tokenRoute from "./routes/token"
 import companionRoute from "./routes/companion"
@@ -16,12 +16,10 @@ import mongoose from "mongoose";
 import { config } from "./database";
 import { setCompanionMemoryStore } from "./database/companionStoreMode";
 import { canRunLocalLastMeters, describeServerMode, getServiceRouting } from "./config/serverMode";
-import { LastMetersController } from "./controllers/lastMetersController";
 import {
   mountAiProxy,
   mountSpeechProxy,
   mountMtaProxy,
-  mountLastMetersProxy,
 } from "./middleware/upstreamProxy";
 import { isMongoConnected } from "./database/usageStore";
 import { probeUpstreamText } from "./middleware/upstreamProxy";
@@ -134,15 +132,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     mountMtaProxy(app);
   }
 
-  const lastMetersController = new LastMetersController();
-  // Street View must run here when keys exist — do not rely on the text proxy.
-  if (canRunLocalLastMeters()) {
-    app.post('/api/last-mile', (req, res) => {
-      void lastMetersController.lastMetersRequest(req, res);
-    });
-  } else if (routing.lastMeters === 'proxy') {
-    mountLastMetersProxy(app);
-  }
+  mountLastMeters(app);
 
   if (routing.ai === 'local') {
     app.use("/api", lastMetersRoute);
