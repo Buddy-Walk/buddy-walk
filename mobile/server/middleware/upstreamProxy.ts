@@ -318,6 +318,15 @@ export function mountAiProxy(app: Application): void {
   app.post('/api/audio', (req, res) => forwardBinary(req, res, '/api/audio'));
 }
 
+/** Runs Last Meters on this host when it can; returns false when it can't. */
+async function tryLocalLastMile(req: Request, res: Response): Promise<boolean> {
+  if (!canRunLocalLastMile()) return false;
+  const { LastMetersController } = await import('../controllers/lastMetersController');
+  const controller = new LastMetersController();
+  await controller.lastMileRequest(req, res);
+  return true;
+}
+
 function lastMetersTextPrompt(destination: string): string {
   return (
     `Help me reach the entrance of ${destination}.\n\n` +
@@ -373,12 +382,7 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
       timeout: 180_000,
     });
 
-    if (upstreamRes.status >= 500 && canRunLocalLastMile()) {
-      const { LastMetersController } = await import('../controllers/lastMetersController');
-      const controller = new LastMetersController();
-      await controller.lastMileRequest(req, res);
-      return;
-    }
+    if (upstreamRes.status >= 500 && (await tryLocalLastMile(req, res))) return;
 
     const output = extractOutputText(upstreamRes.data);
     const success = upstreamRes.status >= 200 && upstreamRes.status < 300;
@@ -430,12 +434,7 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
     });
   } catch (error) {
     console.error('[upstreamProxy] last-mile via /api/text failed:', error);
-    if (canRunLocalLastMile()) {
-      const { LastMetersController } = await import('../controllers/lastMetersController');
-      const controller = new LastMetersController();
-      await controller.lastMileRequest(req, res);
-      return;
-    }
+    if (await tryLocalLastMile(req, res)) return;
     const localId = await recordProxiedLastMileFailure(request, image, startedAt, error);
     res.status(502).json({
       error: 'Upstream API unavailable',
