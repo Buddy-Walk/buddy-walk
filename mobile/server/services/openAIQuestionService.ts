@@ -238,7 +238,6 @@ export class OpenAIQuestionService {
       return;
     }
 
-    // console.log("hello world!!!")
     let systemContent = "";
     let completeAIPrompt = AIPrompt;
     let relevantData = "";
@@ -246,13 +245,11 @@ export class OpenAIQuestionService {
     const userContent: [
       ChatCompletionContentPartText | ChatCompletionContentPartImage,
     ] = [{ type: "text", text: content.text }];
-    //updated userContent to take array of images instead of a singe string image
     if (
       Array.isArray(content.image) &&
       content.image.length > 0 &&
       content.image[0] !== null
     ) {
-      // console.log(content)
       content.image.forEach((image) => {
         userContent.push({
           type: "image_url",
@@ -263,7 +260,6 @@ export class OpenAIQuestionService {
         });
       });
     }
-    // console.log(userContent)
     if (
       content.coords &&
       !requiresVerifiedNearbyAnswer &&
@@ -332,7 +328,6 @@ export class OpenAIQuestionService {
           content.coords.latitude,
           content.coords.longitude,
         );
-      // console.log("parsedRequest: ", parsedRequest)
         console.log(parsedRequest?.choices[0].message);
       //determine if chat gpt is returning an api link
         if (
@@ -398,7 +393,6 @@ export class OpenAIQuestionService {
               return;
             }
           }
-        // console.log("parsedArgs", parsedArgs);
           if (
             link !== undefined &&
             parsedRequest.choices[0].message.tool_calls![0].function.name !==
@@ -418,7 +412,6 @@ export class OpenAIQuestionService {
                   detail: "low",
                 },
             });
-            // console.log(userContent);
             } else {
               // A model-built Find Place link without a bias can resolve to a
               // same-named branch anywhere; keep it near the user.
@@ -434,7 +427,6 @@ export class OpenAIQuestionService {
             //if its giving back a nearby places link
             if (places.data.results) {
               completeAIPrompt += nearbyPlacesPrompt;
-              // console.log(places.data.results)
                 relevantData = places.data.results
                   .map(
                     (place: {
@@ -453,16 +445,11 @@ export class OpenAIQuestionService {
                       "}",
                   )
                   .join(", ");
-              //console.log(relevantData)
               systemContent += `\nNearby Places in order of nearest distance: ${relevantData}`;
-              //console.log(systemContent)
             }
             //if its giving back a specific place link
             else if (places.data.candidates) {
               completeAIPrompt += nearbyPlacesPrompt;
-              //console.log(places.data.candidates[0])
-              //relevantData = `name: ${places.data.candidates[0].name}, address: ${places.data.candidates[0].formatted_address}`
-              //console.log(relevantData)
                 const candidate = places.data.candidates[0];
                 // Open/closed and the next change are computed here; the model
                 // has misread weekday_text against the clock before.
@@ -497,25 +484,6 @@ export class OpenAIQuestionService {
                     `do not recalculate open or closed yourself: ${openingStatus}\n`
                   : "Operating Hours: Not available\n";
             }
-            //if its giving back directions link
-
-            // else if (places.data.routes) {
-            //   console.log(places.data.routes[0].legs[0])
-            //   relevantData = "Directions:\n"
-            //   for (let i = 0; i < places.data.routes[0].legs[0].steps.length; i++) {
-            //     relevantData += `Step ${i + 1}) ${places.data.routes[0].legs[0].steps[i].html_instructions} \n`
-            //   }
-            //   systemContent += relevantData
-            //   const routePoints: { lat: number, lng: number  }[] = [{lat:places.data.routes[0].legs[0].steps[0].start_location.lat, lng:places.data.routes[0].legs[0].steps[0].start_location.lng}]
-            //   routePoints.push(...places.data.routes[0].legs[0].steps.map((step: { start_location: { lat: number, lng: number }, end_location: { lat: number, lng: number } }) => ({
-            //     lat: step.end_location.lat, lng: step.end_location.lng
-            //   })));
-            //   let staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?&size=640x640&maptype=roadmap&path=color:0x0000ff|weight:5|`;
-            //   staticMapUrl += routePoints.map(point => `${point.lat},${point.lng}`).join('|');
-            //   staticMapUrl += `&key=${process.env.GOOGLE_API_KEY}`;
-            //   console.log(staticMapUrl)
-            // }
-
             //if its giving back distance matrix link
             else if (places.data.rows) {
                 relevantData =
@@ -524,7 +492,6 @@ export class OpenAIQuestionService {
                   ", duration: " +
                   places.data.rows[0].elements[0].duration.text;
                 systemContent += `Distance in miles: ${places.data.rows[0].elements[0].distance.value * 0.00062137}, How long it will take to walk: ${places.data.rows[0].elements[0].duration.text}`;
-              //console.log(systemContent)
             }
           }
         }
@@ -541,15 +508,12 @@ export class OpenAIQuestionService {
             );
           //get link
           const { address } = parsedArgs;
-          // console.log(address)
             const reqlink =
               `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?location=
             ${content.coords.latitude},${content.coords.longitude}&fields=formatted_address%2Cname%2Cgeometry&inputtype=textquery&input=${address.replace(/\s+/g, "%2C")}` +
               `&key=${getGoogleMapsApiKey()}`;
             console.log(reqlink);
           const location: any = await axios.get(reqlink);
-          // console.log(location)
-          // console.log(geocodedCoords[0].formatted_address)
           // remove st, nd, rd, th from address for better matching
             const cleanAddress = location.data.candidates[0].name.replace(
               /(\d+)(st|nd|rd|th)\b/gi,
@@ -557,7 +521,6 @@ export class OpenAIQuestionService {
             );
           const panoramaData = await getPanoramaData(ctx, cleanAddress);
           if (panoramaData) {
-            //console.log(panoramaData.human_labels[0].labels);
             console.log(panoramaData.image_description);
               if (
                 panoramaData.url &&
@@ -605,7 +568,6 @@ export class OpenAIQuestionService {
                     detail: "high",
                   },
               });
-            // relevantData = 'Data on this address has not been collected yet. Let the user know if they want detailed information on this address, they can visit doorfront.org and request it be added.';
             relevantData = `Data on this address has not been collected yet by volunteers. Use the street view image to describe the entrance features visible from street view. Let the user know this data is not validated by real users and may not be correct.
              When describing this image, provide a confidence level (1 to 5) for your description of the entrance based on how clear the image is.`;
           }
@@ -626,7 +588,6 @@ export class OpenAIQuestionService {
               content.coords.longitude,
               0.06,
             );
-          // console.log(features);
           const trees: treeInterface[] = features.trees;
             const sidewalkMaterials: sidewalkMaterialInterface[] =
               features.sidewalkMaterials;
@@ -639,11 +600,9 @@ export class OpenAIQuestionService {
           // Add user location marker
           staticMapUrl += `&markers=color:blue%7Clabel:U%7C${content.coords.latitude},${content.coords.longitude}`;
             staticMapUrl += `&markers=color:green%7Clabel:T%7C${trees.map((tree) => `${tree.location.coordinates[1]},${tree.location.coordinates[0]}`).join("%7C")}`;
-          // staticMapUrl += `&markers=color:yellow%7Clabel:S%7C${sidewalkMaterials.map(material => `${material.location.coordinates[1]},${material.location.coordinates[0]}`).join('%7C')}`;
           // Define colors for each sidewalk material type
           const materialColors: Record<string, string> = {
             tactile: "yellow",
-            //concrete: "gray",
             manhole: "black",
             "cellar door": "brown",
             "subway grate": "orange",
@@ -670,8 +629,6 @@ export class OpenAIQuestionService {
               .join("%7C")}`;
           // Add the API key to the static map URL
             staticMapUrl += `&key=${getGoogleMapsApiKey()}`;
-
-          console.log(staticMapUrl);
         }
         // Directions with static map, doorfront, and features
           else if (
@@ -773,7 +730,6 @@ export class OpenAIQuestionService {
 
             // step 2: get doorfront data if it exists for the formatted address
             const panoramaData = await getPanoramaData(ctx, cleanAddress);
-              let doorfrontData = "";
               let doorLocation:
                 | { lat: number; lng: number }
                 | undefined
@@ -787,10 +743,6 @@ export class OpenAIQuestionService {
                   "Panorama data found for address:",
                   formattedAddress,
                 );
-              // doorfrontData += panoramaData.human_labels[0].labels.map(
-              //   (label: { label: string, subtype: string, box: { x: number, y: number, width: number, height: number } }) =>
-              //     `\n${label.label} (${label.subtype ? label.subtype : 'exists'}), Bounding Box: x = ${label.box.x}, y = ${label.box.y}, width: ${label.box.width}, height: ${label.box.height}`
-              // ).join('; ');
               for (const label of panoramaData.human_labels[0].labels) {
                   if (label.label === "door") {
                   doorLocation = `${label.exactCoordinates?.lat}, ${label.exactCoordinates?.lng}`;
@@ -840,74 +792,6 @@ export class OpenAIQuestionService {
                 relevantData += `Step ${i + 1}) ${route.data.routes[0].legs[0].steps[i].html_instructions} for ${route.data.routes[0].legs[0].steps[i].distance.text} \n`;
               }
               systemContent += relevantData;
-            // // step 4: Take each lat/lng from each point in route --> can just use encoded polyline
-            // const polyline = route.data.routes[0].overview_polyline.points;
-            // const routePoints: { lat: number, lng: number  }[] = [{lat:route.data.routes[0].legs[0].steps[0].start_location.lat, lng:route.data.routes[0].legs[0].steps[0].start_location.lng}]
-            // routePoints.push(...route.data.routes[0].legs[0].steps.map((step: { start_location: { lat: number, lng: number }, end_location: { lat: number, lng: number } }) => ({
-            //   lat: step.end_location.lat, lng: step.end_location.lng
-            // })));
-            // // step 5: For each point in route, get features in a certain radius around that point
-            // const features = await Promise.all(routePoints.map(async (point) => {
-            //   const nearbyFeatures = await getNearbyFeatures(point.lat, point.lng, 0.03);
-            //   return nearbyFeatures;
-            // }));
-            // const mergedFeatures = {
-            //   trees: features.flatMap(f => f.trees),
-            //   sidewalkMaterials: features.flatMap(f => f.sidewalkMaterials),
-            //   pedestrianRamps: features.flatMap(f => f.pedestrianRamps),
-            // };
-            // // console.log(features)
-            // // step 6: Add the route line and all features to the static map along with starting and ending position
-            // // let staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?&size=640x640&maptype=roadmap&path=color:0x0000ff|weight:7|enc:${polyline}`;
-            // let staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${routePoints[routePoints.length-1].lat},${routePoints[routePoints.length-1].lng}&zoom=19&size=640x640&maptype=roadmap&path=color:0x0000ff|weight:7|enc:${polyline}`;
-            // const trees: treeInterface[] = mergedFeatures.trees;
-            // const sidewalkMaterials: sidewalkMaterialInterface[] = mergedFeatures.sidewalkMaterials;
-            // const pedestrianRamps: pedestrianRampInterface[] = mergedFeatures.pedestrianRamps;
-            // staticMapUrl += `&markers=color:blue%7Clabel:U%7C${content.coords.latitude},${content.coords.longitude}`;
-            // staticMapUrl += `&markers=color:red%7Clabel:D%7C${routePoints[routePoints.length-1].lat},${routePoints[routePoints.length-1].lng}`;
-            // staticMapUrl += `&markers=color:green%7Clabel:T%7C${trees.map(tree => `${tree.location.coordinates[1]},${tree.location.coordinates[0]}`).join('%7C')}`;
-            // systemContent += `Feature Locations: Trees: ${trees.map(tree => `(${tree.location.coordinates[1]},${tree.location.coordinates[0]})`).join(', ')} \n
-            // Sidewalk Materials: ${sidewalkMaterials.map(material => `${material.material} at (${material.location.coordinates[1]},${material.location.coordinates[0]})`).join(', ')} \n
-            // Pedestrian Ramps: ${pedestrianRamps.map(ramp => `(${ramp.location.coordinates[1]},${ramp.location.coordinates[0]})`).join(', ')}`;
-            // // staticMapUrl += `&markers=color:yellow%7Clabel:S%7C${sidewalkMaterials.map(material => `${material.location.coordinates[1]},${material.location.coordinates[0]}`).join('%7C')}`;
-            // // Define colors for each sidewalk material type
-            // const materialColors: Record<string, string> = {
-            //   // tactile: "yellow",
-            //   //concrete: "gray",
-            //   // manhole: "black",
-            //   // "cellar door": "brown",
-            //   "subway grate": "orange",
-            //   // other: "white"
-            // };
-
-            // // Add a marker for each material type
-            // Object.entries(materialColors).forEach(([material, color]) => {
-            //   const locations = sidewalkMaterials
-            //     .filter(m => m.material.toLowerCase() === material)
-            //     .map(m => `${m.location.coordinates[1]},${m.location.coordinates[0]}`);
-            //   if (locations.length > 0) {
-            //     staticMapUrl += `&markers=color:${color}%7Clabel:S%7C${locations.join('%7C')}`;
-            //   }
-            // });
-            // staticMapUrl += `&markers=color:red%7Clabel:R%7C${pedestrianRamps.map(
-            //   ramp => `${ramp.location.coordinates[1]},${ramp.location.coordinates[0]}`).join('%7C')}`;
-            // // Add the API key to the static map URL
-            // staticMapUrl += `&key=${process.env.GOOGLE_API_KEY}`;
-            // console.log(staticMapUrl);
-            //   // step 7: give populated static map to gpt
-            // userContent.push({
-            //   type: 'image_url',
-            //   image_url: {
-            //     url: staticMapUrl,
-            //     detail: 'high',
-            //   }
-            // });
-            // const fullRouteData = {
-            //   route: routePoints,
-            //   features: mergedFeatures,
-            //   doorfront: doorfrontData,
-            // }
-            // console.log(JSON.stringify(fullRouteData))
           } catch (error) {
               console.error("Nearby directions lookup failed:", error);
               const failedDestination = String(
@@ -970,9 +854,6 @@ export class OpenAIQuestionService {
         }
       } else console.log("No tool calls found in OpenAI response");
       }
-      // const places = await fetchNearbyPlaces(content.coords.latitude, content.coords.longitude);
-      // nearbyPlaces = places.map((place: { name: string }) => place.name).join(', ');
-      // systemContent += ` Nearby Places: ${nearbyPlaces}`;
     } catch (error) {
       console.error(
         "Error including api information in OpenAI request:",
@@ -980,14 +861,10 @@ export class OpenAIQuestionService {
       );
     }
 
-    // console.log(systemContent)
     // openAI separate text request
     try {
-      //  console.log("user prompt: ", userContent)
       console.log("system prompt: ", systemContent);
-      // console.log("openAI history: ", openAIHistory)
       systemContent += `\nCurrent Date and Time (Eastern): ${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })}`;
-      // console.log("prompt: ", completeAIPrompt)
       const priorHistory = getConversationHistory(analytics);
       const recentHistory = priorHistory.slice(-3);
       if (
@@ -1049,8 +926,6 @@ export class OpenAIQuestionService {
   //* OpenAI Audio API
   async audioRequest(ctx: AppContext, text: string) {
     const { res } = ctx;
-    // const speechFile = path.resolve("./speech.mp3");
-    //console.log(text)
     try {
       const mp3 = await getOpenAIClient().audio.speech.create({
         model: "tts-1",
@@ -1058,7 +933,6 @@ export class OpenAIQuestionService {
         input: text,
       });
       const buffer = Buffer.from(await mp3.arrayBuffer());
-      // await fs.promises.writeFile(speechFile, buffer);
 
       res.contentType("audio/mpeg");
       res.status(200).send(buffer);

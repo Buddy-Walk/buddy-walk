@@ -15,7 +15,6 @@ export async function geocodeCoordinates(latitude: number, longitude: number) {
   const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${getGoogleMapsApiKey()}`;
   try {
     const response = await axios.get(url);
-    //console.log('Google Geocoding API response:', response.data);
     return response.data.results;
   } catch (error) {
     console.error("Error fetching nearby places:", error);

@@ -97,26 +97,6 @@ export async function getVerifiedNearbyDestination(
   let nearbyPlace: NearbyPlaceSelection | undefined = ranked[0];
   const searchesUsed = ["nearby"];
 
-  // if the name or type matcher rejects the result because the user entered
-  // an acronym, abbreviation, etc e.g. USPS, use google's best result
-  // if (!nearbyPlace && candidates.length > 0) {
-  //   const googleFallback = selectNearbyPlaceCandidate(
-  //     [candidates[0]],
-  //     { lat, lng },
-  //     maxDistanceMeters,
-  //   );
-
-  //   if (googleFallback) {
-  //     console.log(
-  //       `[Last Meters] Google Places fallback: "${nearbyQuery}" -> "${googleFallback.name}" (${Math.round(
-  //         googleFallback.distanceMeters,
-  //       )} m)`,
-  //     );
-
-  //     nearbyPlace = googleFallback;
-  //   }
-  // }
-
   // Nearby Search can miss valid businesses when the user provides a full
   // store name or address, and its keyword match can skip a closer branch of
   // a chain. Text Search supplies a second local candidate set whenever the
