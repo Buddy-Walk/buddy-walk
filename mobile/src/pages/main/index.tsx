@@ -2,7 +2,7 @@ import { Camera, CameraType } from 'react-camera-pro';
 import { useRef, useState, useEffect } from 'react';
 import { Box, Stack, Switch, FormControlLabel, useMediaQuery, CircularProgress, Button } from '@mui/material';
 import { useGeolocated } from 'react-geolocated';
-import { sendTextRequest } from "../../api/openAi.ts";
+import { sendTextRequest } from "../../api/question.ts";
 // import {FirebaseStart} from "../../api/firebase.ts";
 import { RequestData, CustomCoords } from "./types.ts";
 import { AccessibleButton, AccessibleTypography, AccessibleTextField, BlueSection, GraySection, GreenSection } from "./style.ts";
