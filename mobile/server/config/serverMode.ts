@@ -17,9 +17,9 @@ function allPresent(...names: string[]): boolean {
   return names.every((name) => Boolean(process.env[name]?.trim()));
 }
 
-/** OpenAI / Gemini: /api/text, /api/parseRequest, /api/audio, /api/last-mile. */
+/** OpenAI: /api/text, /api/parseRequest, /api/audio, /api/last-mile. */
 export function hasOwnAiKeys(): boolean {
-  return anyPresent('OPENAI_API_KEY', 'GEMINI_API_KEY');
+  return allPresent('OPENAI_API_KEY');
 }
 
 /** Azure Speech: /api/token/getToken and /api/transcribe. Both keys required. */
@@ -37,7 +37,7 @@ export function hasOwnMapsKey(): boolean {
   return anyPresent('GOOGLE_MAPS_API_KEY', 'GOOGLE_API_KEY');
 }
 
-/** Last Meters needs OpenAI vision + Google Street View — Gemini-only is not enough. */
+/** Last Meters needs OpenAI vision and Google Street View. */
 export function canRunLocalLastMile(): boolean {
   return Boolean(process.env.OPENAI_API_KEY?.trim()) && hasOwnMapsKey();
 }

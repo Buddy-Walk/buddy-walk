@@ -1,20 +1,9 @@
 import { OpenAIQuestionService } from "../services/openAIQuestionService";
-import type { QuestionService } from "../services/questionService";
-import { GeminiService } from "../services/gemini";
 import {textRequestBody} from "../types";
 import { Request, Response } from "express";
 import { getPanoramaData } from "../services/doorfront"
 
-function createQuestionService(): QuestionService {
-  const hasOpenAi = Boolean(process.env.OPENAI_API_KEY?.trim());
-  const hasGemini = Boolean(process.env.GEMINI_API_KEY?.trim());
-  if (hasGemini && !hasOpenAi) {
-    return new GeminiService();
-  }
-  return new OpenAIQuestionService();
-}
-
-const questionService = createQuestionService();
+const questionService = new OpenAIQuestionService();
 
 export class QuestionController {
 
