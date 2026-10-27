@@ -4,6 +4,7 @@ import './lastMetersNavigation.test.ts';
 import './outdoorPanorama.test.ts';
 import './lastMetersPipeline.test.ts';
 import './lastMetersExits.test.ts';
+import './lastMetersTrial.test.ts';
 import './lastMetersSafety.test.ts';
 import './lastMetersReplay.test.ts';
 import './lastMetersTestRow.test.ts';
