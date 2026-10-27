@@ -179,7 +179,9 @@ async function getDestinationStreetViewReference(
 
 export class LastMetersService {
   /** Answers Last Meters inputs that turn out to be Questions. */
-  constructor(private readonly questionService: OpenAIQuestionService = new OpenAIQuestionService()) {}
+  constructor(
+    private readonly questionService: Pick<OpenAIQuestionService, "textRequest"> = new OpenAIQuestionService(),
+  ) {}
 
   /** Use the existing policy by default; a mobile subclass can choose its own field-only policy. */
   protected lastMileGuidancePolicy(_options: LastMetersRunOptions): LastMileGuidancePolicy {

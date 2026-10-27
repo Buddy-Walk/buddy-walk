@@ -120,7 +120,7 @@ test("Last Meters hands a question to the Question service it was given", async 
     asked.push(content);
     ctx.res.status(200).json({ output: "answered" });
   } };
-  const service = new LastMetersService(questionService as any);
+  const service = new LastMetersService(questionService);
   let answer: any;
   const res = { status: () => res, json: (body: any) => { answer = body; } };
   const now = Date.now();
