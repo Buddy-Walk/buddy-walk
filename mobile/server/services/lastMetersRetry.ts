@@ -1,12 +1,12 @@
-import { canRunLocalLastMile } from "../config/serverMode";
+import { canRunLocalLastMeters } from "../config/serverMode";
 import type {
-  lastMileTestLogInterface,
+  lastMetersTestLogInterface,
   RetryPanoramaMode,
-} from "../database/models/lastMileTestLog";
-import { assessReplay, replayRequest } from "../utils/lastMileReplay";
-import { rowId } from "../utils/lastMileTestRow";
-import { lastMileRetryRunService, withRenewedLease, type RetryRun } from "./lastMileRetryRuns";
-import { lastMileTestLogService, type LastMileTestSummary } from "./lastMileTestLog";
+} from "../database/models/lastMetersTestLog";
+import { assessReplay, replayRequest } from "../utils/lastMetersReplay";
+import { rowId } from "../utils/lastMetersTestRow";
+import { lastMetersRetryRunService, withRenewedLease, type RetryRun } from "./lastMetersRetryRuns";
+import { lastMetersTestLogService, type LastMetersTestSummary } from "./lastMetersTestLog";
 import { LastMetersService } from "./lastMetersService";
 import { fetchStreetViewPanoramaById, type StreetViewMetadata } from "./streetViewPanorama";
 
@@ -14,7 +14,7 @@ import { fetchStreetViewPanoramaById, type StreetViewMetadata } from "./streetVi
  * A retry that could not run; status is the HTTP status to answer with, and
  * code names the refusals the dashboard handles specially.
  */
-export class LastMileRetryError extends Error {
+export class LastMetersRetryError extends Error {
   constructor(
     readonly status: number,
     message: string,
@@ -37,7 +37,7 @@ export class RetryLimiter {
   /** Claims a slot; call the returned function when the retry finishes. */
   acquire(): () => void {
     if (this.running >= this.maxConcurrent) {
-      throw new LastMileRetryError(
+      throw new LastMetersRetryError(
         429,
         `${this.maxConcurrent} retries are already running. Wait for one to finish.`,
         "retry_capacity",
@@ -58,7 +58,7 @@ export interface RetryDependencies {
   runLastMeters: LastMetersService["runLastMeters"];
   fetchPanoramaById: typeof fetchStreetViewPanoramaById;
   limiter: RetryLimiter;
-  runs: Pick<typeof lastMileRetryRunService, "find" | "claim" | "renew" | "finish">;
+  runs: Pick<typeof lastMetersRetryRunService, "find" | "claim" | "renew" | "finish">;
   /** How long a retry may run before it is given up; see RETRY_MAX_RUN_MS. */
   maxRunMs: number;
 }
@@ -75,7 +75,7 @@ const realDependencies: RetryDependencies = {
   runLastMeters: (request, image, options) => pipeline.runLastMeters(request, image, options),
   fetchPanoramaById: fetchStreetViewPanoramaById,
   limiter: new RetryLimiter(),
-  runs: lastMileRetryRunService,
+  runs: lastMetersRetryRunService,
   maxRunMs: RETRY_MAX_RUN_MS,
 };
 
@@ -87,14 +87,14 @@ export function retryAvailability(): { available: boolean; reason?: string } {
       reason: "Set ADMIN_TOKEN on this server before enabling retries, which make paid API calls.",
     };
   }
-  if (!canRunLocalLastMile()) {
+  if (!canRunLocalLastMeters()) {
     return {
       available: false,
       reason:
         "Set OPENAI_API_KEY and GOOGLE_MAPS_API_KEY (or GOOGLE_API_KEY) on this server to run Last Meters retries.",
     };
   }
-  if (!lastMileRetryRunService.canEnforceOneRunPerOriginal()) {
+  if (!lastMetersRetryRunService.canEnforceOneRunPerOriginal()) {
     return {
       available: false,
       reason:
@@ -111,12 +111,12 @@ export function retryAvailability(): { available: boolean; reason?: string } {
  * one-run-per-original lock and retryOf links need a single spelling.
  */
 export async function findOriginal(
-  row: lastMileTestLogInterface,
-): Promise<{ originalId: string; original: lastMileTestLogInterface | null }> {
+  row: lastMetersTestLogInterface,
+): Promise<{ originalId: string; original: lastMetersTestLogInterface | null }> {
   if (!row.retryOf) return { originalId: rowId(row), original: row };
   return {
     originalId: row.retryOf,
-    original: await lastMileTestLogService.getById(row.retryOf),
+    original: await lastMetersTestLogService.getById(row.retryOf),
   };
 }
 
@@ -131,7 +131,7 @@ export interface RetryRequest {
 export interface RetryResult {
   testLogId: string;
   /** The saved log without images, since the retry response leaves them out. */
-  log: LastMileTestSummary | null;
+  log: LastMetersTestSummary | null;
   defaultsApplied: string[];
   /** True when the key had already run and this is its saved result. */
   replayed: boolean;
@@ -146,7 +146,7 @@ function withDeadline<T>(work: Promise<T>, maxMs: number): Promise<T> {
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       reject(
-        new LastMileRetryError(
+        new LastMetersRetryError(
           504,
           `The retry ran for over ${Math.round(maxMs / 60_000)} minutes and was given up. If it finishes later, it shows up in this test's history.`,
           "retry_timed_out",
@@ -168,21 +168,21 @@ export const UNEXPECTED_RETRY_FAILURE =
  */
 async function resultOfRun(run: RetryRun, request: RetryRequest): Promise<RetryResult> {
   if (run.requestedId !== request.id || run.panoramaMode !== request.panoramaMode) {
-    throw new LastMileRetryError(
+    throw new LastMetersRetryError(
       422,
       "This idempotency key was already used for a different retry. Send a new key.",
       "idempotency_key_reused",
     );
   }
   if (run.status === "running") {
-    throw new LastMileRetryError(
+    throw new LastMetersRetryError(
       409,
       "This retry is still running. Send the same request again later for its result.",
       "retry_in_progress",
     );
   }
   if (run.status === "failed" || !run.testLogId) {
-    throw new LastMileRetryError(
+    throw new LastMetersRetryError(
       run.errorStatus ?? 500,
       run.errorMessage ?? UNEXPECTED_RETRY_FAILURE,
       run.errorCode,
@@ -190,7 +190,7 @@ async function resultOfRun(run: RetryRun, request: RetryRequest): Promise<RetryR
   }
   return {
     testLogId: run.testLogId,
-    log: await lastMileTestLogService.getSummaryById(run.testLogId),
+    log: await lastMetersTestLogService.getSummaryById(run.testLogId),
     defaultsApplied: run.defaultsApplied ?? [],
     replayed: true,
   };
@@ -206,7 +206,7 @@ async function resultOfRun(run: RetryRun, request: RetryRequest): Promise<RetryR
  * run starts (validation, capacity) are not saved, so the same key can be
  * sent again once the cause is gone.
  */
-export async function retryLastMileTest(
+export async function retryLastMetersTest(
   request: RetryRequest,
   dependencies: RetryDependencies = realDependencies,
 ): Promise<RetryResult> {
@@ -216,24 +216,24 @@ export async function retryLastMileTest(
 
   const availability = retryAvailability();
   if (!availability.available) {
-    throw new LastMileRetryError(503, availability.reason ?? "Last Meters is unavailable.");
+    throw new LastMetersRetryError(503, availability.reason ?? "Last Meters is unavailable.");
   }
 
-  const row = await lastMileTestLogService.getById(id);
-  if (!row) throw new LastMileRetryError(404, "Last Meters test log not found.");
+  const row = await lastMetersTestLogService.getById(id);
+  if (!row) throw new LastMetersRetryError(404, "Last Meters test log not found.");
   const { originalId, original } = await findOriginal(row);
   if (!original) {
-    throw new LastMileRetryError(404, "The original test this retry belongs to no longer exists.");
+    throw new LastMetersRetryError(404, "The original test this retry belongs to no longer exists.");
   }
 
   const assessment = assessReplay(original);
   if (!assessment.input || !original.userPhoto) {
-    throw new LastMileRetryError(409, assessment.reason ?? "This test cannot be replayed.");
+    throw new LastMetersRetryError(409, assessment.reason ?? "This test cannot be replayed.");
   }
   const pinnedPanoId =
     panoramaMode === "original" ? assessment.originalPanorama.panoId : undefined;
   if (panoramaMode === "original" && !pinnedPanoId) {
-    throw new LastMileRetryError(
+    throw new LastMetersRetryError(
       409,
       assessment.originalPanorama.reason ?? "The original panorama is unknown.",
     );
@@ -250,7 +250,7 @@ export async function retryLastMileTest(
     });
     if (!claim.claimed) {
       if (claim.conflict === "key") return resultOfRun(claim.existing, request);
-      throw new LastMileRetryError(
+      throw new LastMetersRetryError(
         409,
         "A retry of this test is already running. Wait for it to finish.",
         "original_retry_running",
@@ -267,11 +267,11 @@ export async function retryLastMileTest(
       });
     } catch (error) {
       const failure =
-        error instanceof LastMileRetryError
+        error instanceof LastMetersRetryError
           ? error
-          : new LastMileRetryError(500, UNEXPECTED_RETRY_FAILURE);
-      if (!(error instanceof LastMileRetryError)) {
-        console.error("[LastMileRetry] retry failed:", error);
+          : new LastMetersRetryError(500, UNEXPECTED_RETRY_FAILURE);
+      if (!(error instanceof LastMetersRetryError)) {
+        console.error("[LastMetersRetry] retry failed:", error);
       }
       await saveOutcome(dependencies, idempotencyKey, {
         status: "failed",
@@ -307,15 +307,15 @@ async function saveOutcome(
 ): Promise<void> {
   try {
     if (!(await dependencies.runs.finish(key, outcome))) {
-      console.warn(`[LastMileRetry] retry ${key} finished after it was marked interrupted; its outcome was not saved.`);
+      console.warn(`[LastMetersRetry] retry ${key} finished after it was marked interrupted; its outcome was not saved.`);
     }
   } catch (error) {
-    console.error(`[LastMileRetry] could not save the outcome of retry ${key}:`, error);
+    console.error(`[LastMetersRetry] could not save the outcome of retry ${key}:`, error);
   }
 }
 
 async function runRetry(
-  original: lastMileTestLogInterface,
+  original: lastMetersTestLogInterface,
   originalId: string,
   panoramaMode: RetryPanoramaMode,
   pinnedPanoId: string | undefined,
@@ -332,13 +332,13 @@ async function runRetry(
       const retired =
         typeof error?.code === "string" && error.code.startsWith("STREET_VIEW_PANO_");
       if (retired) {
-        throw new LastMileRetryError(
+        throw new LastMetersRetryError(
           409,
           `${error.message} Retry with a fresh panorama instead.`,
           "original_panorama_retired",
         );
       }
-      throw new LastMileRetryError(
+      throw new LastMetersRetryError(
         502,
         `Could not check the original panorama with Google Street View: ${error?.message ?? "unknown error"}.`,
       );
@@ -362,12 +362,12 @@ async function runRetry(
   // for it so the history shows which panorama this retry got.
   if (result.kind === "response") await result.reviewPanorama;
   if (!result.testLogId) {
-    throw new LastMileRetryError(500, "The retry ran but its result could not be saved.");
+    throw new LastMetersRetryError(500, "The retry ran but its result could not be saved.");
   }
 
   return {
     testLogId: result.testLogId,
-    log: await lastMileTestLogService.getSummaryById(result.testLogId),
+    log: await lastMetersTestLogService.getSummaryById(result.testLogId),
     defaultsApplied: assessment.defaultsApplied,
     replayed: false,
   };

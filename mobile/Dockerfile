@@ -15,8 +15,8 @@ COPY server ./server
 # Shared client utils imported by the server
 COPY src/utils/trainLine.ts ./src/utils/trainLine.ts
 COPY src/utils/lastMetersInput.ts ./src/utils/lastMetersInput.ts
-COPY src/utils/lastMileSafety.ts ./src/utils/lastMileSafety.ts
-COPY src/utils/mobileLastMileGuidance.ts ./src/utils/mobileLastMileGuidance.ts
+COPY src/utils/lastMetersSafety.ts ./src/utils/lastMetersSafety.ts
+COPY src/utils/mobileLastMetersGuidance.ts ./src/utils/mobileLastMetersGuidance.ts
 
 EXPOSE 8000
 

@@ -1,12 +1,12 @@
-import { sensorSafetyReasons, RECAPTURE_MESSAGE } from "../../src/utils/lastMileSafety";
-import { mobileTurnSensorReasons } from "../../src/utils/mobileLastMileGuidance";
-import { preciseTurnReasons, type WalkingEvidence } from "./lastMilePolicy";
-import { buildLastMileSourceNote, formatLastMileDistance, resolveExactModeGate, LAST_METERS_EXACT_RADIUS_METERS } from "./lastMileNavigation";
-import type { LastMetersRequestInput } from "./lastMileReplay";
+import { sensorSafetyReasons, RECAPTURE_MESSAGE } from "../../src/utils/lastMetersSafety";
+import { mobileTurnSensorReasons } from "../../src/utils/mobileLastMetersGuidance";
+import { preciseTurnReasons, type WalkingEvidence } from "./lastMetersPolicy";
+import { buildLastMetersSourceNote, formatLastMetersDistance, resolveExactModeGate, LAST_METERS_EXACT_RADIUS_METERS } from "./lastMetersNavigation";
+import type { LastMetersRequestInput } from "./lastMetersReplay";
 
-export const MOBILE_LAST_MILE_GUIDANCE_VERSION = "2.0.0";
+export const MOBILE_LAST_METERS_GUIDANCE_VERSION = "2.0.0";
 
-export interface LastMileGuidanceContext {
+export interface LastMetersGuidanceContext {
   destinationPlaceName?: string;
   destinationPlaceAddress?: string;
   destinationDistanceMeters?: number;
@@ -25,7 +25,7 @@ interface FinalGuidance {
   walkingEvidence: WalkingEvidence;
 }
 
-export interface LastMileGuidancePolicy {
+export interface LastMetersGuidancePolicy {
   version?: string;
   landmarkContext?: string;
   analysisGate: typeof resolveExactModeGate;
@@ -33,12 +33,12 @@ export interface LastMileGuidancePolicy {
   initialSensorReasons: typeof sensorSafetyReasons;
   turnSensorReasons: typeof sensorSafetyReasons;
   turnReasons: typeof preciseTurnReasons;
-  withheldMessage(reasons: string[], message: string, context: LastMileGuidanceContext): string;
+  withheldMessage(reasons: string[], message: string, context: LastMetersGuidanceContext): string;
   finalOutput(input: FinalGuidance): string;
 }
 
 /** Preserve the existing shared and retry policy exactly unless a mobile instance opts in. */
-export const strictLastMileGuidancePolicy: LastMileGuidancePolicy = {
+export const strictLastMetersGuidancePolicy: LastMetersGuidancePolicy = {
   analysisGate: resolveExactModeGate,
   /** Preserve the original capture heading for shared and retry executions. */
   guidanceHeading: request => request.deviceHeading,
@@ -50,7 +50,7 @@ export const strictLastMileGuidancePolicy: LastMileGuidancePolicy = {
   /** Keep the shared pipeline's original final answer. */
   finalOutput: ({ turnInstruction, distanceSentence, landmarksGuidance, closedNotice, panoramaDate }) =>
     `${turnInstruction} ${distanceSentence} Landmarks: ${landmarksGuidance}` + closedNotice +
-    " Entrance accessibility has not been verified. " + buildLastMileSourceNote(panoramaDate),
+    " Entrance accessibility has not been verified. " + buildLastMetersSourceNote(panoramaDate),
 };
 
 /** Require corroborated orientation, without treating optional map metadata as entrance evidence. */
@@ -69,13 +69,13 @@ function mobileTurnReasons(input: Parameters<typeof preciseTurnReasons>[0]): str
 function mobileWithheldMessage(
   reasons: string[],
   message: string,
-  context: LastMileGuidanceContext,
+  context: LastMetersGuidanceContext,
 ): string {
   const name = context.destinationPlaceName;
   if (!name || reasons.includes("destination_branch_ambiguous")) return message;
   const address = context.destinationPlaceAddress ? ` at ${context.destinationPlaceAddress}` : "";
   const distance = Number.isFinite(context.destinationDistanceMeters)
-    ? ` From where you took the photo, it is about ${formatLastMileDistance(context.destinationDistanceMeters!)} away in a straight line.`
+    ? ` From where you took the photo, it is about ${formatLastMetersDistance(context.destinationDistanceMeters!)} away in a straight line.`
     : "";
   let explanation = "I could not confirm a precise turn from this capture.";
   if (reasons.includes("turned_since_capture") || reasons.includes("moved_since_capture")) {
@@ -91,8 +91,8 @@ function mobileWithheldMessage(
 }
 
 /** Analyze mobile captures before deciding whether the result supports a turn or a descriptive answer. */
-export const mobileLastMileGuidancePolicy: LastMileGuidancePolicy = {
-  version: MOBILE_LAST_MILE_GUIDANCE_VERSION,
+export const mobileLastMetersGuidancePolicy: LastMetersGuidancePolicy = {
+  version: MOBILE_LAST_METERS_GUIDANCE_VERSION,
   landmarkContext: "\nThe phone may have turned after this photo was captured. " +
     "Describe landmarks as features shown in the photo. Do not give left/right or clock-face directions " +
     "relative to the user's current body from this earlier camera view.",
@@ -123,11 +123,11 @@ export const mobileLastMileGuidancePolicy: LastMileGuidancePolicy = {
   withheldMessage: mobileWithheldMessage,
   /** Keep landmarks and orientation while explicitly separating them from an unverified walking route. */
   finalOutput: input => {
-    const output = strictLastMileGuidancePolicy.finalOutput(input);
+    const output = strictLastMetersGuidancePolicy.finalOutput(input);
     return input.walkingEvidence.verified
       ? output
       : `${input.turnInstruction} ${input.distanceSentence} Landmarks: ${input.landmarksGuidance}` +
         input.closedNotice + " Turn in place only; the distance is a straight-line estimate, not a verified walking path. " +
-        "Entrance accessibility has not been verified. " + buildLastMileSourceNote(input.panoramaDate);
+        "Entrance accessibility has not been verified. " + buildLastMetersSourceNote(input.panoramaDate);
   },
 };

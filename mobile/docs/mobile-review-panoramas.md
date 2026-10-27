@@ -3,7 +3,7 @@
 The Expo app and `mobile/server` deploy separately. An iOS submission does not deploy API changes. Check the running mobile field policy with:
 
 ```sh
-curl https://buddy-walk-api.onrender.com/api/last-mile/review-status
+curl https://buddy-walk-api.onrender.com/api/last-meters/review-status
 ```
 
 Version `2.0.0` identifies the guidance correction. The response also reports the exact deployed commit and whether the server has the provider configuration required for local Last Meters.

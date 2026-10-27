@@ -3,10 +3,10 @@ import test from "node:test";
 import axios from "axios";
 import OpenAI from "openai";
 import sharp from "sharp";
-import { MobileLastMileService, mobileReviewPanoramaStatus } from "../../server/services/mobileLastMile";
-import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
-import { buildReplayInput, type LastMetersRequestInput } from "../../server/utils/lastMileReplay";
-import { mobileResponseSensorReasons } from "../utils/mobileLastMileGuidance";
+import { MobileLastMetersService, mobileReviewPanoramaStatus } from "../../server/services/mobileLastMeters";
+import { lastMetersTestLogService } from "../../server/services/lastMetersTestLog";
+import { buildReplayInput, type LastMetersRequestInput } from "../../server/utils/lastMetersReplay";
+import { mobileResponseSensorReasons } from "../utils/mobileLastMetersGuidance";
 import { setTestEnv } from "./testEnv";
 
 /** Produce a valid request without assuming Google's optional entrance listing exists. */
@@ -71,7 +71,7 @@ for (const scenario of [
       if (url.includes("streetview")) return { status: 200, data: jpeg };
       assert.fail(`Unexpected provider call: ${url}`);
     });
-    const service = new MobileLastMileService();
+    const service = new MobileLastMetersService();
     t.mock.method(OpenAI.Chat.Completions.prototype, "create", async (input: any) => {
       // Supply controlled visual evidence, never a model-authored turn angle.
       const prompt = input.messages[0].content as string;
@@ -92,13 +92,13 @@ for (const scenario of [
       return { choices: [{ message: { content: text! } }], usage: { total_tokens: 10 } };
     });
     let logged: any;
-    t.mock.method(lastMileTestLogService, "record", async (row: any) => {
+    t.mock.method(lastMetersTestLogService, "record", async (row: any) => {
       // Observe the actual recorded inputs and outcome without creating a production trial.
       logged = row;
       return "mobile-guidance-trial";
     });
     let attachment: any;
-    t.mock.method(lastMileTestLogService, "attachPanorama", async (_id: string, value: any) => {
+    t.mock.method(lastMetersTestLogService, "attachPanorama", async (_id: string, value: any) => {
       // Observe the inherited background saver without using real storage.
       attachment = value;
     });
@@ -122,7 +122,7 @@ for (const scenario of [
       /** Capture what the native client actually receives. */
       json: (body: any) => { answer = body; },
     };
-    await service.lastMileRequest({ res } as any, request, photo);
+    await service.lastMetersRequest({ res } as any, request, photo, "/api/last-meters");
     assert.ok(panoramaCalls > 0, "Sensor imperfections must not prevent the panorama search");
     assert.equal(answer.testLogId, "mobile-guidance-trial");
     assert.equal(logged.runKind, "field");

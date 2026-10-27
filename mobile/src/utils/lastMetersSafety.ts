@@ -1,5 +1,5 @@
 export interface SafetyPosition { lat: number; lng: number; accuracy: number; timestamp: number }
-export interface LastMileSensors {
+export interface LastMetersSensors {
   photoCapturedAt: number;
   positionTimestamp: number;
   headingTimestamp: number;
@@ -34,7 +34,7 @@ export function angularDifference(a: number, b: number): number {
 }
 
 export function sensorSafetyReasons(
-  sensors: LastMileSensors | undefined, position: { lat: number; lng: number },
+  sensors: LastMetersSensors | undefined, position: { lat: number; lng: number },
   heading: number | undefined, accuracy: number | undefined, now = Date.now(), snapshotTime = now,
 ): string[] {
   if (!sensors) return ["capture_metadata_missing"];

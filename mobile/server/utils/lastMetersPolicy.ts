@@ -1,4 +1,4 @@
-import { angularDifference, bearingBetween, distanceBetween, validPoint } from "../../src/utils/lastMileSafety";
+import { angularDifference, bearingBetween, distanceBetween, validPoint } from "../../src/utils/lastMetersSafety";
 
 export interface WalkingEvidence { verified: boolean; reason: string; firstBearing?: number; distanceMeters?: number }
 

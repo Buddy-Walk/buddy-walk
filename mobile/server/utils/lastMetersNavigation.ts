@@ -1,5 +1,5 @@
-export const LAST_MILE_HEADINGS = [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180, 202.5, 225, 247.5, 270, 292.5, 315, 337.5] as const;
-export const LAST_MILE_PANORAMA_FOV_DEGREES = 22.5;
+export const LAST_METERS_HEADINGS = [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180, 202.5, 225, 247.5, 270, 292.5, 315, 337.5] as const;
+export const LAST_METERS_PANORAMA_FOV_DEGREES = 22.5;
 export const LAST_METERS_EXACT_RADIUS_METERS = 250;
 export const LAST_METERS_DESTINATION_REFERENCE_RADIUS_METERS = 75;
 /**
@@ -7,10 +7,10 @@ export const LAST_METERS_DESTINATION_REFERENCE_RADIUS_METERS = 75;
  * vague to trust a panorama match, even if the user really is at the door.
  */
 export const LAST_METERS_GPS_ALLOWANCE_MAX_METERS = 100;
-export const LAST_MILE_STALE_IMAGERY_YEARS = 3;
-export const LAST_MILE_REFERENCE_MAX_AGE_YEARS = 8;
+export const LAST_METERS_STALE_IMAGERY_YEARS = 3;
+export const LAST_METERS_REFERENCE_MAX_AGE_YEARS = 8;
 
-export type LastMileTestScenario =
+export type LastMetersTestScenario =
   | "test_a_visible"
   | "test_a_reference"
   | "test_a_sign_text"
@@ -21,7 +21,7 @@ export type LastMileTestScenario =
   | "no_panorama"
   | "question_routed";
 
-export const LAST_MILE_TEST_SCENARIOS: readonly LastMileTestScenario[] = [
+export const LAST_METERS_TEST_SCENARIOS: readonly LastMetersTestScenario[] = [
   "test_a_visible",
   "test_a_reference",
   "test_a_sign_text",
@@ -33,19 +33,19 @@ export const LAST_MILE_TEST_SCENARIOS: readonly LastMileTestScenario[] = [
   "question_routed",
 ];
 
-export type LastMileConfidenceLevel = "high" | "medium" | "low";
+export type LastMetersConfidenceLevel = "high" | "medium" | "low";
 
 /** Highest score allowed when compass and panorama disagree; always "low". */
-export const LAST_MILE_HEADING_CONFLICT_MAX_SCORE = 0.5;
+export const LAST_METERS_HEADING_CONFLICT_MAX_SCORE = 0.5;
 
 /**
  * Below this distance (or the GPS accuracy, if larger) the bearing from the
  * phone's GPS fix to the Places pin is noise, so it must not drive a turn.
  */
-export const LAST_MILE_MIN_RELIABLE_BEARING_METERS = 10;
-const LAST_MILE_DEFAULT_GPS_ACCURACY_METERS = 15;
+export const LAST_METERS_MIN_RELIABLE_BEARING_METERS = 10;
+const LAST_METERS_DEFAULT_GPS_ACCURACY_METERS = 15;
 
-export interface LastMileConfidenceInput {
+export interface LastMetersConfidenceInput {
   gpsAccuracyMeters?: number;
   /** expo-location compass calibration: 3 high, 2 medium, 1 low, 0 none. */
   compassAccuracyLevel?: number;
@@ -56,9 +56,9 @@ export interface LastMileConfidenceInput {
   panoramaAgeYears?: number;
 }
 
-export interface LastMileConfidence {
+export interface LastMetersConfidence {
   score: number;
-  level: LastMileConfidenceLevel;
+  level: LastMetersConfidenceLevel;
   reasons: string[];
 }
 
@@ -67,9 +67,9 @@ export interface LastMileConfidence {
  * It intentionally does not choose a guidance heading; the compass remains
  * authoritative for that decision.
  */
-export function calculateLastMileConfidence(
-  input: LastMileConfidenceInput
-): LastMileConfidence {
+export function calculateLastMetersConfidence(
+  input: LastMetersConfidenceInput
+): LastMetersConfidence {
   const reasons: string[] = [];
   // The score starts low: a high-confidence result needs corroboration from
   // several sources, not merely a verified map destination.
@@ -119,7 +119,7 @@ export function calculateLastMileConfidence(
 
   if (
     typeof input.panoramaAgeYears === "number" &&
-    input.panoramaAgeYears >= LAST_MILE_STALE_IMAGERY_YEARS
+    input.panoramaAgeYears >= LAST_METERS_STALE_IMAGERY_YEARS
   ) {
     score -= 0.05;
     reasons.push(
@@ -130,7 +130,7 @@ export function calculateLastMileConfidence(
   // One wrong heading source means the turn itself may be wrong, so no amount
   // of other agreement can make the result trustworthy.
   if (input.compassPanoramaAgrees === false) {
-    score = Math.min(score, LAST_MILE_HEADING_CONFLICT_MAX_SCORE);
+    score = Math.min(score, LAST_METERS_HEADING_CONFLICT_MAX_SCORE);
   }
 
   const boundedScore = Math.max(0, Math.min(1, score));
@@ -144,13 +144,13 @@ export function calculateLastMileConfidence(
 const NOT_VISIBLE_PATTERN =
   /\b(?:not visible|not in view|cannot (?:identify|locate|match|see)|can't (?:identify|locate|match|see)|unknown|no match)\b/i;
 
-export function parseLastMileHeading(response: string): number | null {
+export function parseLastMetersHeading(response: string): number | null {
   const text = response.trim();
   if (!text || NOT_VISIBLE_PATTERN.test(text) || /\bNOT_VISIBLE\b/i.test(text)) {
     return null;
   }
 
-  const validHeadings = new Set<number>(LAST_MILE_HEADINGS);
+  const validHeadings = new Set<number>(LAST_METERS_HEADINGS);
   const numbers = [...text.matchAll(/-?\d+(?:\.\d+)?/g)].map((match) => Number(match[0]));
   const headingMatches = [
     ...new Set(
@@ -165,8 +165,8 @@ export function parseLastMileHeading(response: string): number | null {
   // view index instead of the heading; 1-16 never overlap real headings.
   if (headingMatches.length === 0 && numbers.length === 1) {
     const viewIndex = numbers[0];
-    if (Number.isInteger(viewIndex) && viewIndex >= 1 && viewIndex <= LAST_MILE_HEADINGS.length) {
-      return LAST_MILE_HEADINGS[viewIndex - 1];
+    if (Number.isInteger(viewIndex) && viewIndex >= 1 && viewIndex <= LAST_METERS_HEADINGS.length) {
+      return LAST_METERS_HEADINGS[viewIndex - 1];
     }
   }
 
@@ -177,17 +177,17 @@ export function parseDestinationVisibility(response: string): boolean {
   return response.trim().toUpperCase() === "VISIBLE";
 }
 
-export function snapLastMileHeading(heading: number): number {
+export function snapLastMetersHeading(heading: number): number {
   if (!Number.isFinite(heading)) {
     throw new Error("Last Meters heading must be a finite number.");
   }
   const normalized = ((heading % 360) + 360) % 360;
-  return LAST_MILE_HEADINGS[
-    Math.round(normalized / LAST_MILE_PANORAMA_FOV_DEGREES) % LAST_MILE_HEADINGS.length
+  return LAST_METERS_HEADINGS[
+    Math.round(normalized / LAST_METERS_PANORAMA_FOV_DEGREES) % LAST_METERS_HEADINGS.length
   ];
 }
 
-export function lastMileHeadingDifference(
+export function lastMetersHeadingDifference(
   currentHeading: number,
   targetHeading: number
 ): number {
@@ -197,7 +197,7 @@ export function lastMileHeadingDifference(
   return Math.abs(((targetHeading - currentHeading + 540) % 360) - 180);
 }
 
-export function isLastMileHeadingAligned(
+export function isLastMetersHeadingAligned(
   currentHeading: number,
   targetHeading: number,
   toleranceDegrees = 30
@@ -205,7 +205,7 @@ export function isLastMileHeadingAligned(
   if (!Number.isFinite(toleranceDegrees) || toleranceDegrees < 0 || toleranceDegrees > 180) {
     throw new Error("Last Meters heading tolerance must be between 0 and 180 degrees.");
   }
-  return lastMileHeadingDifference(currentHeading, targetHeading) <= toleranceDegrees;
+  return lastMetersHeadingDifference(currentHeading, targetHeading) <= toleranceDegrees;
 }
 
 export function compareCompassAndPanoramaHeadings(
@@ -221,11 +221,11 @@ export function compareCompassAndPanoramaHeadings(
 } {
   const compassHeading =
     typeof deviceHeading === "number" && Number.isFinite(deviceHeading)
-      ? snapLastMileHeading(deviceHeading)
+      ? snapLastMetersHeading(deviceHeading)
       : null;
   const differenceDegrees =
     compassHeading !== null && panoramaMatchedHeading !== null
-      ? lastMileHeadingDifference(compassHeading, panoramaMatchedHeading)
+      ? lastMetersHeadingDifference(compassHeading, panoramaMatchedHeading)
       : undefined;
 
   return {
@@ -244,24 +244,24 @@ export function compareCompassAndPanoramaHeadings(
 export function resolveVerifiedTargetHeading(
   visuallyMatchedHeading: number | null,
   expectedMapHeading: number,
-  toleranceDegrees = LAST_MILE_PANORAMA_FOV_DEGREES
+  toleranceDegrees = LAST_METERS_PANORAMA_FOV_DEGREES
 ): number | null {
   if (
-    !LAST_MILE_HEADINGS.includes(
-      expectedMapHeading as (typeof LAST_MILE_HEADINGS)[number]
+    !LAST_METERS_HEADINGS.includes(
+      expectedMapHeading as (typeof LAST_METERS_HEADINGS)[number]
     )
   ) {
     throw new Error("Expected target heading must be a panorama direction.");
   }
   if (visuallyMatchedHeading === null) return null;
   if (
-    !LAST_MILE_HEADINGS.includes(
-      visuallyMatchedHeading as (typeof LAST_MILE_HEADINGS)[number]
+    !LAST_METERS_HEADINGS.includes(
+      visuallyMatchedHeading as (typeof LAST_METERS_HEADINGS)[number]
     )
   ) {
     throw new Error("Visual target heading must be a panorama direction.");
   }
-  return lastMileHeadingDifference(
+  return lastMetersHeadingDifference(
     visuallyMatchedHeading,
     expectedMapHeading
   ) <= toleranceDegrees
@@ -269,7 +269,7 @@ export function resolveVerifiedTargetHeading(
     : null;
 }
 
-export function formatLastMileDistance(distanceMeters: number): string {
+export function formatLastMetersDistance(distanceMeters: number): string {
   if (distanceMeters >= 1_000) {
     return `${(distanceMeters / 1_609.344).toFixed(1)} miles`;
   }
@@ -291,7 +291,7 @@ export function formatLastMileDistance(distanceMeters: number): string {
   return `${roundedFeet.toLocaleString("en-US")} feet`;
 }
 
-function formatLastMileDirection(bearing: number): string {
+function formatLastMetersDirection(bearing: number): string {
   const directionNames = [
     "north",
     "northeast",
@@ -354,7 +354,7 @@ export function shouldUseDestinationReference(distanceMeters: number, panoramaAg
     throw new Error("Last Meters distance must be a non-negative finite number.");
   }
   return distanceMeters <= LAST_METERS_DESTINATION_REFERENCE_RADIUS_METERS &&
-    !(typeof panoramaAgeYears === "number" && Number.isFinite(panoramaAgeYears) && panoramaAgeYears > LAST_MILE_REFERENCE_MAX_AGE_YEARS);
+    !(typeof panoramaAgeYears === "number" && Number.isFinite(panoramaAgeYears) && panoramaAgeYears > LAST_METERS_REFERENCE_MAX_AGE_YEARS);
 }
 
 function describeResolvedBranch(destination: string, address?: string): string {
@@ -379,13 +379,13 @@ export function buildAlignedHeadingInstruction(
     throw new Error("Last Meters distance must be a non-negative finite number.");
   }
   return (
-    `${describeResolvedBranch(destination, address)} is roughly ${formatLastMileDistance(distanceMeters)} ahead on your current heading. ` +
+    `${describeResolvedBranch(destination, address)} is roughly ${formatLastMetersDistance(distanceMeters)} ahead on your current heading. ` +
     "Keep this heading and continue with your primary navigation." +
     differentBranchHint(destination, address)
   );
 }
 
-export function buildLastMileApproachInstruction(
+export function buildLastMetersApproachInstruction(
   destination: string,
   distanceMeters: number,
   bearing: number,
@@ -394,8 +394,8 @@ export function buildLastMileApproachInstruction(
   if (!Number.isFinite(distanceMeters) || distanceMeters < 0) {
     throw new Error("Last Meters distance must be a non-negative finite number.");
   }
-  const direction = formatLastMileDirection(bearing);
-  const distance = formatLastMileDistance(distanceMeters);
+  const direction = formatLastMetersDirection(bearing);
+  const distance = formatLastMetersDistance(distanceMeters);
 
   return (
     `${describeResolvedBranch(destination, address)} is roughly ${distance} to the ${direction}. ` +
@@ -411,8 +411,8 @@ export function isDestinationBearingReliable(
   const accuracy =
     typeof gpsAccuracyMeters === "number" && Number.isFinite(gpsAccuracyMeters)
       ? gpsAccuracyMeters
-      : LAST_MILE_DEFAULT_GPS_ACCURACY_METERS;
-  return distanceMeters > Math.max(LAST_MILE_MIN_RELIABLE_BEARING_METERS, accuracy);
+      : LAST_METERS_DEFAULT_GPS_ACCURACY_METERS;
+  return distanceMeters > Math.max(LAST_METERS_MIN_RELIABLE_BEARING_METERS, accuracy);
 }
 
 export function buildHeadingConflictInstruction(
@@ -423,7 +423,7 @@ export function buildHeadingConflictInstruction(
     throw new Error("Last Meters distance must be a non-negative finite number.");
   }
   return (
-    `${destination} is about ${formatLastMileDistance(distanceMeters)} away, but your phone compass and ` +
+    `${destination} is about ${formatLastMetersDistance(distanceMeters)} away, but your phone compass and ` +
     "Street View disagree about which way you are facing, so I will not guess a turn. " +
     "Stay where you are, move the phone in a slow figure eight to recalibrate the compass, " +
     "then hold it upright in front of you and take a new photo."
@@ -439,7 +439,7 @@ export function buildCloseRangeNoTurnInstruction(
   if (!Number.isFinite(distanceMeters) || distanceMeters < 0) {
     throw new Error("Last Meters distance must be a non-negative finite number.");
   }
-  const proximity = `You are within about ${formatLastMileDistance(distanceMeters)} of ${destination}. `;
+  const proximity = `You are within about ${formatLastMetersDistance(distanceMeters)} of ${destination}. `;
   if (headingAligned) {
     return proximity + "Your compass agrees with the estimated map direction, but GPS is too uncertain here to confirm the entrance is ahead. " +
       "Keep your current orientation while taking another photo; do not move forward based on this estimate. " +
@@ -457,7 +457,7 @@ export function buildCloseRangeNoTurnInstruction(
  * not by the model, because the model is forbidden from telling a blind user
  * to walk.
  */
-export function buildLastMileDistanceSentence(
+export function buildLastMetersDistanceSentence(
   destination: string,
   distanceMeters: number,
   afterTurn = true
@@ -465,14 +465,14 @@ export function buildLastMileDistanceSentence(
   if (!Number.isFinite(distanceMeters) || distanceMeters < 0) {
     throw new Error("Last Meters distance must be a non-negative finite number.");
   }
-  const distance = formatLastMileDistance(distanceMeters);
+  const distance = formatLastMetersDistance(distanceMeters);
   const subject = afterTurn ? `After turning, ${destination}` : destination;
   return distanceMeters <= 30
     ? `${subject} is about ${distance} ahead.`
     : `${subject} is about ${distance} away in that direction. Continue with your primary navigation.`;
 }
 
-export function buildLastMileRetakeInstruction(
+export function buildLastMetersRetakeInstruction(
   destination: string,
   distanceMeters: number,
   bearing: number
@@ -482,7 +482,7 @@ export function buildLastMileRetakeInstruction(
   }
   return (
     `${destination} is not visible from this block and is roughly ` +
-    `${formatLastMileDistance(distanceMeters)} to the ${formatLastMileDirection(bearing)}. ` +
+    `${formatLastMetersDistance(distanceMeters)} to the ${formatLastMetersDirection(bearing)}. ` +
     "Continue with your primary navigation for another block, then stop safely and take a new photo."
   );
 }
@@ -503,8 +503,8 @@ export function buildBesideBuildingInstruction(
   return (
     `You appear to be beside ${destination}, which may have more than one entrance. ` +
     "I could not confirm an entrance in front of you in Street View. " +
-    `The entrance listed on Google Maps is roughly ${formatLastMileDistance(distanceMeters)} ` +
-    `to the ${formatLastMileDirection(bearing)}. ` +
+    `The entrance listed on Google Maps is roughly ${formatLastMetersDistance(distanceMeters)} ` +
+    `to the ${formatLastMetersDirection(bearing)}. ` +
     "If you find a door here, ask someone nearby whether it is open to the public."
   );
 }
@@ -515,7 +515,7 @@ export function buildClosedNowNotice(destination: string, temporarily = false): 
     : ` Google Maps lists ${destination} as closed right now.`;
 }
 
-export function buildLastMileSourceNote(streetViewDate?: string | null): string {
+export function buildLastMetersSourceNote(streetViewDate?: string | null): string {
   if (streetViewDate === null) return " Source: Google Maps.";
   return streetViewDate
     ? ` Source: Google Maps and Street View imagery from ${streetViewDate}.`
@@ -526,7 +526,7 @@ export function buildLastMileSourceNote(streetViewDate?: string | null): string 
  * Takes raw (unsnapped) headings. Snapping both sides to 45 degree sectors
  * first can turn a true 0 degree difference into "45 left" or "45 right".
  */
-export function buildLastMileTurnInstruction(
+export function buildLastMetersTurnInstruction(
   currentHeading: number,
   targetHeading: number
 ): string {

@@ -17,7 +17,7 @@ function allPresent(...names: string[]): boolean {
   return names.every((name) => Boolean(process.env[name]?.trim()));
 }
 
-/** OpenAI: /api/text, /api/parseRequest, /api/audio, /api/last-mile. */
+/** OpenAI: /api/text, /api/parseRequest, /api/audio, /api/last-meters. */
 export function hasOwnOpenAiKey(): boolean {
   return allPresent('OPENAI_API_KEY');
 }
@@ -38,7 +38,7 @@ export function hasOwnMapsKey(): boolean {
 }
 
 /** Last Meters needs OpenAI vision and Google Street View. */
-export function canRunLocalLastMile(): boolean {
+export function canRunLocalLastMeters(): boolean {
   return hasOwnOpenAiKey() && hasOwnMapsKey();
 }
 
@@ -57,7 +57,7 @@ export type ServiceRouting = {
    * Last Meters AI/Maps work can run upstream. Photos are still stored here
    * when the request is proxied, so the Render dashboard does not go blank.
    */
-  lastMile: ServiceRoute;
+  lastMeters: ServiceRoute;
 };
 
 function route(hasKeys: boolean): ServiceRoute {
@@ -80,25 +80,25 @@ export function getServiceRouting(): ServiceRouting {
       ai: 'proxy',
       speech: 'proxy',
       mta: 'proxy',
-      lastMile: 'proxy',
+      lastMeters: 'proxy',
     };
     if (hasOwnOpenAiKey()) routing.ai = 'local';
-    if (canRunLocalLastMile()) routing.lastMile = 'local';
+    if (canRunLocalLastMeters()) routing.lastMeters = 'local';
     return routing;
   }
   if (flag === '0' || flag === 'false') {
-    return { ai: 'local', speech: 'local', mta: 'local', lastMile: 'local' };
+    return { ai: 'local', speech: 'local', mta: 'local', lastMeters: 'local' };
   }
   const routing: ServiceRouting = {
     ai: route(hasOwnOpenAiKey()),
     speech: route(hasOwnSpeechKeys()),
     mta: route(hasOwnMtaKey()),
-    lastMile: route(canRunLocalLastMile()),
+    lastMeters: route(canRunLocalLastMeters()),
   };
   // Street View + OpenAI must run locally when configured — do not proxy Last
   // Meters through buddywalk.app text even if ZERO_CONFIG forces other routes.
-  if (canRunLocalLastMile()) {
-    routing.lastMile = 'local';
+  if (canRunLocalLastMeters()) {
+    routing.lastMeters = 'local';
   }
   return routing;
 }

@@ -2,44 +2,45 @@ import axios from "axios";
 import { textRequestBody, AppContext } from "../types";
 import dotenv from "dotenv";
 import { getOpenAIClient } from "./openAIClient";
-import { lastMileTestLogService } from "./lastMileTestLog";
+import { lastMetersTestLogService } from "./lastMetersTestLog";
 import sharp from "sharp";
-import { RECAPTURE_MESSAGE } from "../../src/utils/lastMileSafety";
-import { strictLastMileGuidancePolicy, type LastMileGuidancePolicy } from "../utils/lastMileGuidancePolicy";
-import { evaluateWalkingLeg, WalkingEvidence } from "../utils/lastMilePolicy";
+import { RECAPTURE_MESSAGE } from "../../src/utils/lastMetersSafety";
+import { strictLastMetersGuidancePolicy, type LastMetersGuidancePolicy } from "../utils/lastMetersGuidancePolicy";
+import { evaluateWalkingLeg, WalkingEvidence } from "../utils/lastMetersPolicy";
 import {
-  LAST_MILE_PIPELINE_VERSION,
+  LAST_METERS_PIPELINE_VERSION,
   STORED_PHOTO_JPEG_QUALITY,
   STORED_PHOTO_MAX_WIDTH,
   buildReplayInput,
   type LastMetersRequestInput,
   type ReplayInput,
-} from "../utils/lastMileReplay";
-import type { RetryPanoramaMode } from "../database/models/lastMileTestLog";
+} from "../utils/lastMetersReplay";
+import type { RetryPanoramaMode } from "../database/models/lastMetersTestLog";
+import type { LastMetersPath } from "../config/lastMetersPaths";
 import { outdoorPanoramaRejection } from "../utils/outdoorPanorama";
 import { selectOutdoorPanorama, SceneClassifier, PanoramaAudit, PanoramaAttempt, PanoramaSearchBudget } from "./outdoorPanoramaSelection";
 import {
   buildClosedNowNotice,
   buildHeadingConflictInstruction,
-  buildLastMileDistanceSentence,
-  buildLastMileSourceNote,
-  buildLastMileTurnInstruction,
-  calculateLastMileConfidence,
+  buildLastMetersDistanceSentence,
+  buildLastMetersSourceNote,
+  buildLastMetersTurnInstruction,
+  calculateLastMetersConfidence,
   compareCompassAndPanoramaHeadings,
-  formatLastMileDistance,
-  isLastMileHeadingAligned,
-  lastMileHeadingDifference,
-  LAST_MILE_HEADINGS,
-  LAST_MILE_PANORAMA_FOV_DEGREES,
+  formatLastMetersDistance,
+  isLastMetersHeadingAligned,
+  lastMetersHeadingDifference,
+  LAST_METERS_HEADINGS,
+  LAST_METERS_PANORAMA_FOV_DEGREES,
   LAST_METERS_EXACT_RADIUS_METERS,
   parseDestinationVisibility,
-  parseLastMileHeading,
+  parseLastMetersHeading,
   resolveVerifiedTargetHeading,
   shouldUseDestinationReference,
-  snapLastMileHeading,
+  snapLastMetersHeading,
   streetViewImageryAgeYears,
-} from "../utils/lastMileNavigation";
-import type { LastMileTestScenario } from "../utils/lastMileNavigation";
+} from "../utils/lastMetersNavigation";
+import type { LastMetersTestScenario } from "../utils/lastMetersNavigation";
 import {
   normalizeNearbyPlaceQuery,
   signTextMatchesPlaceName,
@@ -168,7 +169,7 @@ async function getDestinationStreetViewReference(
     status: metadata.status,
     placeName: nearbyPlace.placeName,
     placeAddress: nearbyPlace.placeAddress,
-    targetHeading: snapLastMileHeading(
+    targetHeading: snapLastMetersHeading(
       calculateHeading(
         { lat, lng },
         { lat: placeLocation.lat, lng: placeLocation.lng },
@@ -184,18 +185,19 @@ export class LastMetersService {
   ) {}
 
   /** Use the existing policy by default; a mobile subclass can choose its own field-only policy. */
-  protected lastMileGuidancePolicy(_options: LastMetersRunOptions): LastMileGuidancePolicy {
-    return strictLastMileGuidancePolicy;
+  protected lastMetersGuidancePolicy(_options: LastMetersRunOptions): LastMetersGuidancePolicy {
+    return strictLastMetersGuidancePolicy;
   }
 
   // --- LAST METERS NAVIGATION PIPELINE ---
   /** Runs Last Meters for an app request and sends the answer. */
-  async lastMileRequest(
+  async lastMetersRequest(
     ctx: AppContext,
     request: LastMetersRequestInput,
     image: string,
+    requestPath: LastMetersPath,
   ) {
-    const result = await this.runLastMeters(request, image);
+    const result = await this.runLastMeters(request, image, { requestPath });
     if (result.kind === "question") {
       return this.questionService.textRequest(ctx, result.textRequest);
     }
@@ -211,7 +213,7 @@ export class LastMetersService {
     image: string,
     options: LastMetersRunOptions = {},
   ): Promise<LastMetersRunResult> {
-    const guidancePolicy = this.lastMileGuidancePolicy(options);
+    const guidancePolicy = this.lastMetersGuidancePolicy(options);
     const {
       lat,
       lng,
@@ -221,7 +223,7 @@ export class LastMetersService {
       compassAccuracyLevel,
       sensors,
     } = request;
-    const { retry, pinnedPanorama } = options;
+    const { retry, pinnedPanorama, requestPath } = options;
     const startedAt = Date.now();
     // A retry keeps the original's snapshot and judges sensor freshness as of
     // the original request.
@@ -235,7 +237,7 @@ export class LastMetersService {
     let recordedLogId: string | undefined;
     let activeStage = "destination proximity check";
     let navigationMode: "approach" | "exact" | "aligned" | undefined;
-    let testScenario: LastMileTestScenario | undefined;
+    let testScenario: LastMetersTestScenario | undefined;
     let destinationDistanceMeters: number | undefined;
     let destinationBearing: number | undefined;
     let headingDifferenceDegrees: number | undefined;
@@ -361,7 +363,7 @@ export class LastMetersService {
       targetHeading?: number;
       turnInstruction?: string;
     }) => {
-      recordedLogId = await lastMileTestLogService.record({
+      recordedLogId = await lastMetersTestLogService.record({
         ...trialContext(),
         // A retry links to the original and reuses its stored photo.
         ...(retry
@@ -373,6 +375,7 @@ export class LastMetersService {
             }
           : {
               runKind: "field" as const,
+              requestPath,
               userPhoto: await resizeDataUrlImage(
                 image,
                 STORED_PHOTO_MAX_WIDTH,
@@ -402,13 +405,13 @@ export class LastMetersService {
         response: safetyReasons.join("; "), model: "deterministic-safety-policy", success: false });
       const testLogId = await recordTrial({ finalOutput: message, success: false, error: "turn_withheld" });
       return respond(200, { output: message, testLogId, warning: "turn_withheld", safetyReasons,
-        guidanceKind: "withheld", targetHeading: null, pipelineVersion: LAST_MILE_PIPELINE_VERSION });
+        guidanceKind: "withheld", targetHeading: null, pipelineVersion: LAST_METERS_PIPELINE_VERSION });
     };
     const initialSensorReasons = guidancePolicy.initialSensorReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow());
     if (initialSensorReasons.length) return withhold(initialSensorReasons);
 
     console.log("\n==================================================");
-    console.log("📥 [BACKEND] HIT RECEIVED ON /api/last-mile route!");
+    console.log("📥 [BACKEND] HIT RECEIVED ON THE LAST METERS ROUTE!");
     console.log(`[BACKEND] Destination requested: "${destination}"`);
     console.log(`[BACKEND] Coordinates: lat=${lat}, lng=${lng}`);
     console.log(
@@ -521,7 +524,7 @@ export class LastMetersService {
         const finalOutput =
           `I could not verify a nearby ${destinationQuery} from your current location. ` +
           "Try a more specific name or street address." +
-          buildLastMileSourceNote(null);
+          buildLastMetersSourceNote(null);
         const testLogId = await recordTrial({
           finalOutput,
           success: false,
@@ -602,11 +605,11 @@ export class LastMetersService {
 
       destinationBearing = calculateHeading({ lat, lng }, targetLocation);
       if (typeof deviceHeading === "number") {
-        headingDifferenceDegrees = lastMileHeadingDifference(
+        headingDifferenceDegrees = lastMetersHeadingDifference(
           deviceHeading,
           destinationBearing,
         );
-        headingAligned = isLastMileHeadingAligned(
+        headingAligned = isLastMetersHeadingAligned(
           deviceHeading,
           destinationBearing,
         );
@@ -648,7 +651,7 @@ export class LastMetersService {
         const finalOutput =
           `${place.placeName}, ${place.placeAddress}, is approximately ${Math.round(distanceMeters)} meters away in a straight line. A walking route has not been verified. Use your primary walking navigation before trying Last Meters closer to the destination.` +
           closedNotice +
-          buildLastMileSourceNote(null);
+          buildLastMetersSourceNote(null);
         const testLogId = await recordTrial({ finalOutput, success: true });
         return respond(200, {
           output: finalOutput,
@@ -665,7 +668,7 @@ export class LastMetersService {
         const finalOutput =
           `${place.placeName}, ${place.placeAddress}, is approximately ${Math.round(distanceMeters)} meters away in a straight line. A walking route has not been verified. Use your primary walking navigation before trying Last Meters closer to the destination.` +
           closedNotice +
-          buildLastMileSourceNote(null);
+          buildLastMetersSourceNote(null);
         testSteps.push({
           name: "proximity_gate",
           prompt: proximityPrompt,
@@ -708,7 +711,7 @@ export class LastMetersService {
         error: string;
         reason: string;
       }) => {
-        return withhold([fallback.error], `Google Maps places ${place.placeName} about ${formatLastMileDistance(distanceMeters)} away, but the entrance is not visually verified. I will not give a precise turn. Use your primary navigation or ask for assistance.`);
+        return withhold([fallback.error], `Google Maps places ${place.placeName} about ${formatLastMetersDistance(distanceMeters)} away, but the entrance is not visually verified. I will not give a precise turn. Use your primary navigation or ask for assistance.`);
       };
 
       activeStage = "panorama download";
@@ -733,9 +736,9 @@ export class LastMetersService {
               ? panoramaError.message
               : "Street View was unavailable.",
         });
-        const finalOutput = `You are about ${formatLastMileDistance(distanceMeters)} from ${place.placeName}. ` +
+        const finalOutput = `You are about ${formatLastMetersDistance(distanceMeters)} from ${place.placeName}. ` +
           "I could not verify a suitable outdoor panorama, so I cannot safely provide a precise turn or entrance direction. " +
-          "Stay in a safe place and use your primary navigation or ask for assistance." + closedNotice + buildLastMileSourceNote(null);
+          "Stay in a safe place and use your primary navigation or ask for assistance." + closedNotice + buildLastMetersSourceNote(null);
         const testLogId = await recordTrial({ finalOutput, success: false, error: "no_validated_outdoor_panorama" });
         return respond(200, { output: finalOutput, testLogId, mode: navigationMode, testScenario,
           currentHeading, targetHeading: null, warning: "no_validated_outdoor_panorama" });
@@ -775,7 +778,7 @@ export class LastMetersService {
         panoramaOrigin,
         targetLocation,
       );
-      const expectedTargetHeading = snapLastMileHeading(panoramaTargetBearing);
+      const expectedTargetHeading = snapLastMetersHeading(panoramaTargetBearing);
       activeStage = "panorama assembly";
       panoramaPhoto = await buildPanoramaDebugImage(tiles);
       const panoramaOverviewMsg: any[] = [];
@@ -800,8 +803,8 @@ export class LastMetersService {
       // ==========================================
       activeStage = "current-view matching";
       console.log("   ➤ Step 1: Locating User's Current View...");
-      const step1Prompt = `You will receive ${LAST_MILE_HEADINGS.length} distinct, non-overlapping panorama images labeled with their center headings at ${LAST_MILE_PANORAMA_FOV_DEGREES}-degree intervals, followed by a user's photo. Identify which single panorama segment confidently matches the center of the user's photo. Compare stable building geometry, windows, and street layout; do not rely on a repeated chain-store logo alone. Return NOT_VISIBLE for indoor imagery or ambiguous matches across multiple directions.
-Reply with exactly one heading token: ${LAST_MILE_HEADINGS.join(", ")}, or NOT_VISIBLE. Do not reply with the VIEW number.
+      const step1Prompt = `You will receive ${LAST_METERS_HEADINGS.length} distinct, non-overlapping panorama images labeled with their center headings at ${LAST_METERS_PANORAMA_FOV_DEGREES}-degree intervals, followed by a user's photo. Identify which single panorama segment confidently matches the center of the user's photo. Compare stable building geometry, windows, and street layout; do not rely on a repeated chain-store logo alone. Return NOT_VISIBLE for indoor imagery or ambiguous matches across multiple directions.
+Reply with exactly one heading token: ${LAST_METERS_HEADINGS.join(", ")}, or NOT_VISIBLE. Do not reply with the VIEW number.
 Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confidently matched. Do not return business names or explanations.`;
       const panoramaDateContext = panoramaDate
         ? `Street View reports that this panorama was captured in ${panoramaDate}.`
@@ -810,10 +813,10 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
         place.placeName.toLowerCase() === destinationQuery.toLowerCase()
           ? `"${place.placeName}"`
           : `"${place.placeName}" (requested as "${destinationQuery}")`;
-      const step2Prompt = `You will receive ${LAST_MILE_HEADINGS.length} distinct, non-overlapping panorama views labeled with their center headings. Find the storefront, sign, or entrance for ${destinationLabel}. ${panoramaDateContext}
+      const step2Prompt = `You will receive ${LAST_METERS_HEADINGS.length} distinct, non-overlapping panorama views labeled with their center headings. Find the storefront, sign, or entrance for ${destinationLabel}. ${panoramaDateContext}
       Google Maps places the verified destination near ${expectedTargetHeading} degrees from the panorama camera. Inspect that view and both neighboring views carefully, but use the map bearing only to focus the search, never as proof that the storefront is visible.
       If the primary name text is partially obscured by a canopy, tree, or awning, look carefully at side banners, architectural markers, or window logos before deciding it is NOT_VISIBLE.
-      Reply with exactly one heading token: ${LAST_MILE_HEADINGS.join(", ")}, or NOT_VISIBLE. Do not reply with the VIEW number. Return NOT_VISIBLE for indoor imagery.
+      Reply with exactly one heading token: ${LAST_METERS_HEADINGS.join(", ")}, or NOT_VISIBLE. Do not reply with the VIEW number. Return NOT_VISIBLE for indoor imagery.
       Use NOT_VISIBLE unless the requested destination is clearly identifiable in the panorama. A different nearby business is not a match. Do not infer a current business from nearby stores, an old sign, or the destination name alone.`;
       const step2StartedAt = Date.now();
       const step2Request = getOpenAIClient().chat.completions.create({
@@ -852,7 +855,7 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
       const step1Text = step1Response.choices[0].message.content?.trim() || "";
       const comparison = compareCompassAndPanoramaHeadings(
         deviceHeading,
-        parseLastMileHeading(step1Text),
+        parseLastMetersHeading(step1Text),
       );
       compassHeading = comparison.compassHeading ?? undefined;
       panoramaMatchedHeading = comparison.panoramaMatchedHeading ?? undefined;
@@ -931,7 +934,7 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
         const finalOutput =
           buildHeadingConflictInstruction(place.placeName, distanceMeters) +
           closedNotice +
-          buildLastMileSourceNote(panoramaDate);
+          buildLastMetersSourceNote(panoramaDate);
         const testLogId = await recordTrial({
           finalOutput,
           success: false,
@@ -955,7 +958,7 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
       console.log("   ➤ Step 2: Locating Target Store...");
       const { response: step2Response, durationMs: step2DurationMs } = await step2Request;
       const step2Text = step2Response.choices[0].message.content?.trim() || "";
-      const visuallyMatchedTargetHeading = parseLastMileHeading(step2Text);
+      const visuallyMatchedTargetHeading = parseLastMetersHeading(step2Text);
       targetHeading = resolveVerifiedTargetHeading(
         visuallyMatchedTargetHeading,
         expectedTargetHeading,
@@ -1000,7 +1003,7 @@ Use NOT_VISIBLE when the photo is blurry, blank, obstructed, or cannot be confid
           const finalOutput =
             `I could not visually confirm ${place.placeName}. The map places it approximately ${Math.round(distanceMeters)} meters away in a straight line, but a walking route has not been verified. Stay in a safe place and use your primary walking navigation or ask for assistance.` +
             closedNotice +
-            buildLastMileSourceNote(panoramaDate);
+            buildLastMetersSourceNote(panoramaDate);
           const testLogId = await recordTrial({ finalOutput, success: true });
           return respond(200, {
             output: finalOutput,
@@ -1197,7 +1200,7 @@ Use VISIBLE only when the storefront, sign, or entrance clearly corresponds to t
       break;
       }
       if (targetHeading === null || currentHeading === undefined) throw new Error("No verified navigation heading.");
-      const confidence = calculateLastMileConfidence({
+      const confidence = calculateLastMetersConfidence({
         gpsAccuracyMeters,
         compassAccuracyLevel,
         panoramaCurrentViewMatched: panoramaMatchedHeading !== undefined,
@@ -1238,11 +1241,11 @@ Use VISIBLE only when the storefront, sign, or entrance clearly corresponds to t
       // ==========================================
       // TYPESCRIPT MATH CALCULATION (Bulletproof Turn Logic)
       // ==========================================
-      const turnInstruction = buildLastMileTurnInstruction(
+      const turnInstruction = buildLastMetersTurnInstruction(
         guidanceHeading ?? currentHeading,
         targetBearing ?? targetHeading,
       );
-      const distanceSentence = buildLastMileDistanceSentence(
+      const distanceSentence = buildLastMetersDistanceSentence(
         place.placeName,
         distanceMeters,
         !turnInstruction.startsWith("No turn"),
@@ -1382,7 +1385,7 @@ async function resizeDataUrlImage(
     return `data:image/jpeg;base64,${outputBuffer.toString("base64")}`;
   } catch (error) {
     console.error(
-      "[LastMileTestLog] failed to compress user photo for storage:",
+      "[LastMetersTestLog] failed to compress user photo for storage:",
       error,
     );
     return dataUrl;
@@ -1404,6 +1407,8 @@ export interface LastMetersRunOptions {
     /** The original's snapshot, upgraded to the current version. */
     replayInput: ReplayInput;
   };
+  /** Set for app requests: the path the request arrived on. */
+  requestPath?: LastMetersPath;
 }
 
 export type LastMetersRunResult =

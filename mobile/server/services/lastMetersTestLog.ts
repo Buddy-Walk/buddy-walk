@@ -1,37 +1,37 @@
 import mongoose from "mongoose";
 import sharp from "sharp";
-import lastMileTestLogModel, {
-  lastMileTestLogInterface,
-} from "../database/models/lastMileTestLog";
+import lastMetersTestLogModel, {
+  lastMetersTestLogInterface,
+} from "../database/models/lastMetersTestLog";
 import {
   isMongoConnected,
-  memoryLastMileTests,
-  pushMemoryLastMileTest,
+  memoryLastMetersTests,
+  pushMemoryLastMetersTest,
 } from "../database/usageStore";
 import {
   imageStatsOf,
-  LAST_MILE_TEST_IMAGE_FIELDS,
+  LAST_METERS_TEST_IMAGE_FIELDS,
   rowId,
   withOriginalPhoto,
-  type LastMileTestImageField,
-  type LastMileTestImageStats,
-} from "../utils/lastMileTestRow";
+  type LastMetersTestImageField,
+  type LastMetersTestImageStats,
+} from "../utils/lastMetersTestRow";
 import {
-  LAST_MILE_PIPELINE_VERSION,
+  LAST_METERS_PIPELINE_VERSION,
   STORED_PHOTO_JPEG_QUALITY,
   STORED_PHOTO_MAX_WIDTH,
   UPSTREAM_PIPELINE_VERSION,
   deployedCommit,
   hasReplayablePhoto,
-} from "../utils/lastMileReplay";
+} from "../utils/lastMetersReplay";
 
-type UnstampedLastMileTestLog = Omit<
-  lastMileTestLogInterface,
+type UnstampedLastMetersTestLog = Omit<
+  lastMetersTestLogInterface,
   "serverTs" | "pipelineVersion" | "deployedCommit"
 >;
 
-export type LastMileTestSummary = Omit<lastMileTestLogInterface, LastMileTestImageField> &
-  LastMileTestImageStats & {
+export type LastMetersTestSummary = Omit<lastMetersTestLogInterface, LastMetersTestImageField> &
+  LastMetersTestImageStats & {
     /** Whether the stored user photo can be replayed, read without the photo. */
     userPhotoReplayable: boolean;
   };
@@ -58,7 +58,7 @@ function photoReplayable(field: string) {
 const IMAGE_STATS_STAGE = {
   $addFields: {
     imageStats: Object.fromEntries(
-      LAST_MILE_TEST_IMAGE_FIELDS.map((field) => [field, imageStatsOfField(`$${field}`)] as const)
+      LAST_METERS_TEST_IMAGE_FIELDS.map((field) => [field, imageStatsOfField(`$${field}`)] as const)
     ),
     userPhotoReplayable: photoReplayable("$userPhoto"),
   },
@@ -77,7 +77,7 @@ function retryOriginalStages(project: Record<string, unknown>) {
     },
     {
       $lookup: {
-        from: lastMileTestLogModel.collection.name,
+        from: lastMetersTestLogModel.collection.name,
         localField: "retryOriginalId",
         foreignField: "_id",
         pipeline: [{ $project: { _id: 0, ...project } }],
@@ -125,10 +125,10 @@ const RETRY_PHOTO_STATS_STAGES = [
   { $unset: ["retryOriginalId", "retryOriginal"] },
 ];
 const WITHOUT_IMAGES_STAGE = {
-  $project: Object.fromEntries(LAST_MILE_TEST_IMAGE_FIELDS.map((field) => [field, 0] as const)),
+  $project: Object.fromEntries(LAST_METERS_TEST_IMAGE_FIELDS.map((field) => [field, 0] as const)),
 };
 
-function toSummary(row: lastMileTestLogInterface): LastMileTestSummary {
+function toSummary(row: lastMetersTestLogInterface): LastMetersTestSummary {
   const { userPhoto, panoramaPhoto, destinationPhoto, ...rest } = row;
   return {
     ...rest,
@@ -137,15 +137,15 @@ function toSummary(row: lastMileTestLogInterface): LastMileTestSummary {
   };
 }
 
-function withoutImages(row: lastMileTestLogInterface): lastMileTestLogInterface {
+function withoutImages(row: lastMetersTestLogInterface): lastMetersTestLogInterface {
   const { userPhoto, panoramaPhoto, destinationPhoto, ...rest } = row;
   return rest;
 }
 
 /** The in-memory counterpart of RETRY_PHOTO_STAGES; returns a copy, never the stored row. */
-function withRetryPhoto(row: lastMileTestLogInterface): lastMileTestLogInterface {
+function withRetryPhoto(row: lastMetersTestLogInterface): lastMetersTestLogInterface {
   if (!row.retryOf) return row;
-  const original = memoryLastMileTests.find((entry) => rowId(entry) === row.retryOf);
+  const original = memoryLastMetersTests.find((entry) => rowId(entry) === row.retryOf);
   return withOriginalPhoto(row, original ?? null);
 }
 
@@ -159,7 +159,7 @@ export async function compressUserPhoto(dataUrl: string): Promise<string> {
       .toBuffer();
     return `data:image/jpeg;base64,${outputBuffer.toString("base64")}`;
   } catch (error) {
-    console.error("[LastMileTestLog] failed to compress user photo for storage:", error);
+    console.error("[LastMetersTestLog] failed to compress user photo for storage:", error);
     return dataUrl;
   }
 }
@@ -174,14 +174,14 @@ export async function compressPanoramaPhoto(dataUrl: string): Promise<string> {
       .toBuffer();
     return `data:image/jpeg;base64,${outputBuffer.toString("base64")}`;
   } catch (error) {
-    console.error("[LastMileTestLog] failed to compress panorama for storage:", error);
+    console.error("[LastMetersTestLog] failed to compress panorama for storage:", error);
     return dataUrl;
   }
 }
 
 /** The in-memory equivalent of a serverTs range filter. */
 function inDateRange(
-  row: lastMileTestLogInterface,
+  row: lastMetersTestLogInterface,
   dateFilter?: Record<string, unknown>
 ): boolean {
   if (!dateFilter?.serverTs) return true;
@@ -192,12 +192,12 @@ function inDateRange(
   return true;
 }
 
-export class LastMileTestLogService {
+export class LastMetersTestLogService {
   /** Logs a run of this server's pipeline, stamped with its version and deployed commit. */
-  async record(input: UnstampedLastMileTestLog): Promise<string | undefined> {
+  async record(input: UnstampedLastMetersTestLog): Promise<string | undefined> {
     return this.save({
       ...input,
-      pipelineVersion: LAST_MILE_PIPELINE_VERSION,
+      pipelineVersion: LAST_METERS_PIPELINE_VERSION,
       deployedCommit: deployedCommit(),
     });
   }
@@ -207,14 +207,14 @@ export class LastMileTestLogService {
    * server's version and commit say nothing about that run, so it gets the
    * upstream label and no commit.
    */
-  async recordProxied(input: UnstampedLastMileTestLog): Promise<string | undefined> {
+  async recordProxied(input: UnstampedLastMetersTestLog): Promise<string | undefined> {
     return this.save({ ...input, pipelineVersion: UPSTREAM_PIPELINE_VERSION });
   }
 
   private async save(
-    input: Omit<lastMileTestLogInterface, "serverTs">
+    input: Omit<lastMetersTestLogInterface, "serverTs">
   ): Promise<string | undefined> {
-    const doc: lastMileTestLogInterface = {
+    const doc: lastMetersTestLogInterface = {
       ...input,
       userPhoto: input.userPhoto?.startsWith("data:")
         ? await compressUserPhoto(input.userPhoto)
@@ -229,17 +229,17 @@ export class LastMileTestLogService {
     };
     try {
       if (isMongoConnected()) {
-        const created = await lastMileTestLogModel.create(doc);
+        const created = await lastMetersTestLogModel.create(doc);
         return String(created._id);
       }
       const memoryDoc = {
         ...doc,
-        _id: `last_mile_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
-      } as lastMileTestLogInterface & { _id: string };
-      pushMemoryLastMileTest(memoryDoc);
+        _id: `last_meters_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+      } as lastMetersTestLogInterface & { _id: string };
+      pushMemoryLastMetersTest(memoryDoc);
       return memoryDoc._id;
     } catch (e) {
-      console.error("[LastMileTestLogService] record failed:", e);
+      console.error("[LastMetersTestLogService] record failed:", e);
       return undefined;
     }
   }
@@ -249,14 +249,14 @@ export class LastMileTestLogService {
     limit: number,
     dateFilter?: Record<string, unknown>,
     includeRetries = false
-  ): Promise<{ source: string; data: lastMileTestLogInterface[] }> {
+  ): Promise<{ source: string; data: lastMetersTestLogInterface[] }> {
     if (isMongoConnected()) {
       const filter = {
         ...(dateFilter ?? {}),
         ...(includeRetries ? {} : { retryOf: { $exists: false } }),
       };
-      const data = await lastMileTestLogModel
-        .aggregate<lastMileTestLogInterface>([
+      const data = await lastMetersTestLogModel
+        .aggregate<lastMetersTestLogInterface>([
           { $match: filter },
           { $sort: { serverTs: -1 } },
           { $limit: Math.max(1, Math.floor(limit)) },
@@ -266,7 +266,7 @@ export class LastMileTestLogService {
       return { source: "mongo", data };
     }
 
-    let rows = [...memoryLastMileTests].reverse();
+    let rows = [...memoryLastMetersTests].reverse();
     if (!includeRetries) rows = rows.filter((row) => !row.retryOf);
     rows = rows.filter((row) => inDateRange(row, dateFilter));
     return { source: "memory", data: rows.slice(0, limit).map(withRetryPhoto) };
@@ -275,12 +275,12 @@ export class LastMileTestLogService {
   /** How many dashboard retries ran in the date range. */
   async countRetriesInRange(dateFilter?: Record<string, unknown>): Promise<number> {
     if (isMongoConnected()) {
-      return lastMileTestLogModel.countDocuments({
+      return lastMetersTestLogModel.countDocuments({
         ...(dateFilter ?? {}),
         retryOf: { $exists: true },
       });
     }
-    return memoryLastMileTests.filter((row) => row.retryOf && inDateRange(row, dateFilter)).length;
+    return memoryLastMetersTests.filter((row) => row.retryOf && inDateRange(row, dateFilter)).length;
   }
 
   /** Like getData, but without the base64 images. */
@@ -288,10 +288,10 @@ export class LastMileTestLogService {
     limit: number,
     dateFilter?: Record<string, unknown>,
     includeRetries = false
-  ): Promise<{ source: string; data: LastMileTestSummary[] }> {
+  ): Promise<{ source: string; data: LastMetersTestSummary[] }> {
     if (isMongoConnected()) {
-      const data = await lastMileTestLogModel
-        .aggregate<LastMileTestSummary>([
+      const data = await lastMetersTestLogModel
+        .aggregate<LastMetersTestSummary>([
           {
             $match: {
               ...(dateFilter ?? {}),
@@ -320,11 +320,11 @@ export class LastMileTestLogService {
   async getById(
     id: string,
     options?: { includeStreetView?: boolean }
-  ): Promise<lastMileTestLogInterface | null> {
+  ): Promise<lastMetersTestLogInterface | null> {
     if (isMongoConnected()) {
       if (!mongoose.isValidObjectId(id)) return null;
       const projection = options?.includeStreetView ? {} : { panoramaPhoto: 0, destinationPhoto: 0 };
-      return lastMileTestLogModel.findById(id, projection).lean<lastMileTestLogInterface>();
+      return lastMetersTestLogModel.findById(id, projection).lean<lastMetersTestLogInterface>();
     }
     const row = this.findMemoryRow(id);
     if (!row) return null;
@@ -336,41 +336,41 @@ export class LastMileTestLogService {
   }
 
   /** One trial's summary: what a response without images needs, never the images. */
-  async getSummaryById(id: string): Promise<LastMileTestSummary | null> {
+  async getSummaryById(id: string): Promise<LastMetersTestSummary | null> {
     const [summary] = await this.getSummariesByIds([id]);
     return summary ?? null;
   }
 
   /** Summaries of specific trials, such as originals of retries on a list page. */
-  async getSummariesByIds(ids: string[]): Promise<LastMileTestSummary[]> {
+  async getSummariesByIds(ids: string[]): Promise<LastMetersTestSummary[]> {
     const unique = [...new Set(ids)];
     if (!unique.length) return [];
     if (isMongoConnected()) {
       const valid = unique
         .filter((id) => mongoose.isValidObjectId(id))
         .map((id) => new mongoose.Types.ObjectId(id));
-      return lastMileTestLogModel.aggregate<LastMileTestSummary>([
+      return lastMetersTestLogModel.aggregate<LastMetersTestSummary>([
         { $match: { _id: { $in: valid } } },
         IMAGE_STATS_STAGE,
         ...RETRY_PHOTO_STATS_STAGES,
         WITHOUT_IMAGES_STAGE,
       ]);
     }
-    return memoryLastMileTests
+    return memoryLastMetersTests
       .filter((row) => unique.includes(rowId(row)))
       .map((row) => toSummary(withRetryPhoto(row)));
   }
 
   /** Every retry of an original test, oldest first, without images. */
-  async getRetries(originalId: string): Promise<lastMileTestLogInterface[]> {
+  async getRetries(originalId: string): Promise<lastMetersTestLogInterface[]> {
     if (isMongoConnected()) {
-      return lastMileTestLogModel
+      return lastMetersTestLogModel
         .find({ retryOf: originalId })
-        .select(LAST_MILE_TEST_IMAGE_FIELDS.map((field) => `-${field}`).join(" "))
+        .select(LAST_METERS_TEST_IMAGE_FIELDS.map((field) => `-${field}`).join(" "))
         .sort({ serverTs: 1 })
         .lean();
     }
-    return memoryLastMileTests
+    return memoryLastMetersTests
       .filter((row) => row.retryOf === originalId)
       .sort((a, b) => new Date(a.serverTs).getTime() - new Date(b.serverTs).getTime())
       .map(withoutImages);
@@ -381,7 +381,7 @@ export class LastMileTestLogService {
     const counts = new Map<string, number>();
     if (!originalIds.length) return counts;
     if (isMongoConnected()) {
-      const groups = await lastMileTestLogModel.aggregate<{ _id: string; count: number }>([
+      const groups = await lastMetersTestLogModel.aggregate<{ _id: string; count: number }>([
         { $match: { retryOf: { $in: originalIds } } },
         { $group: { _id: "$retryOf", count: { $sum: 1 } } },
       ]);
@@ -389,7 +389,7 @@ export class LastMileTestLogService {
       return counts;
     }
     const wanted = new Set(originalIds);
-    memoryLastMileTests.forEach((row) => {
+    memoryLastMetersTests.forEach((row) => {
       if (row.retryOf && wanted.has(row.retryOf)) {
         counts.set(row.retryOf, (counts.get(row.retryOf) ?? 0) + 1);
       }
@@ -400,11 +400,11 @@ export class LastMileTestLogService {
   async updateReview(
     id: string,
     review: Pick<
-      lastMileTestLogInterface,
+      lastMetersTestLogInterface,
       "reviewerStatus" | "reviewerNotes" | "reviewOutcome" | "turnCorrectness" | "entranceCorrectness"
     >
-  ): Promise<{ source: string; data: lastMileTestLogInterface | null }> {
-    const update: Partial<lastMileTestLogInterface> = {
+  ): Promise<{ source: string; data: lastMetersTestLogInterface | null }> {
+    const update: Partial<lastMetersTestLogInterface> = {
       reviewerStatus: review.reviewerStatus ?? "untested",
       reviewerNotes: review.reviewerNotes ?? "",
       reviewedAt: new Date(),
@@ -414,7 +414,7 @@ export class LastMileTestLogService {
     if (review.entranceCorrectness) update.entranceCorrectness = review.entranceCorrectness;
 
     if (isMongoConnected()) {
-      const data = await lastMileTestLogModel
+      const data = await lastMetersTestLogModel
         .findByIdAndUpdate(id, update, { new: true })
         .lean();
       return { source: "mongo", data };
@@ -430,11 +430,11 @@ export class LastMileTestLogService {
   async attachPanorama(
     id: string,
     panorama: Pick<
-      lastMileTestLogInterface,
+      lastMetersTestLogInterface,
       "panoramaPhoto" | "panoramaDate" | "panoramaStatus" | "panoId" | "panoramaCopyright" | "panoramaAgeYears" | "panoramaValidation"
     > & { panoramaHeadings?: number[] }
   ): Promise<void> {
-    const update: Partial<lastMileTestLogInterface> = {
+    const update: Partial<lastMetersTestLogInterface> = {
       ...panorama,
       panoramaSource: "background",
       panoramaPhoto: panorama.panoramaPhoto?.startsWith("data:")
@@ -443,19 +443,19 @@ export class LastMileTestLogService {
     };
     try {
       if (isMongoConnected()) {
-        await lastMileTestLogModel.findByIdAndUpdate(id, update);
+        await lastMetersTestLogModel.findByIdAndUpdate(id, update);
         return;
       }
       const row = this.findMemoryRow(id);
       if (row) Object.assign(row, update);
     } catch (e) {
-      console.error("[LastMileTestLogService] attachPanorama failed:", e);
+      console.error("[LastMetersTestLogService] attachPanorama failed:", e);
     }
   }
 
-  private findMemoryRow(id: string): lastMileTestLogInterface | undefined {
-    return memoryLastMileTests.find((entry) => rowId(entry) === id);
+  private findMemoryRow(id: string): lastMetersTestLogInterface | undefined {
+    return memoryLastMetersTests.find((entry) => rowId(entry) === id);
   }
 }
 
-export const lastMileTestLogService = new LastMileTestLogService();
+export const lastMetersTestLogService = new LastMetersTestLogService();

@@ -3,8 +3,8 @@ import { telemetryEventInterface } from "./models/telemetryEvent";
 import { feedbackInterface } from "./models/feedback";
 import { aiRequestLogInterface } from "./models/aiRequestLog";
 import { chatLogInterface, messageInterface } from "./models/chatLog";
-import { lastMileTestLogInterface } from "./models/lastMileTestLog";
-import { lastMileRetryRunInterface } from "./models/lastMileRetryRun";
+import { lastMetersTestLogInterface } from "./models/lastMetersTestLog";
+import { lastMetersRetryRunInterface } from "./models/lastMetersRetryRun";
 
 export interface MemoryChatLog extends chatLogInterface {
   _id: string;
@@ -24,15 +24,15 @@ const MAX_MEMORY_EVENTS = 5000;
 const MAX_MEMORY_FEEDBACK = 2000;
 const MAX_MEMORY_AI_REQUESTS = 3000;
 const MAX_MEMORY_CHAT_LOGS = 500;
-const MAX_MEMORY_LAST_MILE_TESTS = 300;
+const MAX_MEMORY_LAST_METERS_TESTS = 300;
 
 export const memoryEvents: telemetryEventInterface[] = [];
 export const memoryFeedback: feedbackInterface[] = [];
 export const memoryAiRequests: aiRequestLogInterface[] = [];
 export const memoryChatLogs: MemoryChatLog[] = [];
-export const memoryLastMileTests: lastMileTestLogInterface[] = [];
+export const memoryLastMetersTests: lastMetersTestLogInterface[] = [];
 /** Dashboard retry runs by idempotency key. Small, so not capped. */
-export const memoryRetryRuns = new Map<string, lastMileRetryRunInterface>();
+export const memoryRetryRuns = new Map<string, lastMetersRetryRunInterface>();
 
 export function pushMemoryEvents(events: telemetryEventInterface[]): void {
   memoryEvents.push(...events);
@@ -55,10 +55,10 @@ export function pushMemoryAiRequest(entry: aiRequestLogInterface): void {
   }
 }
 
-export function pushMemoryLastMileTest(entry: lastMileTestLogInterface): void {
-  memoryLastMileTests.push(entry);
-  if (memoryLastMileTests.length > MAX_MEMORY_LAST_MILE_TESTS) {
-    memoryLastMileTests.splice(0, memoryLastMileTests.length - MAX_MEMORY_LAST_MILE_TESTS);
+export function pushMemoryLastMetersTest(entry: lastMetersTestLogInterface): void {
+  memoryLastMetersTests.push(entry);
+  if (memoryLastMetersTests.length > MAX_MEMORY_LAST_METERS_TESTS) {
+    memoryLastMetersTests.splice(0, memoryLastMetersTests.length - MAX_MEMORY_LAST_METERS_TESTS);
   }
 }
 
