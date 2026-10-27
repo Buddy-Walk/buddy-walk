@@ -1,36 +1,36 @@
 import { Request, Response } from "express";
-import { lastMileTestLogService } from "../services/lastMileTestLog";
+import { lastMetersTestLogService } from "../services/lastMetersTestLog";
 import { toCsv } from "../utils/csv";
 import { buildDateFilter, isAdminAuthorized, parseLimit } from "../utils/adminAuth";
 import { isMongoConnected } from "../database/usageStore";
 import {
   rowId,
-  toLastMileTestResponse,
-  toLastMileTestSummaryResponse,
+  toLastMetersTestResponse,
+  toLastMetersTestSummaryResponse,
   toRetryHistoryEntry,
   withOriginalPhoto,
-} from "../utils/lastMileTestRow";
+} from "../utils/lastMetersTestRow";
 import {
   ENTRANCE_CORRECTNESS,
   RETRY_PANORAMA_MODES,
   REVIEW_OUTCOMES,
   TURN_CORRECTNESS,
-  type lastMileTestLogInterface,
-} from "../database/models/lastMileTestLog";
+  type lastMetersTestLogInterface,
+} from "../database/models/lastMetersTestLog";
 import type { PlaceCandidateLog } from "../utils/nearbyPlaces";
-import { assessReplay, type ReplayableLog } from "../utils/lastMileReplay";
-import { summarizeFieldEvaluation } from "../utils/lastMileEvaluation";
+import { assessReplay, type ReplayableLog } from "../utils/lastMetersReplay";
+import { summarizeFieldEvaluation } from "../utils/lastMetersEvaluation";
 import {
   findOriginal,
-  LastMileRetryError,
+  LastMetersRetryError,
   retryAvailability,
-  retryLastMileTest,
+  retryLastMetersTest,
   UNEXPECTED_RETRY_FAILURE,
-} from "../services/lastMileRetry";
-import { lastMileRetryRunService, type RetryRun } from "../services/lastMileRetryRuns";
+} from "../services/lastMetersRetry";
+import { lastMetersRetryRunService, type RetryRun } from "../services/lastMetersRetryRuns";
 import { parseIdempotencyKey } from "../utils/idempotencyKey";
 
-const LAST_MILE_TEST_CSV_COLUMNS = [
+const LAST_METERS_TEST_CSV_COLUMNS = [
   "pipelineVersion", "deployedCommit", "runKind", "retryOf", "retryPanoramaMode", "retryDefaultsApplied", "replayInput", "safetyReasons", "walkingEvidence", "panoramaTargetHeading", "confidenceMethod",
   "serverTs",
   "destination",
@@ -139,9 +139,9 @@ async function retryFacts<T extends ReplayableLog & { retryOf?: string }>(rows: 
     .filter((id): id is string => Boolean(id) && !originals.has(id!));
   // Independent queries, so they run together.
   const [offPageOriginals, retryCounts, running] = await Promise.all([
-    lastMileTestLogService.getSummariesByIds(missing),
-    lastMileTestLogService.countRetries(rows.filter((row) => !row.retryOf).map(rowId)),
-    lastMileRetryRunService.running(rows.map((row) => row.retryOf ?? rowId(row))),
+    lastMetersTestLogService.getSummariesByIds(missing),
+    lastMetersTestLogService.countRetries(rows.filter((row) => !row.retryOf).map(rowId)),
+    lastMetersRetryRunService.running(rows.map((row) => row.retryOf ?? rowId(row))),
   ]);
   offPageOriginals.forEach((row) => originals.set(rowId(row), row));
   return (row: T) => ({
@@ -161,7 +161,7 @@ function optionalEnum<T extends string>(
     : { ok: false };
 }
 
-export class LastMileTestLogController {
+export class LastMetersTestLogController {
   async evaluation(req: Request, res: Response): Promise<void> {
     if (!isAdminAuthorized(req)) { res.status(401).json({ error: "Unauthorized" }); return; }
     try {
@@ -170,12 +170,12 @@ export class LastMileTestLogController {
       // The limit applies to field tests only; retries are counted separately
       // so they never take a field test's place in the sample.
       const [{ data }, replayCount] = await Promise.all([
-        lastMileTestLogService.getSummaries(limit, dateFilter),
-        lastMileTestLogService.countRetriesInRange(dateFilter),
+        lastMetersTestLogService.getSummaries(limit, dateFilter),
+        lastMetersTestLogService.countRetriesInRange(dateFilter),
       ]);
       res.json({ ...summarizeFieldEvaluation(data), replayCount, sampledTrials: data.length, limit, potentiallyTruncated: data.length === limit });
     } catch {
-      console.error("[last-mile-tests] Evaluation query failed");
+      console.error("[last-meters-tests] Evaluation query failed");
       res.status(503).json({ error: "Evaluation data is temporarily unavailable." });
     }
   }
@@ -204,7 +204,7 @@ export class LastMileTestLogController {
     }
 
     try {
-      const { testLogId, log, defaultsApplied, replayed } = await retryLastMileTest({
+      const { testLogId, log, defaultsApplied, replayed } = await retryLastMetersTest({
         id: req.params.id,
         panoramaMode: panoramaMode.value ?? "fresh",
         idempotencyKey,
@@ -214,14 +214,14 @@ export class LastMileTestLogController {
         testLogId,
         defaultsApplied,
         replayed,
-        data: log ? toLastMileTestSummaryResponse(log) : null,
+        data: log ? toLastMetersTestSummaryResponse(log) : null,
       });
     } catch (error) {
-      if (error instanceof LastMileRetryError) {
+      if (error instanceof LastMetersRetryError) {
         res.status(error.status).json({ error: error.message, code: error.code });
         return;
       }
-      console.error("[LastMileTestLog] retry failed:", error);
+      console.error("[LastMetersTestLog] retry failed:", error);
       res.status(500).json({ error: UNEXPECTED_RETRY_FAILURE });
     }
   }
@@ -236,22 +236,22 @@ export class LastMileTestLogController {
     const dateFilter = buildDateFilter(req);
     const includeRetries = req.query.includeRetries === "true";
     if (req.query.includeImages === "true") {
-      const { source, data } = await lastMileTestLogService.getData(limit, dateFilter, includeRetries);
+      const { source, data } = await lastMetersTestLogService.getData(limit, dateFilter, includeRetries);
       const factsOf = await retryFacts(data);
       res.status(200).json({
         source,
         retry: retryAvailability(),
-        data: data.map((row) => ({ ...toLastMileTestResponse(row, true), ...factsOf(row) })),
+        data: data.map((row) => ({ ...toLastMetersTestResponse(row, true), ...factsOf(row) })),
       });
       return;
     }
 
-    const { source, data } = await lastMileTestLogService.getSummaries(limit, dateFilter, includeRetries);
+    const { source, data } = await lastMetersTestLogService.getSummaries(limit, dateFilter, includeRetries);
     const factsOf = await retryFacts(data);
     const rows = data.map((summary) => {
       const { placeCandidates, userPhotoReplayable, ...row } = summary;
       return {
-        ...toLastMileTestSummaryResponse(row),
+        ...toLastMetersTestSummaryResponse(row),
         ...factsOf(summary),
         // The candidate list is only needed in the detail view.
         placeCandidateCount: placeCandidates?.length ?? 0,
@@ -267,7 +267,7 @@ export class LastMileTestLogController {
     }
 
     const includeStreetView = req.query.includeStreetView === "true";
-    const data = await lastMileTestLogService.getById(req.params.id, {
+    const data = await lastMetersTestLogService.getById(req.params.id, {
       includeStreetView,
     });
     if (!data) {
@@ -278,14 +278,14 @@ export class LastMileTestLogController {
     const includeImages = req.query.includeImages === "true";
     const { originalId, original } = await findOriginal(data);
     const [retries, running] = await Promise.all([
-      original ? lastMileTestLogService.getRetries(originalId) : [],
-      lastMileRetryRunService.running([originalId]),
+      original ? lastMetersTestLogService.getRetries(originalId) : [],
+      lastMetersRetryRunService.running([originalId]),
     ]);
     res.status(200).json({
       source: isMongoConnected() ? "mongo" : "memory",
       retry: retryAvailability(),
       data: {
-        ...toLastMileTestResponse(withOriginalPhoto(data, original), includeImages, includeStreetView),
+        ...toLastMetersTestResponse(withOriginalPhoto(data, original), includeImages, includeStreetView),
         replay: replaySummary(original),
         history: {
           originalId,
@@ -306,11 +306,11 @@ export class LastMileTestLogController {
     const limit = parseLimit(req, 500, 5000);
     const dateFilter = buildDateFilter(req);
     const includeRetries = req.query.includeRetries === "true";
-    const data: lastMileTestLogInterface[] =
+    const data: lastMetersTestLogInterface[] =
       req.query.includeImages === "true"
-        ? (await lastMileTestLogService.getData(limit, dateFilter, includeRetries)).data
-        : (await lastMileTestLogService.getSummaries(limit, dateFilter, includeRetries)).data.map(
-            ({ userPhotoReplayable, ...row }) => toLastMileTestSummaryResponse(row)
+        ? (await lastMetersTestLogService.getData(limit, dateFilter, includeRetries)).data
+        : (await lastMetersTestLogService.getSummaries(limit, dateFilter, includeRetries)).data.map(
+            ({ userPhotoReplayable, ...row }) => toLastMetersTestSummaryResponse(row)
           );
     const csv = toCsv(
       data.map((row) => ({
@@ -330,11 +330,11 @@ export class LastMileTestLogController {
         safetyReasons: JSON.stringify(row.safetyReasons || []),
         walkingEvidence: JSON.stringify(row.walkingEvidence || null),
       })) as Record<string, unknown>[],
-      LAST_MILE_TEST_CSV_COLUMNS
+      LAST_METERS_TEST_CSV_COLUMNS
     );
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", 'attachment; filename="last_mile_tests.csv"');
+    res.setHeader("Content-Disposition", 'attachment; filename="last_meters_tests.csv"');
     res.status(200).send(csv);
   }
 
@@ -371,7 +371,7 @@ export class LastMileTestLogController {
         ? req.body.reviewerNotes.slice(0, 4000)
         : "";
 
-    const { source, data } = await lastMileTestLogService.updateReview(req.params.id, {
+    const { source, data } = await lastMetersTestLogService.updateReview(req.params.id, {
       reviewerStatus: status,
       reviewerNotes,
       reviewOutcome: reviewOutcome.value,

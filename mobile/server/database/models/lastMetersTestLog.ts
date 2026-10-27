@@ -1,10 +1,10 @@
 import mongoose, { Schema } from "mongoose";
-import { LAST_MILE_TEST_SCENARIOS } from "../../utils/lastMileNavigation";
-import type { LastMileTestScenario } from "../../utils/lastMileNavigation";
+import { LAST_METERS_TEST_SCENARIOS } from "../../utils/lastMetersNavigation";
+import type { LastMetersTestScenario } from "../../utils/lastMetersNavigation";
 import type { PlaceCandidateLog } from "../../utils/nearbyPlaces";
 import type { PanoramaAttempt } from "../../services/outdoorPanoramaSelection";
-import type { ReplayInput } from "../../utils/lastMileReplay";
-import type { WalkingEvidence } from "../../utils/lastMilePolicy";
+import type { ReplayInput } from "../../utils/lastMetersReplay";
+import type { WalkingEvidence } from "../../utils/lastMetersPolicy";
 
 export const REVIEW_OUTCOMES = ["got_there", "needed_retake", "would_not_get_there"] as const;
 export const TURN_CORRECTNESS = ["correct", "wrong", "no_turn_given"] as const;
@@ -15,7 +15,7 @@ export type EntranceCorrectness = (typeof ENTRANCE_CORRECTNESS)[number];
 export const RETRY_PANORAMA_MODES = ["fresh", "original"] as const;
 export type RetryPanoramaMode = (typeof RETRY_PANORAMA_MODES)[number];
 
-export interface lastMileTestStepInterface {
+export interface lastMetersTestStepInterface {
   name: string;
   prompt: string;
   response?: string;
@@ -28,7 +28,7 @@ export interface lastMileTestStepInterface {
   panoId?: string;
 }
 
-export interface lastMileTestLogInterface {
+export interface lastMetersTestLogInterface {
   /** Bumped by hand whenever a change could alter results. */
   pipelineVersion?: string;
   deployedCommit?: string;
@@ -97,12 +97,12 @@ export interface lastMileTestLogInterface {
   confidenceReasons?: string[];
   destinationReferenceUsed?: boolean;
   navigationMode?: "approach" | "exact" | "aligned";
-  testScenario?: LastMileTestScenario;
+  testScenario?: LastMetersTestScenario;
   currentHeading?: number;
   targetHeading?: number;
   turnInstruction?: string;
   finalOutput?: string;
-  steps: lastMileTestStepInterface[];
+  steps: lastMetersTestStepInterface[];
   reviewerStatus?: "untested" | "pass" | "partial" | "fail";
   reviewerNotes?: string;
   reviewOutcome?: ReviewOutcome;
@@ -115,7 +115,7 @@ export interface lastMileTestLogInterface {
   serverTs: Date;
 }
 
-const LastMileTestStepSchema = new Schema<lastMileTestStepInterface>(
+const LastMetersTestStepSchema = new Schema<lastMetersTestStepInterface>(
   {
     name: { type: String, required: true },
     prompt: { type: String, required: true },
@@ -145,7 +145,7 @@ const PlaceCandidateSchema = new Schema<PlaceCandidateLog>(
   { _id: false }
 );
 
-const LastMileTestLogSchema = new Schema<lastMileTestLogInterface>({
+const LastMetersTestLogSchema = new Schema<lastMetersTestLogInterface>({
   destination: { type: String, required: true, index: true },
   destinationQuery: { type: String },
   lat: { type: Number, required: true },
@@ -208,14 +208,14 @@ const LastMileTestLogSchema = new Schema<lastMileTestLogInterface>({
   navigationMode: { type: String, enum: ["approach", "exact", "aligned"] },
   testScenario: {
     type: String,
-    enum: [...LAST_MILE_TEST_SCENARIOS],
+    enum: [...LAST_METERS_TEST_SCENARIOS],
     index: true,
   },
   currentHeading: { type: Number },
   targetHeading: { type: Number },
   turnInstruction: { type: String },
   finalOutput: { type: String },
-  steps: [LastMileTestStepSchema],
+  steps: [LastMetersTestStepSchema],
   reviewerStatus: {
     type: String,
     enum: ["untested", "pass", "partial", "fail"],
@@ -233,8 +233,10 @@ const LastMileTestLogSchema = new Schema<lastMileTestLogInterface>({
   serverTs: { type: Date, default: Date.now, index: true },
 });
 
-export default mongoose.model<lastMileTestLogInterface>(
-  "LastMileTestLog",
-  LastMileTestLogSchema,
+export default mongoose.model<lastMetersTestLogInterface>(
+  "LastMetersTestLog",
+  LastMetersTestLogSchema,
+  // Keeps its old collection name so existing records stay readable.
+  // See docs/adr/0001-last-meters-rename-keeps-stored-and-shipped-names.md.
   "last_mile_test_log"
 );

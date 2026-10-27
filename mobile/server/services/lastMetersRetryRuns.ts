@@ -1,6 +1,6 @@
-import lastMileRetryRunModel, {
-  type lastMileRetryRunInterface,
-} from "../database/models/lastMileRetryRun";
+import lastMetersRetryRunModel, {
+  type lastMetersRetryRunInterface,
+} from "../database/models/lastMetersRetryRun";
 import { isMongoConnected, memoryRetryRuns } from "../database/usageStore";
 
 /**
@@ -15,7 +15,7 @@ export const RETRY_HEARTBEAT_MS = 30_000;
 export const INTERRUPTED_MESSAGE =
   "The server stopped before this retry finished, so no result was saved. Start a new retry.";
 
-export type RetryRun = lastMileRetryRunInterface;
+export type RetryRun = lastMetersRetryRunInterface;
 export type NewRetryRun = Pick<RetryRun, "_id" | "requestedId" | "originalId" | "panoramaMode">;
 export type RetryRunOutcome =
   | { status: "succeeded"; testLogId: string; defaultsApplied: string[] }
@@ -47,7 +47,7 @@ function interruptedUpdate(now: number): Partial<RetryRun> {
  * partial index on originalId (status "running") lets one retry per original
  * run at a time, across server instances.
  */
-export class LastMileRetryRunService {
+export class LastMetersRetryRunService {
   private oneRunPerOriginalIndexReady = false;
 
   /**
@@ -55,7 +55,7 @@ export class LastMileRetryRunService {
    * original". Until it exists, retries stay off while Mongo is in use.
    */
   async ensureIndexes(): Promise<void> {
-    await lastMileRetryRunModel.collection.createIndex(
+    await lastMetersRetryRunModel.collection.createIndex(
       { originalId: 1 },
       { name: "one_running_retry_per_original", unique: true, partialFilterExpression: { status: "running" } }
     );
@@ -70,12 +70,12 @@ export class LastMileRetryRunService {
   /** The run for this key; a run whose lease ran out is marked interrupted. */
   async find(key: string, now = Date.now()): Promise<RetryRun | null> {
     if (isMongoConnected()) {
-      const run = await lastMileRetryRunModel.findById(key).lean();
+      const run = await lastMetersRetryRunModel.findById(key).lean();
       if (!run || run.status !== "running" || isLive(run, now)) return run ?? null;
       return (
-        (await lastMileRetryRunModel
+        (await lastMetersRetryRunModel
           .findOneAndUpdate({ _id: key, status: "running" }, interruptedUpdate(now), { new: true })
-          .lean()) ?? (await lastMileRetryRunModel.findById(key).lean())
+          .lean()) ?? (await lastMetersRetryRunModel.findById(key).lean())
       );
     }
     const run = memoryRetryRuns.get(key);
@@ -97,18 +97,18 @@ export class LastMileRetryRunService {
     };
     if (!isMongoConnected()) return this.claimInMemory(run, now);
 
-    await lastMileRetryRunModel.updateMany(
+    await lastMetersRetryRunModel.updateMany(
       { originalId: run.originalId, status: "running", leaseExpiresAt: { $lte: new Date(now) } },
       interruptedUpdate(now)
     );
     try {
-      await lastMileRetryRunModel.create(run);
+      await lastMetersRetryRunModel.create(run);
       return { claimed: true, run };
     } catch (error: any) {
       if (error?.code !== DUPLICATE_KEY) throw error;
       const sameKey = await this.find(run._id, now);
       if (sameKey) return { claimed: false, conflict: "key", existing: sameKey };
-      const running = await lastMileRetryRunModel
+      const running = await lastMetersRetryRunModel
         .findOne({ originalId: run.originalId, status: "running" })
         .lean();
       // The other run finished between the insert and this read; the caller
@@ -125,7 +125,7 @@ export class LastMileRetryRunService {
   async renew(key: string, now = Date.now()): Promise<boolean> {
     const leaseExpiresAt = new Date(now + RETRY_LEASE_MS);
     if (isMongoConnected()) {
-      const result = await lastMileRetryRunModel.updateOne({ _id: key, status: "running" }, { leaseExpiresAt });
+      const result = await lastMetersRetryRunModel.updateOne({ _id: key, status: "running" }, { leaseExpiresAt });
       return result.matchedCount > 0;
     }
     const run = memoryRetryRuns.get(key);
@@ -142,7 +142,7 @@ export class LastMileRetryRunService {
   async finish(key: string, outcome: RetryRunOutcome, now = Date.now()): Promise<boolean> {
     const update = { ...outcome, finishedAt: new Date(now) };
     if (isMongoConnected()) {
-      const result = await lastMileRetryRunModel.updateOne({ _id: key, status: "running" }, update);
+      const result = await lastMetersRetryRunModel.updateOne({ _id: key, status: "running" }, update);
       return result.matchedCount > 0;
     }
     const run = memoryRetryRuns.get(key);
@@ -156,7 +156,7 @@ export class LastMileRetryRunService {
     const byOriginal = new Map<string, RetryRun>();
     if (!originalIds.length) return byOriginal;
     const runs = isMongoConnected()
-      ? await lastMileRetryRunModel
+      ? await lastMetersRetryRunModel
           .find({
             originalId: { $in: [...new Set(originalIds)] },
             status: "running",
@@ -193,7 +193,7 @@ export class LastMileRetryRunService {
  * for an interrupted one.
  */
 export async function withRenewedLease<T>(
-  runs: Pick<LastMileRetryRunService, "renew">,
+  runs: Pick<LastMetersRetryRunService, "renew">,
   key: string,
   work: () => Promise<T>,
   intervalMs = RETRY_HEARTBEAT_MS,
@@ -203,9 +203,9 @@ export async function withRenewedLease<T>(
       (running) => {
         if (running) return;
         clearInterval(timer);
-        console.warn(`[LastMileRetry] retry ${key} was marked interrupted while it was still running.`);
+        console.warn(`[LastMetersRetry] retry ${key} was marked interrupted while it was still running.`);
       },
-      (error) => console.error(`[LastMileRetry] could not renew the lease of retry ${key}:`, error),
+      (error) => console.error(`[LastMetersRetry] could not renew the lease of retry ${key}:`, error),
     );
   }, intervalMs);
   timer.unref?.();
@@ -216,4 +216,4 @@ export async function withRenewedLease<T>(
   }
 }
 
-export const lastMileRetryRunService = new LastMileRetryRunService();
+export const lastMetersRetryRunService = new LastMetersRetryRunService();

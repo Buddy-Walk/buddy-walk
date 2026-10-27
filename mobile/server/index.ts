@@ -11,23 +11,23 @@ import companionRoute from "./routes/companion"
 import telemetryRoute from "./routes/telemetry"
 import feedbackRoute from "./routes/feedback"
 import mtaRoute from "./routes/mta"
-import lastMileTestLogRoute from "./routes/lastMileTestLog"
+import lastMetersTestLogRoute from "./routes/lastMetersTestLog"
 import mongoose from "mongoose";
 import { config } from "./database";
 import { setCompanionMemoryStore } from "./database/companionStoreMode";
-import { canRunLocalLastMile, describeServerMode, getServiceRouting } from "./config/serverMode";
+import { canRunLocalLastMeters, describeServerMode, getServiceRouting } from "./config/serverMode";
 import { LastMetersController } from "./controllers/lastMetersController";
 import {
   mountAiProxy,
   mountSpeechProxy,
   mountMtaProxy,
-  mountLastMileProxy,
+  mountLastMetersProxy,
 } from "./middleware/upstreamProxy";
 import { isMongoConnected } from "./database/usageStore";
 import { probeUpstreamText } from "./middleware/upstreamProxy";
 import { TranscribeController } from "./controllers/transcribe";
-import lastMileTestLogModel from "./database/models/lastMileTestLog";
-import { lastMileRetryRunService } from "./services/lastMileRetryRuns";
+import lastMetersTestLogModel from "./database/models/lastMetersTestLog";
+import { lastMetersRetryRunService } from "./services/lastMetersRetryRuns";
 import { startRenderKeepAlive } from "./utils/keepAlive";
 
 dotenv.config();
@@ -64,9 +64,9 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 
   if (mongoConnected) {
     try {
-      await lastMileTestLogModel.collection.createIndex({ serverTs: -1 });
+      await lastMetersTestLogModel.collection.createIndex({ serverTs: -1 });
       // Retry history and per-row retry counts; field tests are left out.
-      await lastMileTestLogModel.collection.createIndex(
+      await lastMetersTestLogModel.collection.createIndex(
         { retryOf: 1, serverTs: 1 },
         { partialFilterExpression: { retryOf: { $exists: true } } }
       );
@@ -77,7 +77,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     // One running retry per original, enforced across server instances.
     // Without this index, dashboard retries stay off.
     try {
-      await lastMileRetryRunService.ensureIndexes();
+      await lastMetersRetryRunService.ensureIndexes();
     } catch (error) {
       console.error("[server] Could not create the one-running-retry index; dashboard retries are off:", error);
     }
@@ -85,7 +85,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 
   const routing = getServiceRouting();
   console.log(
-    `[server] Capability routing — ai=${routing.ai}, speech=${routing.speech}, mta=${routing.mta}, lastMile=${routing.lastMile}`
+    `[server] Capability routing — ai=${routing.ai}, speech=${routing.speech}, mta=${routing.mta}, lastMeters=${routing.lastMeters}`
   );
 
 
@@ -136,12 +136,12 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 
   const lastMetersController = new LastMetersController();
   // Street View must run here when keys exist — do not rely on the text proxy.
-  if (canRunLocalLastMile()) {
+  if (canRunLocalLastMeters()) {
     app.post('/api/last-mile', (req, res) => {
-      void lastMetersController.lastMileRequest(req, res);
+      void lastMetersController.lastMetersRequest(req, res);
     });
-  } else if (routing.lastMile === 'proxy') {
-    mountLastMileProxy(app);
+  } else if (routing.lastMeters === 'proxy') {
+    mountLastMetersProxy(app);
   }
 
   if (routing.ai === 'local') {
@@ -155,7 +155,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   app.use("/api/companion", companionRoute)
   app.use("/api/telemetry", telemetryRoute)
   app.use("/api/feedback", feedbackRoute)
-  app.use("/api/last-mile-tests", lastMileTestLogRoute)
+  app.use("/api/last-meters-tests", lastMetersTestLogRoute)
 
   app.get('/api/health', async (_req, res) => {
     const mode = describeServerMode();
@@ -172,7 +172,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
       storage: isMongoConnected() ? 'mongo' : 'memory',
       upstreamTextOk: upstreamText.ok,
       upstreamTextStatus: upstreamText.status || undefined,
-      lastMileCapable: canRunLocalLastMile(),
+      lastMetersCapable: canRunLocalLastMeters(),
     });
   });
 
@@ -244,26 +244,26 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     res.type('html').send(html);
   });
 
-  const lastMileTestsCandidates = [
-    path.join(__dirname, 'views', 'lastMileTests.html'),
-    path.join(__dirname, '..', 'views', 'lastMileTests.html'),
-    path.join(__dirname, '..', 'server', 'views', 'lastMileTests.html'),
+  const lastMetersTestsCandidates = [
+    path.join(__dirname, 'views', 'lastMetersTests.html'),
+    path.join(__dirname, '..', 'views', 'lastMetersTests.html'),
+    path.join(__dirname, '..', 'server', 'views', 'lastMetersTests.html'),
   ];
-  let lastMileTestsTemplate = '';
-  for (const candidate of lastMileTestsCandidates) {
+  let lastMetersTestsTemplate = '';
+  for (const candidate of lastMetersTestsCandidates) {
     if (fs.existsSync(candidate)) {
-      lastMileTestsTemplate = fs.readFileSync(candidate, 'utf8');
+      lastMetersTestsTemplate = fs.readFileSync(candidate, 'utf8');
       break;
     }
   }
 
-  app.get('/last-mile-tests', (req, res) => {
-    if (!lastMileTestsTemplate) {
+  app.get('/last-meters-tests', (req, res) => {
+    if (!lastMetersTestsTemplate) {
       res.status(500).send('Last Meters test dashboard is not available right now.');
       return;
     }
     const token = String(req.query.token || '').replace(/[^a-zA-Z0-9_\-.+/=]/g, '');
-    const html = lastMileTestsTemplate.replace("'__ADMIN_TOKEN__'", JSON.stringify(token));
+    const html = lastMetersTestsTemplate.replace("'__ADMIN_TOKEN__'", JSON.stringify(token));
     res.set('Cache-Control', 'no-store');
     res.type('html').send(html);
   });

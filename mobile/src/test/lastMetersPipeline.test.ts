@@ -4,7 +4,7 @@ import axios from "axios";
 import OpenAI from "openai";
 import sharp from "sharp";
 import { LastMetersService } from "../../server/services/lastMetersService";
-import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
+import { lastMetersTestLogService } from "../../server/services/lastMetersTestLog";
 import { setTestEnv } from "./testEnv";
 
 for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallback", "verified-turn", "detour", "low-confidence", "ambiguous", "missing-sensors"] as const) {
@@ -62,11 +62,11 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
       return { choices: [{ message: { content: text } }], usage: { total_tokens: 10 } };
     });
     let logged: any;
-    t.mock.method(lastMileTestLogService, "record", async (row: any) => { logged = row; return "trial-test"; });
+    t.mock.method(lastMetersTestLogService, "record", async (row: any) => { logged = row; return "trial-test"; });
     let answer: any;
     const res = { status: () => res, json: (body: any) => { answer = body; } };
     const now = Date.now();
-    await service.lastMileRequest({ res } as any, { lat: 40.7, lng: -74, destination: "Citi", deviceHeading: 90,
+    await service.lastMetersRequest({ res } as any, { lat: 40.7, lng: -74, destination: "Citi", deviceHeading: 90,
       gpsAccuracyMeters: 14, compassAccuracyLevel: 3, sensors: scenario === "missing-sensors" ? undefined : {
       photoCapturedAt: now, positionTimestamp: now, headingTimestamp: now, headingReference: "true",
       latestPosition: { lat: 40.7, lng: -74, accuracy: 14, timestamp: now },
@@ -114,7 +114,7 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
 
 test("Last Meters hands a question to the Question service it was given", async t => {
   t.mock.method(axios, "get", async (url: string) => { throw new Error(`Unexpected request: ${url}`); });
-  t.mock.method(lastMileTestLogService, "record", async () => "trial-question");
+  t.mock.method(lastMetersTestLogService, "record", async () => "trial-question");
   const asked: any[] = [];
   const questionService = { textRequest: async (ctx: any, content: any) => {
     asked.push(content);
@@ -124,7 +124,7 @@ test("Last Meters hands a question to the Question service it was given", async 
   let answer: any;
   const res = { status: () => res, json: (body: any) => { answer = body; } };
   const now = Date.now();
-  await service.lastMileRequest({ res } as any, { lat: 40.7, lng: -74, destination: "When is the next A train?", deviceHeading: 90,
+  await service.lastMetersRequest({ res } as any, { lat: 40.7, lng: -74, destination: "When is the next A train?", deviceHeading: 90,
     gpsAccuracyMeters: 14, compassAccuracyLevel: 3, sensors: {
     photoCapturedAt: now, positionTimestamp: now, headingTimestamp: now, headingReference: "true",
     latestPosition: { lat: 40.7, lng: -74, accuracy: 14, timestamp: now },

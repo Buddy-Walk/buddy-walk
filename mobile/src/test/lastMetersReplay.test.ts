@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { LastMileTestLogController } from "../../server/controllers/lastMileTestLog";
-import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
-import model from "../../server/database/models/lastMileTestLog";
+import { LastMetersTestLogController } from "../../server/controllers/lastMetersTestLog";
+import { lastMetersTestLogService } from "../../server/services/lastMetersTestLog";
+import model from "../../server/database/models/lastMetersTestLog";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
@@ -12,9 +12,9 @@ function response() {
 test("evaluation endpoint returns a controlled error on database failure", async t => {
   const token = process.env.ADMIN_TOKEN;
   const req = { headers: token ? { "x-admin-token": token } : {}, query: {} } as any;
-  t.mock.method(lastMileTestLogService, "getSummaries", async () => { throw new Error("database unavailable"); });
+  t.mock.method(lastMetersTestLogService, "getSummaries", async () => { throw new Error("database unavailable"); });
   const res = response();
-  await new LastMileTestLogController().evaluation(req, res as any);
+  await new LastMetersTestLogController().evaluation(req, res as any);
   assert.equal(res.code, 503);
 });
 test("Mongo schema preserves replay provenance and withheld reasons", () => {
@@ -32,21 +32,21 @@ test("Mongo schema preserves replay provenance and withheld reasons", () => {
 test("trial detail opts into saved Street View blobs without changing list behavior", async t => {
   const photo = "data:image/jpeg;base64,test";
   let requested: unknown;
-  t.mock.method(lastMileTestLogService, "getById", async (_id: string, options: unknown) => {
+  t.mock.method(lastMetersTestLogService, "getById", async (_id: string, options: unknown) => {
     requested = options;
     return { userPhoto: photo, panoramaPhoto: photo, destinationPhoto: photo } as any;
   });
   const req = { headers: { "x-admin-token": process.env.ADMIN_TOKEN }, params: { id: "trial" },
     query: { includeImages: "true", includeStreetView: "true" } } as any;
   const res = response();
-  await new LastMileTestLogController().getOne(req, res as any);
+  await new LastMetersTestLogController().getOne(req, res as any);
   assert.deepEqual(requested, { includeStreetView: true });
   assert.equal(res.body.data.panoramaPhoto, photo);
   assert.equal(res.body.data.destinationPhoto, photo);
 });
 
 test("dashboard renders saved panoramas, decimal headings and missing-image explanations", () => {
-  const html = readFileSync("server/views/lastMileTests.html", "utf8");
+  const html = readFileSync("server/views/lastMetersTests.html", "utf8");
   const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
   const helper = script.slice(script.indexOf("function streetViewImagesHtml("), script.indexOf("function renderDetail("));
   const context = vm.createContext({ esc: (v: any) => String(v),
@@ -61,7 +61,7 @@ test("dashboard renders saved panoramas, decimal headings and missing-image expl
   assert.match(script, /includeStreetView=true/);
 });
 test("dashboard script parses and excludes replay and legacy status from field metrics", () => {
-  const html = readFileSync("server/views/lastMileTests.html", "utf8");
+  const html = readFileSync("server/views/lastMetersTests.html", "utf8");
   const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
   new vm.Script(script);
   const outcomeFunction = script.slice(script.indexOf("function outcomeOf("), script.indexOf("var SOURCE_LABELS"));

@@ -1,18 +1,18 @@
 import axios, { AxiosResponse } from 'axios';
 import express, { Application, Request, Response } from 'express';
-import { getUpstreamApiRoot, hasOwnOpenAiKey, canRunLocalLastMile } from '../config/serverMode';
+import { getUpstreamApiRoot, hasOwnOpenAiKey, canRunLocalLastMeters } from '../config/serverMode';
 import { LastMetersController } from '../controllers/lastMetersController';
 import { QuestionController } from '../controllers/questionController';
 import { aiRequestLogService } from '../services/aiRequestLog';
 import {
   compressUserPhoto,
-  lastMileTestLogService,
-} from '../services/lastMileTestLog';
+  lastMetersTestLogService,
+} from '../services/lastMetersTestLog';
 import {
   buildReplayInput,
   parseLastMetersRequest,
   type LastMetersRequestInput,
-} from '../utils/lastMileReplay';
+} from '../utils/lastMetersReplay';
 
 function truncate(value: unknown, max = 800): string | undefined {
   if (typeof value !== 'string' || !value.trim()) return undefined;
@@ -285,18 +285,20 @@ export function proxiedRequestFields(request: LastMetersRequestInput, image: str
   };
 }
 
-async function recordProxiedLastMileFailure(
+async function recordProxiedLastMetersFailure(
   request: LastMetersRequestInput,
   image: string,
   startedAt: number,
   error: unknown
 ): Promise<string | undefined> {
   const message = error instanceof Error ? error.message : 'Upstream API unavailable';
-  return lastMileTestLogService.recordProxied({
+  return lastMetersTestLogService.recordProxied({
     ...proxiedRequestFields(request, image, startedAt),
     userPhoto: await compressUserPhoto(image),
     steps: [
       {
+        // Stored step names keep the old spelling so old and new records match.
+        // See docs/adr/0001-last-meters-rename-keeps-stored-and-shipped-names.md.
         name: 'proxied_last_mile',
         prompt: 'Forwarded to buddywalk.app. User photo stored locally for the Render dashboard.',
         response: message,
@@ -320,10 +322,10 @@ export function mountAiProxy(app: Application): void {
 }
 
 /** Runs Last Meters on this host when it can; returns false when it can't. */
-async function tryLocalLastMile(req: Request, res: Response): Promise<boolean> {
-  if (!canRunLocalLastMile()) return false;
+async function tryLocalLastMeters(req: Request, res: Response): Promise<boolean> {
+  if (!canRunLocalLastMeters()) return false;
   const controller = new LastMetersController();
-  await controller.lastMileRequest(req, res);
+  await controller.lastMetersRequest(req, res);
   return true;
 }
 
@@ -341,7 +343,7 @@ function lastMetersTextPrompt(destination: string): string {
  * works there as a text+image request, so we rewrite instead of forwarding
  * the dedicated route. The user photo is stored on this host.
  */
-async function forwardLastMileViaText(req: Request, res: Response): Promise<void> {
+async function forwardLastMetersViaText(req: Request, res: Response): Promise<void> {
   const startedAt = Date.now();
   const request = parseLastMetersRequest(req.body);
   const image = pickString(asRecord(req.body).image);
@@ -362,6 +364,8 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
       heading: request.deviceHeading ?? null,
     },
     analytics: {
+      // Keeps the old feature name so analytics history stays in one series.
+      // See docs/adr/0001-last-meters-rename-keeps-stored-and-shipped-names.md.
       feature: 'last_mile',
     },
   };
@@ -382,7 +386,7 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
       timeout: 180_000,
     });
 
-    if (upstreamRes.status >= 500 && (await tryLocalLastMile(req, res))) return;
+    if (upstreamRes.status >= 500 && (await tryLocalLastMeters(req, res))) return;
 
     const output = extractOutputText(upstreamRes.data);
     const success = upstreamRes.status >= 200 && upstreamRes.status < 300;
@@ -391,13 +395,15 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
       : pickString(asRecord(upstreamRes.data).error) ??
         `Upstream text returned ${upstreamRes.status}`;
 
-    const testLogId = await lastMileTestLogService.recordProxied({
+    const testLogId = await lastMetersTestLogService.recordProxied({
       ...proxiedRequestFields(request, image, startedAt),
       userPhoto: await compressUserPhoto(image),
       navigationMode: 'exact',
       finalOutput: output,
       steps: [
         {
+          // Stored step names keep the old spelling so old and new records match.
+          // See docs/adr/0001-last-meters-rename-keeps-stored-and-shipped-names.md.
           name: 'proxied_last_mile_text',
           prompt: 'Rewrote Last Meters as /api/text because buddywalk.app has no /api/last-mile.',
           response: output ?? error ?? '',
@@ -415,6 +421,7 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
       { ...req, body: { ...textBody, text: request.destination } } as Request,
       upstreamRes,
       startedAt,
+      // Same kept feature name as above; see the ADR.
       'last_mile'
     );
 
@@ -434,8 +441,8 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
     });
   } catch (error) {
     console.error('[upstreamProxy] last-mile via /api/text failed:', error);
-    if (await tryLocalLastMile(req, res)) return;
-    const localId = await recordProxiedLastMileFailure(request, image, startedAt, error);
+    if (await tryLocalLastMeters(req, res)) return;
+    const localId = await recordProxiedLastMetersFailure(request, image, startedAt, error);
     res.status(502).json({
       error: 'Upstream API unavailable',
       testLogId: localId,
@@ -448,12 +455,12 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
  * Last Meters is rewritten to buddywalk.app /api/text because that host has
  * the AI keys but no /api/last-mile route. User photos stay on this host.
  */
-export function mountLastMileProxy(app: Application): void {
+export function mountLastMetersProxy(app: Application): void {
   console.log(
     `[server] Last Meters → ${getUpstreamApiRoot()}/api/text; user photos stored locally`
   );
   app.post('/api/last-mile', (req, res) => {
-    void forwardLastMileViaText(req, res);
+    void forwardLastMetersViaText(req, res);
   });
 }
 

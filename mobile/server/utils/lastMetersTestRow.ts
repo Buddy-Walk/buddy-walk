@@ -1,25 +1,25 @@
 /** Shapes Last Meters test log rows for the admin API and dashboard. */
 
-import type { lastMileTestLogInterface } from "../database/models/lastMileTestLog";
+import type { lastMetersTestLogInterface } from "../database/models/lastMetersTestLog";
 
-export interface LastMileTestImageFields {
+export interface LastMetersTestImageFields {
   userPhoto?: string;
   panoramaPhoto?: string;
   destinationPhoto?: string;
 }
 
-export interface LastMileTestImageFlags {
+export interface LastMetersTestImageFlags {
   hasUserPhoto: boolean;
   hasPanorama: boolean;
   hasDestinationPhoto: boolean;
 }
 
-export const LAST_MILE_TEST_IMAGE_FIELDS = ["userPhoto", "panoramaPhoto", "destinationPhoto"] as const;
-export type LastMileTestImageField = (typeof LAST_MILE_TEST_IMAGE_FIELDS)[number];
+export const LAST_METERS_TEST_IMAGE_FIELDS = ["userPhoto", "panoramaPhoto", "destinationPhoto"] as const;
+export type LastMetersTestImageField = (typeof LAST_METERS_TEST_IMAGE_FIELDS)[number];
 
 /** What list views need to know about each image, read without the image itself. */
-export interface LastMileTestImageStats {
-  imageStats: Record<LastMileTestImageField, { length: number; stored: boolean }>;
+export interface LastMetersTestImageStats {
+  imageStats: Record<LastMetersTestImageField, { length: number; stored: boolean }>;
 }
 
 /** A log row's id as a string, whether Mongo or the in-memory store gave it. */
@@ -40,7 +40,7 @@ export function imagePlaceholder(value?: string): string {
   return placeholderForLength(value?.length ?? 0);
 }
 
-export function imageStatsOf(row: LastMileTestImageFields): LastMileTestImageStats["imageStats"] {
+export function imageStatsOf(row: LastMetersTestImageFields): LastMetersTestImageStats["imageStats"] {
   const stats = (value?: string) => ({ length: value?.length ?? 0, stored: isStoredImage(value) });
   return {
     userPhoto: stats(row.userPhoto),
@@ -53,16 +53,16 @@ export function imageStatsOf(row: LastMileTestImageFields): LastMileTestImageSta
  * A retry with the photo of the original it ran on, since retries don't store
  * their own copy. Callers pass the original they already loaded.
  */
-export function withOriginalPhoto<T extends LastMileTestImageFields & { retryOf?: string }>(
+export function withOriginalPhoto<T extends LastMetersTestImageFields & { retryOf?: string }>(
   row: T,
-  original: LastMileTestImageFields | null,
+  original: LastMetersTestImageFields | null,
 ): T {
   if (!row.retryOf || row.userPhoto !== undefined || original?.userPhoto === undefined) return row;
   return { ...row, userPhoto: original.userPhoto };
 }
 
-/** The same list-view shape as toLastMileTestResponse(row, false), for rows read without images. */
-export function toLastMileTestSummaryResponse<T extends LastMileTestImageStats>(row: T) {
+/** The same list-view shape as toLastMetersTestResponse(row, false), for rows read without images. */
+export function toLastMetersTestSummaryResponse<T extends LastMetersTestImageStats>(row: T) {
   const { imageStats, ...rest } = row;
   return {
     ...rest,
@@ -79,12 +79,12 @@ export function toLastMileTestSummaryResponse<T extends LastMileTestImageStats>(
  * Adds explicit image presence flags and, unless includeImages is set, swaps the
  * base64 payloads for short placeholders so list views stay light.
  */
-export function toLastMileTestResponse<T extends LastMileTestImageFields>(
+export function toLastMetersTestResponse<T extends LastMetersTestImageFields>(
   row: T,
   includeImages: boolean,
   includeStreetView = false
-): T & LastMileTestImageFlags {
-  const flags: LastMileTestImageFlags = {
+): T & LastMetersTestImageFlags {
+  const flags: LastMetersTestImageFlags = {
     hasUserPhoto: isStoredImage(row.userPhoto),
     hasPanorama: isStoredImage(row.panoramaPhoto),
     hasDestinationPhoto: isStoredImage(row.destinationPhoto),
@@ -110,7 +110,7 @@ export function toLastMileTestResponse<T extends LastMileTestImageFields>(
 /** The facts the retry history shows for one run, typed from the log model. */
 export type RetryHistoryFields = { _id?: unknown } & Partial<
   Pick<
-    lastMileTestLogInterface,
+    lastMetersTestLogInterface,
     | "serverTs"
     | "retryOf"
     | "retryPanoramaMode"

@@ -1,5 +1,5 @@
 import axios from "axios";
-import { LAST_METERS_EXACT_RADIUS_METERS } from "../utils/lastMileNavigation";
+import { LAST_METERS_EXACT_RADIUS_METERS } from "../utils/lastMetersNavigation";
 import {
   describeNearbyPlaceCandidates,
   isNearbyPlaceCandidateRelevant,

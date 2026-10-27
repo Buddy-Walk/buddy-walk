@@ -101,7 +101,7 @@
     .gate-line { white-space: nowrap; }
     .gate-meters { margin-left: 6px; font-weight: 700; }
 
-    /* GPS Accuracy (thresholds match calculateLastMileConfidence) */
+    /* GPS Accuracy (thresholds match calculateLastMetersConfidence) */
     .gps-good { color: #86efac; font-weight: 700; }
     .gps-ok { color: #fcd34d; font-weight: 700; }
     .gps-poor { color: #fca5a5; font-weight: 700; }
@@ -550,7 +550,7 @@
 
     function saveReview(id, body) {
       var baseUrl = window.location.origin;
-      return fetch(baseUrl + '/api/last-mile-tests/' + encodeURIComponent(id) + '/review' + (TOKEN && TOKEN !== '__ADMIN_TOKEN__' ? '?token=' + encodeURIComponent(TOKEN) : ''), {
+      return fetch(baseUrl + '/api/last-meters-tests/' + encodeURIComponent(id) + '/review' + (TOKEN && TOKEN !== '__ADMIN_TOKEN__' ? '?token=' + encodeURIComponent(TOKEN) : ''), {
         method: 'PATCH',
         headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(body)
@@ -762,7 +762,7 @@
      */
     function fetchDetail(testId, withImages) {
       const baseUrl = window.location.origin;
-      return fetch(baseUrl + '/api/last-mile-tests/' + encodeURIComponent(testId) + qs(withImages) +
+      return fetch(baseUrl + '/api/last-meters-tests/' + encodeURIComponent(testId) + qs(withImages) +
         (withImages ? '&includeStreetView=true' : ''), { headers: authHeaders() })
         .then(function (res) {
           if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -1102,7 +1102,7 @@
      */
     function postRetry(id, panoramaMode, key, lastHeardAt) {
       var baseUrl = window.location.origin;
-      return fetch(baseUrl + '/api/last-mile-tests/' + encodeURIComponent(id) + '/retry' + (TOKEN && TOKEN !== '__ADMIN_TOKEN__' ? '?token=' + encodeURIComponent(TOKEN) : ''), {
+      return fetch(baseUrl + '/api/last-meters-tests/' + encodeURIComponent(id) + '/retry' + (TOKEN && TOKEN !== '__ADMIN_TOKEN__' ? '?token=' + encodeURIComponent(TOKEN) : ''), {
         method: 'POST',
         headers: authHeaders({ 'Content-Type': 'application/json', 'Idempotency-Key': key }),
         body: JSON.stringify({ panoramaMode: panoramaMode })
@@ -1606,7 +1606,7 @@
     function gpsAccuracyHtml(test) {
       if (typeof test.gpsAccuracyMeters !== 'number') return '<span class="small">-</span>';
       var meters = Math.round(test.gpsAccuracyMeters);
-      // Same bands calculateLastMileConfidence uses to weight GPS evidence.
+      // Same bands calculateLastMetersConfidence uses to weight GPS evidence.
       var cls = test.gpsAccuracyMeters <= 15 ? 'gps-good' : (test.gpsAccuracyMeters <= 40 ? 'gps-ok' : 'gps-poor');
       return '<span class="' + cls + '">±' + meters + ' m</span>';
     }
@@ -1756,7 +1756,7 @@
     let latestLoad = 0;
 
     function fetchList() {
-      return fetch(window.location.origin + '/api/last-mile-tests' + qs(false), { headers: authHeaders() })
+      return fetch(window.location.origin + '/api/last-meters-tests' + qs(false), { headers: authHeaders() })
         .then(function (res) {
           if (!res.ok) throw new Error('HTTP ' + res.status);
           return res.json();
@@ -1772,7 +1772,7 @@
 
     /** Reloads the list. Loads can overlap, so only the newest one is shown. */
     function load() {
-      document.getElementById('download').href = window.location.origin + '/api/last-mile-tests/export.csv' + qs(false);
+      document.getElementById('download').href = window.location.origin + '/api/last-meters-tests/export.csv' + qs(false);
       const thisLoad = ++latestLoad;
 
       fetchList()

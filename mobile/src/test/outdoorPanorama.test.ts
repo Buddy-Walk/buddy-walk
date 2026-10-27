@@ -3,10 +3,10 @@ import test from "node:test";
 import axios from "axios";
 import sharp from "sharp";
 import { outdoorPanoramaRejection } from "../../server/utils/outdoorPanorama";
-import { LAST_MILE_HEADINGS } from "../../server/utils/lastMileNavigation";
+import { LAST_METERS_HEADINGS } from "../../server/utils/lastMetersNavigation";
 import { buildPanoramaDebugImage, createPanoramaOverlaySvg, fetchStreetViewPanoramaById, processPanoramaTiles, classifyPanoramaScene } from "../../server/services/streetViewPanorama";
 import { parseSceneVerdict, selectOutdoorPanorama } from "../../server/services/outdoorPanoramaSelection";
-import LastMileTestLog from "../../server/database/models/lastMileTestLog";
+import LastMetersTestLog from "../../server/database/models/lastMetersTestLog";
 
 const metadata = {
   status: "OK", pano_id: "outdoor-test-pano", copyright: "Google",
@@ -51,7 +51,7 @@ test("all sixteen requests use outdoor metadata and the same panorama ID", async
   });
   assert.equal(previewCount, 4);
   assert.equal(result.attempts[0].status, "accepted");
-  assert.deepEqual(result.tiles.map(tile => tile.heading), [...LAST_MILE_HEADINGS]);
+  assert.deepEqual(result.tiles.map(tile => tile.heading), [...LAST_METERS_HEADINGS]);
   assert.equal(requests.length, 16);
   for (const url of requests) {
     assert.equal(url.searchParams.get("source"), "outdoor");
@@ -141,7 +141,7 @@ test("classifier uses a bounded request with retries disabled and rejects malfor
 
 test("validation audit survives Mongo model serialization", () => {
   const attempts = [{ panoId: "inside", status: "scene_rejected", reason: "Visual check: indoor.", distanceMeters: 12 }];
-  const doc = new LastMileTestLog({ panoramaValidation: attempts });
+  const doc = new LastMetersTestLog({ panoramaValidation: attempts });
   assert.deepEqual(doc.toObject().panoramaValidation, attempts);
 });
 
@@ -219,7 +219,7 @@ test("distant cameras and repeated IDs cannot consume unbounded visual calls", a
 
 test("panorama grid includes all sixteen tiles and decimal labels render", async () => {
   const buffer = await sharp({ create: { width: 640, height: 640, channels: 3, background: "#246843" } }).jpeg().toBuffer();
-  const grid = await buildPanoramaDebugImage(LAST_MILE_HEADINGS.map(heading => ({ heading, base64: `data:image/jpeg;base64,${buffer.toString("base64")}` })));
+  const grid = await buildPanoramaDebugImage(LAST_METERS_HEADINGS.map(heading => ({ heading, base64: `data:image/jpeg;base64,${buffer.toString("base64")}` })));
   const gridBuffer = Buffer.from(grid.split(",")[1], "base64");
   const dimensions = await sharp(gridBuffer).metadata();
   assert.equal(dimensions.width, 2560);

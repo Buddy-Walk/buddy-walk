@@ -10,7 +10,7 @@ import {
   replayRequest,
   upgradeReplayInput,
   type ReplayUpgrade,
-} from "../../server/utils/lastMileReplay";
+} from "../../server/utils/lastMetersReplay";
 import type { LastMileSensors } from "../../src/utils/lastMileSafety";
 
 const PHOTO = "data:image/jpeg;base64,BBBBBB";

@@ -1,5 +1,5 @@
 import mongoose, { Schema } from "mongoose";
-import { RETRY_PANORAMA_MODES, type RetryPanoramaMode } from "./lastMileTestLog";
+import { RETRY_PANORAMA_MODES, type RetryPanoramaMode } from "./lastMetersTestLog";
 
 export const RETRY_RUN_STATUSES = ["running", "succeeded", "failed"] as const;
 export type RetryRunStatus = (typeof RETRY_RUN_STATUSES)[number];
@@ -9,7 +9,7 @@ export type RetryRunStatus = (typeof RETRY_RUN_STATUSES)[number];
  * A re-sent request with the same key gets this run's result instead of
  * starting another paid run.
  */
-export interface lastMileRetryRunInterface {
+export interface lastMetersRetryRunInterface {
   /** The Idempotency-Key header, a lowercase UUIDv7. */
   _id: string;
   /** The test id the request named; a retry's id resolves to its original. */
@@ -28,7 +28,7 @@ export interface lastMileRetryRunInterface {
   errorMessage?: string;
 }
 
-const LastMileRetryRunSchema = new Schema<lastMileRetryRunInterface>(
+const LastMetersRetryRunSchema = new Schema<lastMetersRetryRunInterface>(
   {
     _id: { type: String, required: true },
     requestedId: { type: String, required: true },
@@ -47,8 +47,10 @@ const LastMileRetryRunSchema = new Schema<lastMileRetryRunInterface>(
   { versionKey: false }
 );
 
-export default mongoose.model<lastMileRetryRunInterface>(
-  "LastMileRetryRun",
-  LastMileRetryRunSchema,
+export default mongoose.model<lastMetersRetryRunInterface>(
+  "LastMetersRetryRun",
+  LastMetersRetryRunSchema,
+  // Keeps its old collection name so existing records stay readable.
+  // See docs/adr/0001-last-meters-rename-keeps-stored-and-shipped-names.md.
   "last_mile_retry_run"
 );

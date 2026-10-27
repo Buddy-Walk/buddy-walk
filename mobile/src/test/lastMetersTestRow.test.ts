@@ -4,10 +4,10 @@ import {
   imagePlaceholder,
   imageStatsOf,
   isStoredImage,
-  toLastMileTestResponse,
-  toLastMileTestSummaryResponse,
+  toLastMetersTestResponse,
+  toLastMetersTestSummaryResponse,
   toRetryHistoryEntry,
-} from "../../server/utils/lastMileTestRow";
+} from "../../server/utils/lastMetersTestRow";
 
 const PANORAMA = "data:image/jpeg;base64,AAAA";
 const PHOTO = "data:image/jpeg;base64,BBBBBB";
@@ -26,8 +26,8 @@ test("imagePlaceholder summarizes image length and leaves missing images empty",
   assert.equal(imagePlaceholder(undefined), "");
 });
 
-test("toLastMileTestResponse strips images but keeps presence flags for list views", () => {
-  const row = toLastMileTestResponse(
+test("toLastMetersTestResponse strips images but keeps presence flags for list views", () => {
+  const row = toLastMetersTestResponse(
     { destination: "CVS", userPhoto: PHOTO, panoramaPhoto: PANORAMA },
     false
   );
@@ -40,8 +40,8 @@ test("toLastMileTestResponse strips images but keeps presence flags for list vie
   assert.equal(row.destinationPhoto, "");
 });
 
-test("toLastMileTestResponse reports no panorama for approach-mode rows", () => {
-  const row = toLastMileTestResponse({ userPhoto: PHOTO }, false);
+test("toLastMetersTestResponse reports no panorama for approach-mode rows", () => {
+  const row = toLastMetersTestResponse({ userPhoto: PHOTO }, false);
   assert.equal(row.hasPanorama, false);
   assert.equal(row.panoramaPhoto, "");
 });
@@ -55,12 +55,12 @@ test("rows read without images produce the same list response as stripping them"
   for (const row of rows) {
     const { userPhoto, panoramaPhoto, destinationPhoto, ...rest } = row;
     const summary = { ...rest, imageStats: imageStatsOf({ userPhoto, panoramaPhoto, destinationPhoto }) };
-    assert.deepEqual(toLastMileTestSummaryResponse(summary), toLastMileTestResponse(row, false));
+    assert.deepEqual(toLastMetersTestSummaryResponse(summary), toLastMetersTestResponse(row, false));
   }
 });
 
-test("toLastMileTestResponse keeps the user photo but not Street View images", () => {
-  const row = toLastMileTestResponse({ userPhoto: PHOTO, panoramaPhoto: PANORAMA }, true);
+test("toLastMetersTestResponse keeps the user photo but not Street View images", () => {
+  const row = toLastMetersTestResponse({ userPhoto: PHOTO, panoramaPhoto: PANORAMA }, true);
   assert.equal(row.userPhoto, PHOTO);
   assert.equal(row.panoramaPhoto, `[base64 image ${PANORAMA.length} chars]`);
   assert.equal(row.hasPanorama, true);
@@ -69,12 +69,12 @@ test("toLastMileTestResponse keeps the user photo but not Street View images", (
 
 test("single-trial opt-in returns saved panorama and destination images", () => {
   const original = { userPhoto: PHOTO, panoramaPhoto: PANORAMA, destinationPhoto: PHOTO };
-  const row = toLastMileTestResponse(original, true, true);
+  const row = toLastMetersTestResponse(original, true, true);
   assert.equal(row.panoramaPhoto, PANORAMA);
   assert.equal(row.destinationPhoto, PHOTO);
   assert.equal(row.hasPanorama, true);
   assert.equal(row.hasDestinationPhoto, true);
-  assert.equal(toLastMileTestResponse(original, false, true).panoramaPhoto, imagePlaceholder(PANORAMA));
+  assert.equal(toLastMetersTestResponse(original, false, true).panoramaPhoto, imagePlaceholder(PANORAMA));
 });
 
 test("toRetryHistoryEntry marks retries and keeps the facts the history shows", () => {

@@ -1,14 +1,14 @@
 import axios from "axios";
 import OpenAI from "openai";
 import sharp from "sharp";
-import { lastMileTestLogService } from "./lastMileTestLog";
+import { lastMetersTestLogService } from "./lastMetersTestLog";
 import { outdoorPanoramaRejection, panoramaIsGone } from "../utils/outdoorPanorama";
 import { selectOutdoorPanorama, parseSceneVerdict, SceneClassifier, PanoramaAudit, PanoramaAttempt, PanoramaSearchBudget } from "./outdoorPanoramaSelection";
 import {
-  LAST_MILE_HEADINGS,
-  LAST_MILE_PANORAMA_FOV_DEGREES,
+  LAST_METERS_HEADINGS,
+  LAST_METERS_PANORAMA_FOV_DEGREES,
   streetViewImageryAgeYears,
-} from "../utils/lastMileNavigation";
+} from "../utils/lastMetersNavigation";
 import { getGoogleMapsApiKey } from "./googleMaps";
 
 const PANORAMA_LABEL_GLYPHS: Record<string, string[]> = {
@@ -160,7 +160,7 @@ async function saveBackgroundPanorama(
   if (!testLogId) return;
   try {
     const { tiles, metadata, attempts } = await download;
-    await lastMileTestLogService.attachPanorama(testLogId, {
+    await lastMetersTestLogService.attachPanorama(testLogId, {
       panoramaPhoto: await buildPanoramaDebugImage(tiles),
       panoramaDate: metadata.date,
       panoramaStatus: metadata.status,
@@ -171,7 +171,7 @@ async function saveBackgroundPanorama(
       panoramaAgeYears: streetViewImageryAgeYears(metadata.date),
     });
   } catch (error: any) {
-    await lastMileTestLogService.attachPanorama(testLogId, {
+    await lastMetersTestLogService.attachPanorama(testLogId, {
       panoramaValidation: Array.isArray(error?.attempts) ? error.attempts : [],
       panoramaStatus:
         typeof error?.code === "string" ? error.code : "BACKGROUND_PANORAMA_FAILED",
@@ -247,8 +247,8 @@ export async function processPanoramaTiles(
   metadata: StreetViewMetadata;
   attempts: PanoramaAttempt[];
 }> {
-  console.log(`Fetching ${LAST_MILE_HEADINGS.length} outdoor panorama views...`);
-  const headings = [...LAST_MILE_HEADINGS];
+  console.log(`Fetching ${LAST_METERS_HEADINGS.length} outdoor panorama views...`);
+  const headings = [...LAST_METERS_HEADINGS];
   const apiKey = getGoogleMapsApiKey();
   const { metadata, attempts } = pinned
     ? pinnedPanorama(pinned, audit, budget)
@@ -260,7 +260,7 @@ export async function processPanoramaTiles(
     headings.map(async (heading) => {
       const url =
         `https://maps.googleapis.com/maps/api/streetview?size=640x640&${panoramaSelector}` +
-        `&heading=${heading}&fov=${LAST_MILE_PANORAMA_FOV_DEGREES}` +
+        `&heading=${heading}&fov=${LAST_METERS_PANORAMA_FOV_DEGREES}` +
         `&pitch=0&source=outdoor&return_error_code=true&key=${apiKey}`;
       const response = await axios.get(url, {
         responseType: "arraybuffer",

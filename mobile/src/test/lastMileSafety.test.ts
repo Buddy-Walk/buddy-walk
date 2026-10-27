@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { sensorSafetyReasons, LastMileSensors, bearingBetween } from "../utils/lastMileSafety";
-import { evaluateWalkingLeg, preciseTurnReasons } from "../../server/utils/lastMilePolicy";
-import { assessReplay, photoHash } from "../../server/utils/lastMileReplay";
-import { summarizeFieldEvaluation } from "../../server/utils/lastMileEvaluation";
+import { evaluateWalkingLeg, preciseTurnReasons } from "../../server/utils/lastMetersPolicy";
+import { assessReplay, photoHash } from "../../server/utils/lastMetersReplay";
+import { summarizeFieldEvaluation } from "../../server/utils/lastMetersEvaluation";
 
 const now = 1_800_000_000_000;
 const origin = { lat: 40.7, lng: -74 };

@@ -26,9 +26,9 @@ These are conservative engineering thresholds, not calibrated success probabilit
 
 The internal trial detail shows safety reasons, route evidence, pipeline version, commit, phone-origin bearing and camera-origin visual bearing. Explicit reviewer outcomes determine field-success rates; legacy pass/fail labels are not silently converted into outcomes. Wrong-turn and wrong-entrance rates have separate scored denominators. Replays are excluded.
 
-`GET /api/last-mile-tests/evaluation` groups by pipeline version, UTC week and destination address. It is a bounded sample (default 1000, maximum 5000), not an unlimited all-time report.
+`GET /api/last-meters-tests/evaluation` groups by pipeline version, UTC week and destination address. It is a bounded sample (default 1000, maximum 5000), not an unlimited all-time report.
 
-`POST /api/last-mile-tests/:id/replay` requires a configured admin token and local provider credentials. It permits one active replay and three starts per minute per server process. The dashboard asks for confirmation because each replay can incur provider charges. Horizontal replicas would require a shared limiter before scaling this feature.
+`POST /api/last-meters-tests/:id/replay` requires a configured admin token and local provider credentials. It permits one active replay and three starts per minute per server process. The dashboard asks for confirmation because each replay can incur provider charges. Horizontal replicas would require a shared limiter before scaling this feature.
 
 Replay uses the stored compressed user photo, original sensor timestamps evaluated relative to original request time, current code and fresh provider data. It is not a bit-for-bit reproduction, field test, or instruction for a person currently standing there. Legacy trials without original capture metadata cannot replay. No original trial is changed.
 
