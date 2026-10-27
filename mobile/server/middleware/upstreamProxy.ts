@@ -13,7 +13,7 @@ import {
   parseLastMetersRequest,
   type LastMetersRequestInput,
 } from '../utils/lastMetersReplay';
-import { postOnLastMetersPaths, type LastMetersPath } from '../routes/lastMetersPaths';
+import { postOnLastMetersPaths, type LastMetersPath } from '../config/lastMetersPaths';
 
 function truncate(value: unknown, max = 800): string | undefined {
   if (typeof value !== 'string' || !value.trim()) return undefined;

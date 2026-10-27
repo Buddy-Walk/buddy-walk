@@ -83,7 +83,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 
   const routing = getServiceRouting();
   console.log(
-    `[server] Capability routing — ai=${routing.ai}, speech=${routing.speech}, mta=${routing.mta}, lastMeters=${routing.lastMeters}`
+    `[server] Capability routing - ai=${routing.ai}, speech=${routing.speech}, mta=${routing.mta}, lastMeters=${routing.lastMeters}`
   );
 
 

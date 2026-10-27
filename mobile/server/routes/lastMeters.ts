@@ -3,7 +3,7 @@ import { getServiceRouting } from "../config/serverMode";
 import { LastMetersController } from "../controllers/lastMetersController";
 import { mountLastMetersProxy } from "../middleware/upstreamProxy";
 import { mobileReviewPanoramaStatus } from "../services/mobileLastMeters";
-import { postOnLastMetersPaths } from "./lastMetersPaths";
+import { postOnLastMetersPaths } from "../config/lastMetersPaths";
 
 const route = express.Router();
 

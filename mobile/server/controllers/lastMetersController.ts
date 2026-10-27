@@ -2,7 +2,7 @@ import { MobileLastMetersService } from "../services/mobileLastMeters";
 import { Request, Response } from "express";
 import { canRunLocalLastMeters } from "../config/serverMode";
 import { parseLastMetersRequest } from "../utils/lastMetersReplay";
-import type { LastMetersPath } from "../routes/lastMetersPaths";
+import type { LastMetersPath } from "../config/lastMetersPaths";
 
 const lastMetersService = new MobileLastMetersService();
 

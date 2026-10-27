@@ -16,7 +16,7 @@ import {
   type ReplayInput,
 } from "../utils/lastMetersReplay";
 import type { RetryPanoramaMode } from "../database/models/lastMetersTestLog";
-import type { LastMetersPath } from "../routes/lastMetersPaths";
+import type { LastMetersPath } from "../config/lastMetersPaths";
 import { outdoorPanoramaRejection } from "../utils/outdoorPanorama";
 import { selectOutdoorPanorama, SceneClassifier, PanoramaAudit, PanoramaAttempt, PanoramaSearchBudget } from "./outdoorPanoramaSelection";
 import {

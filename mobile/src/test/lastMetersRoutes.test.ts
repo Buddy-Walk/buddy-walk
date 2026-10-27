@@ -102,3 +102,17 @@ test("both Last Meters paths answer the same and record which one was called, wh
   assert.equal(await requestPathOf(current.testLogId), "/api/last-meters");
   assert.equal(await requestPathOf(old.testLogId), "/api/last-mile");
 });
+
+test("a proxied request that cannot reach buddywalk.app still records which path was called", async (t) => {
+  // Nothing listens on the discard port, so the upstream refuses the connection.
+  onlyEnv(t, { UPSTREAM_API_ROOT: "http://127.0.0.1:9" });
+  const root = await lastMetersApp(t);
+
+  const current = await post(root, "/api/last-meters");
+  const old = await post(root, "/api/last-mile");
+
+  assert.equal(current.status, 502);
+  assert.deepEqual(old, { ...current, testLogId: old.testLogId });
+  assert.equal(await requestPathOf(current.testLogId), "/api/last-meters");
+  assert.equal(await requestPathOf(old.testLogId), "/api/last-mile");
+});
