@@ -1,8 +1,8 @@
 import {
   distanceBetween,
   sensorSafetyReasons,
-  type LastMileSensors,
-} from "./lastMileSafety";
+  type LastMetersSensors,
+} from "./lastMetersSafety";
 
 /** Keep real sensor failures while allowing location jitter inside the reported GPS uncertainty. */
 export function mobileTurnSensorReasons(
@@ -24,7 +24,7 @@ export function mobileTurnSensorReasons(
 /** Recheck live orientation only for an actual turn; descriptive and withheld answers remain readable. */
 export function mobileResponseSensorReasons(
   answer: { targetHeading?: number | null; currentHeading?: number; guidanceKind?: string },
-  sensors: LastMileSensors | undefined,
+  sensors: LastMetersSensors | undefined,
   position: { lat: number; lng: number },
   heading: number | undefined,
   accuracy: number | undefined,

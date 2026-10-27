@@ -11,12 +11,12 @@ import {
   upgradeReplayInput,
   type ReplayUpgrade,
 } from "../../server/utils/lastMetersReplay";
-import type { LastMileSensors } from "../../src/utils/lastMileSafety";
+import type { LastMetersSensors } from "../../src/utils/lastMetersSafety";
 
 const PHOTO = "data:image/jpeg;base64,BBBBBB";
 const RECEIVED_AT = 1_800_000_000_000;
 
-const sensors: LastMileSensors = {
+const sensors: LastMetersSensors = {
   photoCapturedAt: RECEIVED_AT,
   positionTimestamp: RECEIVED_AT,
   headingTimestamp: RECEIVED_AT,

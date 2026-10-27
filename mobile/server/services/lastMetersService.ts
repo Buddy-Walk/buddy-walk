@@ -4,7 +4,7 @@ import dotenv from "dotenv";
 import { getOpenAIClient } from "./openAIClient";
 import { lastMetersTestLogService } from "./lastMetersTestLog";
 import sharp from "sharp";
-import { RECAPTURE_MESSAGE } from "../../src/utils/lastMileSafety";
+import { RECAPTURE_MESSAGE } from "../../src/utils/lastMetersSafety";
 import { strictLastMetersGuidancePolicy, type LastMetersGuidancePolicy } from "../utils/lastMetersGuidancePolicy";
 import { evaluateWalkingLeg, WalkingEvidence } from "../utils/lastMetersPolicy";
 import {

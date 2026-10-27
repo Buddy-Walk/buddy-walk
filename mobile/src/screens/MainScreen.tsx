@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
-import { LastMileSensors, validPoint, RECAPTURE_MESSAGE } from "../utils/lastMileSafety";
-import { mobileResponseSensorReasons } from "../utils/mobileLastMileGuidance";
+import { LastMetersSensors, validPoint, RECAPTURE_MESSAGE } from "../utils/lastMetersSafety";
+import { mobileResponseSensorReasons } from "../utils/mobileLastMetersGuidance";
 import {
   View,
   ScrollView,
@@ -205,7 +205,7 @@ export default function MainScreen({ navigation }: Props) {
   const capturedPhotoLocationRef = useRef<Location.LocationObject | null>(null);
   const headingTimestampRef = useRef<number>(0);
   const headingReferenceRef = useRef<"true" | "magnetic" | "unknown">("unknown");
-  const capturedSensorMetadataRef = useRef<Pick<LastMileSensors, "photoCapturedAt" | "positionTimestamp" | "headingTimestamp" | "headingReference"> | null>(null);
+  const capturedSensorMetadataRef = useRef<Pick<LastMetersSensors, "photoCapturedAt" | "positionTimestamp" | "headingTimestamp" | "headingReference"> | null>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recDotOpacity = useRef(new Animated.Value(1)).current;
   const audioRecordingRef = useRef<AudioRecorder | null>(null);
@@ -1417,7 +1417,7 @@ export default function MainScreen({ navigation }: Props) {
       const loc = capturedPhotoLocationRef.current;
       const metadata = capturedSensorMetadataRef.current;
       /** Combine the immutable capture timestamps with the latest genuine phone readings. */
-      const makeSensors = (): LastMileSensors | undefined => {
+      const makeSensors = (): LastMetersSensors | undefined => {
         const latest = locationRef.current;
         if (!metadata || !latest) return undefined;
         return { ...metadata, latestPosition: { lat: latest.coords.latitude, lng: latest.coords.longitude,

@@ -12,6 +12,6 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["server/**/*.ts", "src/utils/trainLine.ts", "src/utils/lastMetersInput.ts", "src/utils/lastMileSafety.ts", "src/utils/mobileLastMileGuidance.ts"],
+  "include": ["server/**/*.ts", "src/utils/trainLine.ts", "src/utils/lastMetersInput.ts", "src/utils/lastMetersSafety.ts", "src/utils/mobileLastMetersGuidance.ts"],
   "exclude": ["node_modules", "dist"]
 }

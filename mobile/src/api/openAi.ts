@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { LastMileSensors } from '../utils/lastMileSafety';
+import type { LastMetersSensors } from '../utils/lastMetersSafety';
 import { aiClient, apiClient } from './client';
 import { withNetworkRetry } from './retry';
 import { withBriefReplyInstruction } from '../utils/briefAiInstruction';
@@ -54,7 +54,7 @@ export async function sendLastMileRequest(
     compassAccuracyLevel?: number;
     image: string;
     destination: string;
-    sensors?: LastMileSensors;
+    sensors?: LastMetersSensors;
   },
   signal?: AbortSignal
 ): Promise<{

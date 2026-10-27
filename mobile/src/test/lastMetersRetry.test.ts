@@ -38,7 +38,7 @@ import {
   parseLastMetersRequest,
   replayRequest,
 } from "../../server/utils/lastMetersReplay";
-import type { LastMileSensors } from "../../src/utils/lastMileSafety";
+import type { LastMetersSensors } from "../../src/utils/lastMetersSafety";
 
 // These run against the in-memory log store with stand-ins for OpenAI and
 // Street View, so no test makes a paid or network call.
@@ -48,7 +48,7 @@ const KEY_NAMES = ["OPENAI_API_KEY", "GOOGLE_MAPS_API_KEY", "GOOGLE_API_KEY", "A
 let savedEnv: Record<string, string | undefined> = {};
 
 const RECEIVED_AT = 1_800_000_000_000;
-const sensors = { photoCapturedAt: RECEIVED_AT } as LastMileSensors;
+const sensors = { photoCapturedAt: RECEIVED_AT } as LastMetersSensors;
 const request = { destination: "CVS", lat: 40.7128, lng: -74.006, deviceHeading: 92.5, sensors };
 const snapshot = buildReplayInput(request, PHOTO, RECEIVED_AT);
 

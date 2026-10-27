@@ -6,7 +6,7 @@ import sharp from "sharp";
 import { MobileLastMetersService, mobileReviewPanoramaStatus } from "../../server/services/mobileLastMeters";
 import { lastMetersTestLogService } from "../../server/services/lastMetersTestLog";
 import { buildReplayInput, type LastMetersRequestInput } from "../../server/utils/lastMetersReplay";
-import { mobileResponseSensorReasons } from "../utils/mobileLastMileGuidance";
+import { mobileResponseSensorReasons } from "../utils/mobileLastMetersGuidance";
 import { setTestEnv } from "./testEnv";
 
 /** Produce a valid request without assuming Google's optional entrance listing exists. */
