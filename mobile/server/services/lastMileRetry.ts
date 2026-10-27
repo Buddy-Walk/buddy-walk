@@ -7,7 +7,8 @@ import { assessReplay, replayRequest } from "../utils/lastMileReplay";
 import { rowId } from "../utils/lastMileTestRow";
 import { lastMileRetryRunService, withRenewedLease, type RetryRun } from "./lastMileRetryRuns";
 import { lastMileTestLogService, type LastMileTestSummary } from "./lastMileTestLog";
-import { fetchStreetViewPanoramaById, OpenAIService, type StreetViewMetadata } from "./openAI";
+import { LastMetersService } from "./lastMetersService";
+import { fetchStreetViewPanoramaById, type StreetViewMetadata } from "./streetViewPanorama";
 
 /**
  * A retry that could not run; status is the HTTP status to answer with, and
@@ -54,7 +55,7 @@ export class RetryLimiter {
 
 /** The paid outside calls a retry makes; tests pass stand-ins for these. */
 export interface RetryDependencies {
-  runLastMeters: OpenAIService["runLastMeters"];
+  runLastMeters: LastMetersService["runLastMeters"];
   fetchPanoramaById: typeof fetchStreetViewPanoramaById;
   limiter: RetryLimiter;
   runs: Pick<typeof lastMileRetryRunService, "find" | "claim" | "renew" | "finish">;
@@ -69,7 +70,7 @@ export interface RetryDependencies {
  */
 export const RETRY_MAX_RUN_MS = 10 * 60_000;
 
-const pipeline = new OpenAIService();
+const pipeline = new LastMetersService();
 const realDependencies: RetryDependencies = {
   runLastMeters: (request, image, options) => pipeline.runLastMeters(request, image, options),
   fetchPanoramaById: fetchStreetViewPanoramaById,

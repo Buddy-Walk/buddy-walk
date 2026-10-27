@@ -4,7 +4,7 @@ import axios from "axios";
 import sharp from "sharp";
 import { outdoorPanoramaRejection } from "../../server/utils/outdoorPanorama";
 import { LAST_MILE_HEADINGS } from "../../server/utils/lastMileNavigation";
-import { buildPanoramaDebugImage, createPanoramaOverlaySvg, fetchStreetViewPanoramaById, processPanoramaTiles, classifyPanoramaScene } from "../../server/services/openAI";
+import { buildPanoramaDebugImage, createPanoramaOverlaySvg, fetchStreetViewPanoramaById, processPanoramaTiles, classifyPanoramaScene } from "../../server/services/streetViewPanorama";
 import { parseSceneVerdict, selectOutdoorPanorama } from "../../server/services/outdoorPanoramaSelection";
 import LastMileTestLog from "../../server/database/models/lastMileTestLog";
 

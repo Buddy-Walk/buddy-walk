@@ -1,0 +1,27 @@
+import { MobileLastMileService } from "../services/mobileLastMile";
+import { Request, Response } from "express";
+import { canRunLocalLastMile } from "../config/serverMode";
+import { parseLastMetersRequest } from "../utils/lastMileReplay";
+
+const lastMetersService = new MobileLastMileService();
+
+export class LastMetersController {
+  async lastMileRequest(req: Request, res: Response) {
+    try {
+      const request = parseLastMetersRequest(req.body);
+      const image = req.body?.image;
+      if (!request || typeof image !== "string" || !image.startsWith("data:image/")) {
+        return res.status(400).json({ error: "Missing or invalid required fields" });
+      }
+      if (!canRunLocalLastMile()) {
+        return res.status(503).json({
+          error:
+            "Last Meters requires OPENAI_API_KEY and GOOGLE_MAPS_API_KEY (or GOOGLE_API_KEY) on this backend.",
+        });
+      }
+      await lastMetersService.lastMileRequest({ req, res }, request, image);
+    } catch (error) {
+      if (!res.headersSent) res.status(500).json({ error: "Internal server error" });
+    }
+  }
+}

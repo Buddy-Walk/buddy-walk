@@ -3,7 +3,8 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
-import openAIRoute from "./routes/openAI"
+import questionRoute from "./routes/question"
+import lastMetersRoute from "./routes/lastMeters"
 import chatLogRoute from "./routes/chatLog"
 import tokenRoute from "./routes/token"
 import companionRoute from "./routes/companion"
@@ -15,7 +16,7 @@ import mongoose from "mongoose";
 import { config } from "./database";
 import { setCompanionMemoryStore } from "./database/companionStoreMode";
 import { canRunLocalLastMile, describeServerMode, getServiceRouting } from "./config/serverMode";
-import { OpenAIController } from "./controllers/openAI";
+import { LastMetersController } from "./controllers/lastMetersController";
 import {
   mountAiProxy,
   mountSpeechProxy,
@@ -112,7 +113,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     next();
   });
 
-  // Speech is registered before openAIRoute because that router also declares
+  // Speech is registered before questionRoute because that router also declares
   // /api/transcribe; Express keeps the first matching route, so this decides
   // whether transcription runs locally or upstream regardless of AI routing.
   if (routing.speech === 'local') {
@@ -134,18 +135,19 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     mountMtaProxy(app);
   }
 
-  const lastMileController = new OpenAIController();
+  const lastMetersController = new LastMetersController();
   // Street View must run here when keys exist — do not rely on the text proxy.
   if (canRunLocalLastMile()) {
     app.post('/api/last-mile', (req, res) => {
-      void lastMileController.lastMileRequest(req, res);
+      void lastMetersController.lastMileRequest(req, res);
     });
   } else if (routing.lastMile === 'proxy') {
     mountLastMileProxy(app);
   }
 
   if (routing.ai === 'local') {
-    app.use("/api", openAIRoute);
+    app.use("/api", lastMetersRoute);
+    app.use("/api", questionRoute);
   } else {
     mountAiProxy(app);
   }

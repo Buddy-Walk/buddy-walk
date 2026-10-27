@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import axios from "axios";
+import OpenAI from "openai";
 import sharp from "sharp";
 import { MobileLastMileService, mobileReviewPanoramaStatus } from "../../server/services/mobileLastMile";
 import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
 import { buildReplayInput, type LastMetersRequestInput } from "../../server/utils/lastMileReplay";
 import { mobileResponseSensorReasons } from "../utils/mobileLastMileGuidance";
+import { setTestEnv } from "./testEnv";
 
 /** Produce a valid request without assuming Google's optional entrance listing exists. */
 function capture(now: number): LastMetersRequestInput {
@@ -27,13 +29,8 @@ for (const scenario of [
 ] as const) {
   test(`mobile guidance runs the real pipeline: ${scenario}`, async t => {
     // Exercise real place selection, panorama validation, image matching, logging, and HTTP delivery.
-    const previousKey = process.env.GOOGLE_MAPS_API_KEY;
-    process.env.GOOGLE_MAPS_API_KEY = "test-maps";
-    t.after(() => {
-      // Restore provider configuration for the remaining shared/retry tests.
-      if (previousKey === undefined) delete process.env.GOOGLE_MAPS_API_KEY;
-      else process.env.GOOGLE_MAPS_API_KEY = previousKey;
-    });
+    // Restored afterwards for the remaining shared/retry tests.
+    setTestEnv(t, { GOOGLE_MAPS_API_KEY: "test-maps", OPENAI_API_KEY: "test-openai" });
     let clock = Date.now();
     const submittedAt = clock;
     t.mock.method(Date, "now", () => clock);
@@ -75,7 +72,7 @@ for (const scenario of [
       assert.fail(`Unexpected provider call: ${url}`);
     });
     const service = new MobileLastMileService();
-    (service as any)._client = { chat: { completions: { create: async (input: any) => {
+    t.mock.method(OpenAI.Chat.Completions.prototype, "create", async (input: any) => {
       // Supply controlled visual evidence, never a model-authored turn angle.
       const prompt = input.messages[0].content as string;
       let text: string;
@@ -93,7 +90,7 @@ for (const scenario of [
         text = "A recessed doorway is on the brick wall in your photo.";
       } else assert.fail(`Unexpected visual prompt: ${prompt}`);
       return { choices: [{ message: { content: text! } }], usage: { total_tokens: 10 } };
-    } } } };
+    });
     let logged: any;
     t.mock.method(lastMileTestLogService, "record", async (row: any) => {
       // Observe the actual recorded inputs and outcome without creating a production trial.

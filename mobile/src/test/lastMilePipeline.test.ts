@@ -1,18 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import axios from "axios";
+import OpenAI from "openai";
 import sharp from "sharp";
-import { OpenAIService } from "../../server/services/openAI";
+import { LastMetersService } from "../../server/services/lastMetersService";
 import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
+import { setTestEnv } from "./testEnv";
 
 for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallback", "verified-turn", "detour", "low-confidence", "ambiguous", "missing-sensors"] as const) {
   test(`Last Meters integration: ${scenario}`, async t => {
-    const oldKey = process.env.GOOGLE_MAPS_API_KEY;
-    process.env.GOOGLE_MAPS_API_KEY = "unit-test";
-    t.after(() => {
-      if (oldKey === undefined) delete process.env.GOOGLE_MAPS_API_KEY;
-      else process.env.GOOGLE_MAPS_API_KEY = oldKey;
-    });
+    setTestEnv(t, { GOOGLE_MAPS_API_KEY: "unit-test", OPENAI_API_KEY: "unit-test" });
     const pixels = Buffer.alloc(640 * 640 * 3);
     for (let i = 0; i < pixels.length; i++) pixels[i] = (i * 13 + Math.floor(i / 19)) % 256;
     const jpeg = await sharp(pixels, { raw: { width: 640, height: 640, channels: 3 } }).jpeg().toBuffer();
@@ -42,8 +39,8 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
     let referenceCalls = 0;
     let signCalls = 0;
     let guidanceCalls = 0;
-    const service = new OpenAIService();
-    (service as any)._client = { chat: { completions: { create: async (request: any) => {
+    const service = new LastMetersService();
+    t.mock.method(OpenAI.Chat.Completions.prototype, "create", async (request: any) => {
       const prompt = request.messages[0].content as string;
       let text = "NOT_VISIBLE";
       if (prompt.startsWith("Classify the CAMERA")) text = "OUTDOOR";
@@ -63,7 +60,7 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
       else if (prompt.includes("orientation assistant for a blind pedestrian")) { guidanceCalls++; text = "NO_RELIABLE_LANDMARKS"; }
       else assert.fail(`Unexpected prompt: ${prompt}`);
       return { choices: [{ message: { content: text } }], usage: { total_tokens: 10 } };
-    } } } };
+    });
     let logged: any;
     t.mock.method(lastMileTestLogService, "record", async (row: any) => { logged = row; return "trial-test"; });
     let answer: any;
@@ -114,3 +111,30 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
     }
   });
 }
+
+test("Last Meters hands a question to the Question service it was given", async t => {
+  t.mock.method(axios, "get", async (url: string) => { throw new Error(`Unexpected request: ${url}`); });
+  t.mock.method(lastMileTestLogService, "record", async () => "trial-question");
+  const asked: any[] = [];
+  const questionService = { textRequest: async (ctx: any, content: any) => {
+    asked.push(content);
+    ctx.res.status(200).json({ output: "answered" });
+  } };
+  const service = new LastMetersService(questionService);
+  let answer: any;
+  const res = { status: () => res, json: (body: any) => { answer = body; } };
+  const now = Date.now();
+  await service.lastMileRequest({ res } as any, { lat: 40.7, lng: -74, destination: "When is the next A train?", deviceHeading: 90,
+    gpsAccuracyMeters: 14, compassAccuracyLevel: 3, sensors: {
+    photoCapturedAt: now, positionTimestamp: now, headingTimestamp: now, headingReference: "true",
+    latestPosition: { lat: 40.7, lng: -74, accuracy: 14, timestamp: now },
+    latestHeading: 90, latestHeadingTimestamp: now, latestHeadingReference: "true",
+  } }, "data:image/jpeg;base64,photo");
+  assert.deepEqual(answer, { output: "answered" });
+  assert.deepEqual(asked, [{
+    text: "When is the next A train?",
+    image: undefined,
+    coords: { latitude: 40.7, longitude: -74, accuracy: 14, heading: 90 },
+    analytics: { feature: "mta" },
+  }]);
+});

@@ -29,7 +29,8 @@ import { proxiedRequestFields } from "../../server/middleware/upstreamProxy";
 import { asyncRoute } from "../../server/utils/asyncRoute";
 import { parseIdempotencyKey } from "../../server/utils/idempotencyKey";
 import { lastMileTestLogService } from "../../server/services/lastMileTestLog";
-import { OpenAIService, type LastMetersRunOptions } from "../../server/services/openAI";
+import { getOpenAIClient } from "../../server/services/openAIClient";
+import type { LastMetersRunOptions } from "../../server/services/lastMetersService";
 import {
   LAST_MILE_PIPELINE_VERSION,
   UPSTREAM_PIPELINE_VERSION,
@@ -661,7 +662,7 @@ test("a given-up retry keeps its capacity slot until its calls end", async () =>
 });
 
 test("OpenAI calls give up after 90 seconds per attempt and two retries instead of the library's half hour", () => {
-  const client = (new OpenAIService() as unknown as { client: { timeout: number; maxRetries: number } }).client;
+  const client = getOpenAIClient();
   assert.equal(client.timeout, 90_000);
   assert.equal(client.maxRetries, 2);
 });

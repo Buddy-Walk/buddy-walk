@@ -1,6 +1,6 @@
 import axios, { AxiosResponse } from 'axios';
 import express, { Application, Request, Response } from 'express';
-import { getUpstreamApiRoot, hasOwnAiKeys, canRunLocalLastMile } from '../config/serverMode';
+import { getUpstreamApiRoot, hasOwnOpenAiKey, canRunLocalLastMile } from '../config/serverMode';
 import { aiRequestLogService } from '../services/aiRequestLog';
 import {
   compressUserPhoto,
@@ -116,7 +116,7 @@ function upstreamUnavailableMessage(): Record<string, string> {
   return {
     error:
       'AI is unavailable on the upstream host (buddywalk.app). ' +
-      'Add OPENAI_API_KEY or GEMINI_API_KEY in the Render dashboard for this service to run Q&A locally.',
+      'Add OPENAI_API_KEY in the Render dashboard for this service to run Q&A locally.',
   };
 }
 
@@ -125,9 +125,9 @@ async function tryLocalAiHandler(
   res: Response,
   handler: 'text' | 'parse' | 'audio'
 ): Promise<boolean> {
-  if (!hasOwnAiKeys()) return false;
-  const { OpenAIController } = await import('../controllers/openAI');
-  const controller = new OpenAIController();
+  if (!hasOwnOpenAiKey()) return false;
+  const { QuestionController } = await import('../controllers/questionController');
+  const controller = new QuestionController();
   if (handler === 'text') {
     await controller.textRequest(req, res);
   } else if (handler === 'parse') {
@@ -310,12 +310,21 @@ async function recordProxiedLastMileFailure(
   });
 }
 
-/** Text generation and TTS — needs OPENAI_API_KEY / GEMINI_API_KEY locally. */
+/** Text generation and TTS - needs OPENAI_API_KEY locally. */
 export function mountAiProxy(app: Application): void {
   console.log(`[server] Proxying AI to ${getUpstreamApiRoot()}; metrics stored locally`);
   app.post('/api/text', (req, res) => forwardJson(req, res, '/api/text'));
   app.post('/api/parseRequest', (req, res) => forwardJson(req, res, '/api/parseRequest'));
   app.post('/api/audio', (req, res) => forwardBinary(req, res, '/api/audio'));
+}
+
+/** Runs Last Meters on this host when it can; returns false when it can't. */
+async function tryLocalLastMile(req: Request, res: Response): Promise<boolean> {
+  if (!canRunLocalLastMile()) return false;
+  const { LastMetersController } = await import('../controllers/lastMetersController');
+  const controller = new LastMetersController();
+  await controller.lastMileRequest(req, res);
+  return true;
 }
 
 function lastMetersTextPrompt(destination: string): string {
@@ -373,12 +382,7 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
       timeout: 180_000,
     });
 
-    if (upstreamRes.status >= 500 && canRunLocalLastMile()) {
-      const { OpenAIController } = await import('../controllers/openAI');
-      const controller = new OpenAIController();
-      await controller.lastMileRequest(req, res);
-      return;
-    }
+    if (upstreamRes.status >= 500 && (await tryLocalLastMile(req, res))) return;
 
     const output = extractOutputText(upstreamRes.data);
     const success = upstreamRes.status >= 200 && upstreamRes.status < 300;
@@ -430,12 +434,7 @@ async function forwardLastMileViaText(req: Request, res: Response): Promise<void
     });
   } catch (error) {
     console.error('[upstreamProxy] last-mile via /api/text failed:', error);
-    if (canRunLocalLastMile()) {
-      const { OpenAIController } = await import('../controllers/openAI');
-      const controller = new OpenAIController();
-      await controller.lastMileRequest(req, res);
-      return;
-    }
+    if (await tryLocalLastMile(req, res)) return;
     const localId = await recordProxiedLastMileFailure(request, image, startedAt, error);
     res.status(502).json({
       error: 'Upstream API unavailable',
