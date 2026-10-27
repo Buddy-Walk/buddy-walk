@@ -1,7 +1,6 @@
 import { OpenAIQuestionService } from "../services/openAIQuestionService";
 import {textRequestBody} from "../types";
 import { Request, Response } from "express";
-import { getPanoramaData } from "../services/doorfront"
 
 const questionService = new OpenAIQuestionService();
 
@@ -36,14 +35,5 @@ export class QuestionController {
       return;
     }
     await questionService.audioRequest({req, res}, text);
-  }
-
-  async doorfrontPanorama(req: Request, res: Response): Promise<void> {
-    const { address } = req.body;
-    if (typeof address !== 'string' || !address.trim()) {
-      res.status(400).json({ error: 'address is required and must be a non-empty string' });
-      return;
-    }
-    await getPanoramaData({req, res}, address);
   }
 }
