@@ -178,7 +178,7 @@ async function getDestinationStreetViewReference(
 }
 
 export class LastMetersService {
-  /** Question-routed inputs are answered by OpenAI, whichever provider the Question box uses. */
+  /** Answers Last Meters inputs that turn out to be Questions. */
   constructor(private readonly questionService: OpenAIQuestionService = new OpenAIQuestionService()) {}
 
   /** Use the existing policy by default; a mobile subclass can choose its own field-only policy. */
