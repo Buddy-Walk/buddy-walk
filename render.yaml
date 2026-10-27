@@ -9,8 +9,8 @@
 #   https://buddy-walk-api.onrender.com/usage?token=YOUR_ADMIN_TOKEN
 #
 # Each capability is decided independently on its own credentials: AI needs
-# OPENAI_API_KEY or GEMINI_API_KEY, speech needs AZURE_SUBSCRIPTION_KEY plus
-# AZURE_REGION, and MTA needs MTA_API_KEY. Anything without its keys is proxied
+# OPENAI_API_KEY, speech needs AZURE_SUBSCRIPTION_KEY plus AZURE_REGION, and
+# MTA needs MTA_API_KEY. Anything without its keys is proxied
 # to buddywalk.app, so adding one key never disables an unrelated service.
 # /api/health reports the live routing for each.
 #
@@ -46,10 +46,8 @@ services:
         sync: false
       - key: AZURE_REGION
         sync: false
-      # Set at least one AI key so Q&A works when buddywalk.app upstream is down.
+      # Required for Q&A, since the buddywalk.app upstream is down.
       - key: OPENAI_API_KEY
-        sync: false
-      - key: GEMINI_API_KEY
         sync: false
       - key: GOOGLE_MAPS_API_KEY
         sync: false

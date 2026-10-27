@@ -116,7 +116,7 @@ function upstreamUnavailableMessage(): Record<string, string> {
   return {
     error:
       'AI is unavailable on the upstream host (buddywalk.app). ' +
-      'Add OPENAI_API_KEY or GEMINI_API_KEY in the Render dashboard for this service to run Q&A locally.',
+      'Add OPENAI_API_KEY in the Render dashboard for this service to run Q&A locally.',
   };
 }
 
@@ -310,7 +310,7 @@ async function recordProxiedLastMileFailure(
   });
 }
 
-/** Text generation and TTS — needs OPENAI_API_KEY / GEMINI_API_KEY locally. */
+/** Text generation and TTS - needs OPENAI_API_KEY locally. */
 export function mountAiProxy(app: Application): void {
   console.log(`[server] Proxying AI to ${getUpstreamApiRoot()}; metrics stored locally`);
   app.post('/api/text', (req, res) => forwardJson(req, res, '/api/text'));

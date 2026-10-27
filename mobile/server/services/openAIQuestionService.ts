@@ -52,7 +52,6 @@ import {
   type VerifiedWalkingDirections,
   type VerifiedWalkingRoute,
 } from "./verifiedDestination";
-import type { QuestionService } from "./questionService";
 dotenv.config();
 
 const tools = openAITools;
@@ -73,7 +72,12 @@ function maxTokensForFeature(feature?: string): number {
   }
 }
 
-export class OpenAIQuestionService implements QuestionService {
+/**
+ * Answers a Question for /api/text, picks a tool for /api/parseRequest, and
+ * reads text aloud for /api/audio.
+ * Each public request method sends its answer through ctx.res; callers ignore the result.
+ */
+export class OpenAIQuestionService {
   /** Tool-routing call used by /api/text. Returns undefined on failure instead of ending the response. */
   async parseUserRequestInternal(
     text: string,
