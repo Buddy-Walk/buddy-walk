@@ -93,20 +93,17 @@ Keep the response to two short sentences and do not repeat the turn instruction.
   });
 
   const step3Text = step3Response.choices[0].message.content?.trim() || "";
-  const landmarksGuidance =
-    !step3Text || /\bNO_RELIABLE_LANDMARKS\b/i.test(step3Text)
-      ? "No reliable physical landmark was identified. Turn in place without moving forward, then confirm your orientation before continuing."
-      : step3Text;
+  const noLandmarks = !step3Text || /\bNO_RELIABLE_LANDMARKS\b/i.test(step3Text);
+  const landmarksGuidance = noLandmarks
+    ? "No reliable physical landmark was identified. Turn in place without moving forward, then confirm your orientation before continuing."
+    : step3Text;
   trial.step({
     name: "accessible_guidance",
     prompt: step3Prompt,
     response: step3Text,
     model: "gpt-4o-mini",
-    success: !!step3Text && !/\bNO_RELIABLE_LANDMARKS\b/i.test(step3Text),
-    error:
-      !step3Text || /\bNO_RELIABLE_LANDMARKS\b/i.test(step3Text)
-        ? "No reliable physical landmark was identified."
-        : undefined,
+    success: !noLandmarks,
+    error: noLandmarks ? "No reliable physical landmark was identified." : undefined,
     tokenCount: step3Response.usage?.total_tokens,
   });
 

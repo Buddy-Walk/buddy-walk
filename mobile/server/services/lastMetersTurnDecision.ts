@@ -3,7 +3,7 @@ import { calculateLastMetersConfidence, streetViewImageryAgeYears, type LastMete
 import { evaluateWalkingLeg, type WalkingEvidence } from "../utils/lastMetersPolicy";
 import type { LastMetersGuidancePolicy } from "../utils/lastMetersGuidancePolicy";
 import type { LastMetersRequestInput } from "../utils/lastMetersReplay";
-import { getGoogleMapsApiKey } from "./googleMaps";
+import { getGoogleMapsApiKey, type LatLng } from "./googleMaps";
 import type { PanoramaHeadings } from "./lastMetersPanoramaMatching";
 import type { GuidanceTarget, LastMetersTrial } from "./lastMetersTrial";
 
@@ -76,7 +76,7 @@ export async function decideTurn(trial: LastMetersTrial, input: TurnDecisionInpu
   return { kind: "go_ahead", turnHeading, confidence, walkingEvidence };
 }
 
-async function checkWalkingRoute(origin: { lat: number; lng: number }, target: { lat: number; lng: number }): Promise<WalkingEvidence> {
+async function checkWalkingRoute(origin: LatLng, target: LatLng): Promise<WalkingEvidence> {
   try {
     const route = await axios.get("https://maps.googleapis.com/maps/api/directions/json", {
       params: { mode: "walking", origin: `${origin.lat},${origin.lng}`, destination: `${target.lat},${target.lng}`, key: getGoogleMapsApiKey() }, timeout: 8000,
