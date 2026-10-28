@@ -19,6 +19,8 @@ import './lastMetersReplayInput.test.ts';
 import './lastMetersRetry.test.ts';
 import './lastMetersRoutes.test.ts';
 import './questionService.test.ts';
+import './questionRequest.test.ts';
+import './questionReply.test.ts';
 import './nearbyPlaces.test.ts';
 import './lastMetersInput.test.ts';
 import './openingHours.test.ts';

@@ -1,5 +1,4 @@
 import { MongoClient, ObjectId } from 'mongodb';
-import { AppContext } from '../types/index';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -31,7 +30,7 @@ async function connectToDoorfrontDB() {
   }
 }
 
-export async function getPanoramaData(ctx: AppContext, address: string) {
+export async function getPanoramaData(address: string) {
   try {
     const db = await connectToDoorfrontDB();
     if (db && address && address.trim() !== '') {
