@@ -8,6 +8,9 @@ import type { LastMetersRequestInput } from "../utils/lastMetersReplay";
 import { calculateHeading } from "./googleMaps";
 import type { GuidanceTarget, HeadingAlignment, NavigationMode } from "./lastMetersTrial";
 
+/** Where the user stood and which way the phone faced when the photo was taken. */
+type PhonePosition = Pick<LastMetersRequestInput, "lat" | "lng" | "deviceHeading" | "gpsAccuracyMeters">;
+
 /** What the proximity gate decided, and the compass and GPS evidence it used. */
 export interface ProximityGate {
   mode: NavigationMode;
@@ -21,7 +24,7 @@ export interface ProximityGate {
  * other is approach.
  */
 export function resolveProximityGate(
-  request: Pick<LastMetersRequestInput, "lat" | "lng" | "deviceHeading" | "gpsAccuracyMeters">,
+  request: PhonePosition,
   entrance: Pick<GuidanceTarget, "location" | "distanceMeters">,
   analysisGate: LastMetersGuidancePolicy["analysisGate"],
 ): ProximityGate {

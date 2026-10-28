@@ -6,6 +6,8 @@ import { strictLastMetersGuidancePolicy } from "../../server/utils/lastMetersGui
 const USER = { lat: 40.7, lng: -74 };
 /** Straight north of the user, about 300 meters away: too far for exact mode. */
 const FAR_NORTH = { location: { lat: 40.7027, lng: -74 }, distanceMeters: 300 };
+/** Straight south of the user, about 100 meters away: inside the exact radius. */
+const NEAR_SOUTH = { location: { lat: 40.6991, lng: -74 }, distanceMeters: 100 };
 const strictGate = strictLastMetersGuidancePolicy.analysisGate;
 
 test("resolveProximityGate answers aligned when a far destination is ahead of the phone", () => {
@@ -33,9 +35,7 @@ test("resolveProximityGate answers approach without a compass, recording only th
 });
 
 test("resolveProximityGate answers exact within the radius, even when the phone already faces the destination", () => {
-  const southEntrance = { location: { lat: 40.6991, lng: -74 }, distanceMeters: 100 };
-
-  const result = resolveProximityGate({ ...USER, deviceHeading: 175, gpsAccuracyMeters: 14 }, southEntrance, strictGate);
+  const result = resolveProximityGate({ ...USER, deviceHeading: 175, gpsAccuracyMeters: 14 }, NEAR_SOUTH, strictGate);
 
   assert.deepEqual(result, {
     mode: "exact",
@@ -45,9 +45,7 @@ test("resolveProximityGate answers exact within the radius, even when the phone 
 });
 
 test("resolveProximityGate answers approach when poor GPS accuracy keeps a near destination out of exact mode", () => {
-  const southEntrance = { location: { lat: 40.6991, lng: -74 }, distanceMeters: 100 };
-
-  const result = resolveProximityGate({ ...USER, deviceHeading: 90, gpsAccuracyMeters: 45 }, southEntrance, strictGate);
+  const result = resolveProximityGate({ ...USER, deviceHeading: 90, gpsAccuracyMeters: 45 }, NEAR_SOUTH, strictGate);
 
   assert.equal(result.mode, "approach");
   assert.deepEqual(result.gate, { exact: false, allowanceMeters: 0, widened: false });
