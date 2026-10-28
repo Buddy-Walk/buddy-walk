@@ -5,6 +5,7 @@ import './outdoorPanorama.test.ts';
 import './lastMetersPipeline.test.ts';
 import './lastMetersExits.test.ts';
 import './lastMetersTrial.test.ts';
+import './lastMetersInputClassification.test.ts';
 import './lastMetersDestination.test.ts';
 import './lastMetersProximityGate.test.ts';
 import './lastMetersPanoramaMatching.test.ts';

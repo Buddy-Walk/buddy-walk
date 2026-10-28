@@ -1,24 +1,16 @@
 import { textRequestBody, AppContext } from "../types";
 import dotenv from "dotenv";
-import { getOpenAIClient } from "./openAIClient";
 import { strictLastMetersGuidancePolicy, type LastMetersGuidancePolicy } from "../utils/lastMetersGuidancePolicy";
 import type { LastMetersRequestInput, ReplayInput } from "../utils/lastMetersReplay";
 import type { RetryPanoramaMode } from "../database/models/lastMetersTestLog";
 import type { LastMetersPath } from "../config/lastMetersPaths";
-import { SceneClassifier, PanoramaAudit, PanoramaAttempt, PanoramaSearchBudget } from "./outdoorPanoramaSelection";
-import { buildLastMetersSourceNote, LAST_METERS_EXACT_RADIUS_METERS } from "../utils/lastMetersNavigation";
-import { parseLastMetersInput } from "../../src/utils/lastMetersInput";
-import {
-  classifyPanoramaScene,
-  processPanoramaTiles,
-  saveBackgroundPanorama,
-  type StreetViewMetadata,
-} from "./streetViewPanorama";
+import type { StreetViewMetadata } from "./streetViewPanorama";
 import { OpenAIQuestionService } from "./openAIQuestionService";
 import { LastMetersTrial } from "./lastMetersTrial";
-import { findEntrance, proximityGatePrompt, verifyDestination } from "./lastMetersDestination";
-import { resolveProximityGate } from "./lastMetersProximityGate";
-import { matchPanoramaHeadings, type PanoramaSearch } from "./lastMetersPanoramaMatching";
+import { classifyInput } from "./lastMetersInputClassification";
+import { findEntrance, verifyDestination } from "./lastMetersDestination";
+import { passProximityGate } from "./lastMetersProximityGate";
+import { matchPanoramaHeadings, startPanoramaSearch } from "./lastMetersPanoramaMatching";
 import { decideTurn, TURN_NOT_VERIFIED_MESSAGE } from "./lastMetersTurnDecision";
 import { composeGuidance } from "./lastMetersGuidance";
 dotenv.config();
@@ -59,14 +51,7 @@ export class LastMetersService {
     options: LastMetersRunOptions = {},
   ): Promise<LastMetersRunResult> {
     const guidancePolicy = this.lastMetersGuidancePolicy(options);
-    const {
-      lat,
-      lng,
-      destination,
-      deviceHeading,
-      gpsAccuracyMeters,
-      sensors,
-    } = request;
+    const { lat, lng, deviceHeading, gpsAccuracyMeters, sensors } = request;
     const { retry, pinnedPanorama } = options;
     const trial = new LastMetersTrial({ request, image, options, policy: guidancePolicy });
     // A retry keeps the original's snapshot and judges sensor freshness as of
@@ -76,10 +61,6 @@ export class LastMetersService {
     const safetyNow = () => evaluationTime + Date.now() - trial.startedAt;
     const turnSensorReasons = () =>
       guidancePolicy.turnSensorReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime);
-    const panoramaValidation: PanoramaAttempt[] = [];
-    trial.note({ panoramaValidation });
-    const auditPanorama: PanoramaAudit = attempt => panoramaValidation.push(attempt);
-    const classifyPanorama: SceneClassifier = (images, timeoutMs) => classifyPanoramaScene(getOpenAIClient(), images, timeoutMs);
 
     // Identify field policy changes separately from the shared pipeline and replay schema versions.
     if (guidancePolicy.version) trial.step({
@@ -89,162 +70,25 @@ export class LastMetersService {
     const initialSensorReasons = guidancePolicy.initialSensorReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow());
     if (initialSensorReasons.length) return trial.withhold(initialSensorReasons);
 
-    console.log("\n==================================================");
-    console.log("📥 [BACKEND] HIT RECEIVED ON THE LAST METERS ROUTE!");
-    console.log(`[BACKEND] Destination requested: "${destination}"`);
-    console.log(`[BACKEND] Coordinates: lat=${lat}, lng=${lng}`);
-    console.log(
-      `[BACKEND] Image payload received (Base64 length): ${image?.length}`,
-    );
-    console.log("==================================================");
-
-    const parsedInput = parseLastMetersInput(destination);
-    if (parsedInput.kind === "question") {
-      // Older app builds send questions here; answer them like the main
-      // question box would instead of searching for a place named "When is...".
-      trial.note({ testScenario: "question_routed" });
-      trial.step({
-        name: "input_classification",
-        prompt:
-          "Decide whether the Last Meters input names a place or asks a question.",
-        response: `QUESTION (${parsedInput.reason}): sent to the question answering flow`,
-        model: "deterministic-parser",
-        success: true,
-      });
-      const asksAboutSurroundings =
-        parsedInput.reason === "question" &&
-        /\b(?:in front of me|around me|describe|what do you see|this)\b/i.test(
-          destination,
-        );
-      return trial.question({
-        text: destination,
-        image: asksAboutSurroundings && image ? [image] : undefined,
-        coords: {
-          latitude: lat,
-          longitude: lng,
-          accuracy: gpsAccuracyMeters ?? null,
-          heading: deviceHeading ?? null,
-        },
-        analytics: {
-          feature:
-            parsedInput.reason === "transit"
-              ? "mta"
-              : asksAboutSurroundings
-                ? "photo_qa"
-                : undefined,
-        },
-      });
-    }
-    const destinationQuery = parsedInput.destination;
-    trial.note({ destinationQuery });
-    trial.step({
-      name: "input_classification",
-      prompt:
-        "Decide whether the Last Meters input names a place or asks a question.",
-      response:
-        `DESTINATION: "${destinationQuery}"` +
-        (parsedInput.strippedLeadIn ? " (question lead-in removed)" : ""),
-      model: "deterministic-parser",
-      success: true,
-    });
+    logRequest(request, image);
+    const input = await classifyInput(trial, request, image);
+    if (input.kind === "exit") return input.result;
+    const destinationQuery = input.value;
 
     try {
-      const proximityPrompt = proximityGatePrompt(destinationQuery);
       const destinationResult = await verifyDestination(trial, request, destinationQuery);
       if (destinationResult.kind === "exit") return destinationResult.result;
-      const verifiedDestination = destinationResult.value;
+      const place = destinationResult.value;
 
-      // The panorama is taken at the user's position, so it can download
-      // while the entrance lookup runs. Approach and aligned trials save it
-      // for review after they have already answered.
-      const panoramaBudget: PanoramaSearchBudget = { seen: new Set(), deadline: Date.now() + 45_000 };
-      const panoramaSearch: PanoramaSearch = {
-        first: processPanoramaTiles(lat, lng, classifyPanorama, auditPanorama, panoramaBudget, pinnedPanorama),
-        budget: panoramaBudget,
-        classify: classifyPanorama,
-        audit: auditPanorama,
-        pinned: pinnedPanorama !== undefined,
-      };
-      void panoramaSearch.first.catch(() => undefined);
+      const panoramaSearch = startPanoramaSearch(trial, { lat, lng }, pinnedPanorama);
+      const { entrance, closedNotice } = await findEntrance(trial, request, place);
 
-      const { entrance, closedNotice } = await findEntrance(trial, request, verifiedDestination);
-      const distanceMeters = entrance.distanceMeters;
-      const place = verifiedDestination;
-
-      const { mode, headingAlignment, gate } = resolveProximityGate(request, entrance, guidancePolicy.analysisGate);
-      const { destinationBearing, differenceDegrees, aligned } = headingAlignment;
-      if (typeof deviceHeading === "number" && differenceDegrees !== undefined) {
-        trial.step({
-          name: "heading_alignment",
-          prompt:
-            "Compare the phone compass heading with the verified destination bearing.",
-          response:
-            `${aligned ? "ALIGNED" : "MISALIGNED"}: phone ` +
-            `${deviceHeading.toFixed(1)} degrees, destination ` +
-            `${destinationBearing.toFixed(1)} degrees, difference ` +
-            `${differenceDegrees.toFixed(1)} degrees`,
-          model: "deterministic-compass",
-          success: true,
-        });
-      }
-
-      trial.note({ headingAlignment });
-
-      trial.source("phone_gps");
-      if (typeof deviceHeading === "number") trial.source("phone_compass");
-
-      trial.note({ gate });
-
-      if (mode === "aligned") {
-        trial.note({ navigationMode: "aligned", testScenario: "heading_aligned" });
-        trial.step({
-          name: "proximity_gate",
-          prompt: proximityPrompt,
-          response: `APPROACH_ONLY: ${Math.round(distanceMeters)} meters`,
-          model: "google-places",
-          success: true,
-        });
-        const finalOutput =
-          `${place.placeName}, ${place.placeAddress}, is approximately ${Math.round(distanceMeters)} meters away in a straight line. A walking route has not been verified. Use your primary walking navigation before trying Last Meters closer to the destination.` +
-          closedNotice +
-          buildLastMetersSourceNote(null);
-        return await trial.answer({ warning: "heading_already_aligned" }, { finalOutput, success: true },
-          testLogId => saveBackgroundPanorama(testLogId, panoramaSearch.first));
-      }
-
-      if (mode === "approach") {
-        trial.note({ navigationMode: "approach", testScenario: "test_b_approach" });
-        const finalOutput =
-          `${place.placeName}, ${place.placeAddress}, is approximately ${Math.round(distanceMeters)} meters away in a straight line. A walking route has not been verified. Use your primary walking navigation before trying Last Meters closer to the destination.` +
-          closedNotice +
-          buildLastMetersSourceNote(null);
-        trial.step({
-          name: "proximity_gate",
-          prompt: proximityPrompt,
-          response:
-            `APPROACH_ONLY: ${Math.round(distanceMeters)} meters, ` +
-            `${destinationBearing.toFixed(1)} degrees`,
-          model: "google-places",
-          success: true,
-        });
-        return await trial.answer({ warning: "destination_too_far" }, { finalOutput, success: true },
-          testLogId => saveBackgroundPanorama(testLogId, panoramaSearch.first));
-      }
-
-      // mode === "exact"
-      trial.note({ navigationMode: "exact" });
-      trial.step({
-        name: "proximity_gate",
-        prompt: proximityPrompt,
-        response:
-          `EXACT: ${Math.round(distanceMeters)} meters` +
-          (gate.widened
-            ? ` (within ${LAST_METERS_EXACT_RADIUS_METERS} m after a ` +
-              `${Math.round(gate.allowanceMeters)} m GPS allowance)`
-            : ""),
-        model: "google-places",
-        success: true,
+      const proximity = await passProximityGate(trial, {
+        request, destinationQuery, place, entrance, closedNotice,
+        firstPanorama: panoramaSearch.first, analysisGate: guidancePolicy.analysisGate,
       });
+      if (proximity.kind === "exit") return proximity.result;
+      const { destinationBearing } = proximity.value.headingAlignment;
 
       const matching = await matchPanoramaHeadings(trial, {
         request, image, destinationQuery, place, entrance, closedNotice, search: panoramaSearch,
@@ -280,6 +124,17 @@ export class LastMetersService {
       return trial.fail(error);
     }
   }
+}
+
+function logRequest(request: LastMetersRequestInput, image: string): void {
+  console.log("\n==================================================");
+  console.log("📥 [BACKEND] HIT RECEIVED ON THE LAST METERS ROUTE!");
+  console.log(`[BACKEND] Destination requested: "${request.destination}"`);
+  console.log(`[BACKEND] Coordinates: lat=${request.lat}, lng=${request.lng}`);
+  console.log(
+    `[BACKEND] Image payload received (Base64 length): ${image?.length}`,
+  );
+  console.log("==================================================");
 }
 
 export interface LastMetersRunOptions {
