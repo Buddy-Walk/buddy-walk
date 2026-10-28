@@ -18,7 +18,6 @@ import {
   ChatCompletionContentPartText,
 } from "openai/resources";
 import { addPanoramaDescription, getPanoramaData } from "./doorfront";
-import { aiRequestLogService } from "./aiRequestLog";
 import { getOpenAIClient } from "./openAIClient";
 import { getSubwayArrivals } from "./mta";
 import { extractTrainLineFromText } from "../../src/utils/trainLine";
@@ -29,14 +28,11 @@ import {
   pedestrianRampInterface,
 } from "../database/models/features";
 import {
-  appendConversationHistory,
   formatHistoryForPrompt,
   getConversationHistory,
 } from "../utils/conversationHistory";
 import {
-  extractNearbyPlaceQuery,
   isNearbyPlaceCandidateRelevant,
-  looksLikeBareDestinationQuery,
   MAX_LOCAL_PLACE_DISTANCE_METERS,
   normalizeNearbyPlaceQuery,
   selectNearbyPlaceCandidate,
@@ -49,9 +45,10 @@ import {
 } from "./googleMaps";
 import {
   getVerifiedNearbyWalkingDirections,
-  type VerifiedWalkingDirections,
   type VerifiedWalkingRoute,
 } from "./verifiedDestination";
+import { readQuestionRequest } from "./questionRequest";
+import { QuestionReply, type QuestionResult } from "./questionReply";
 dotenv.config();
 
 const tools = openAITools;
@@ -75,7 +72,7 @@ function maxTokensForFeature(feature?: string): number {
 /**
  * Answers a Question for /api/text, picks a tool for /api/parseRequest, and
  * reads text aloud for /api/audio.
- * Each public request method sends its answer through ctx.res; callers ignore the result.
+ * Each method that takes ctx sends its answer through ctx.res; callers ignore the result.
  */
 export class OpenAIQuestionService {
   /** Tool-routing call used by /api/text. Returns undefined on failure instead of ending the response. */
@@ -122,120 +119,24 @@ export class OpenAIQuestionService {
     res.status(200).json(openAiResponse);
   }
 
+  /** Answers a Question and sends the answer. */
   async textRequest(ctx: AppContext, content: textRequestBody) {
-    const { res } = ctx;
-    const startedAt = Date.now();
+    const { status, body } = await this.answerQuestion(content);
+    ctx.res.status(status).json(body);
+  }
+
+  /** Answers a Question. Returns the answer instead of sending it, and leaves `content` as it was. */
+  async answerQuestion(content: textRequestBody): Promise<QuestionResult> {
+    const request = readQuestionRequest(content);
+    const reply = new QuestionReply(content, request);
+    const { coords } = request;
     let toolUsed: string | undefined;
     const analytics = content.analytics;
-    const requestHadCoords = !!content.coords;
-    const requestAccuracy = content.coords?.accuracy;
-    const requestHadReliableCoords =
-      requestHadCoords &&
-      (typeof requestAccuracy !== "number" ||
-        requestAccuracy === 0 ||
-        requestAccuracy <= 1000);
-    const allowBareDestination =
-      analytics?.feature === "directions" ||
-      looksLikeBareDestinationQuery(content.text);
-    const requestedNearbyQuery = extractNearbyPlaceQuery(
-      content.text,
-      allowBareDestination,
-    );
-    const requiresVerifiedNearbyAnswer =
-      analytics?.feature === "directions" || requestedNearbyQuery !== null;
     let verifiedNearbyAnswer = false;
     let structuredRoute: VerifiedWalkingRoute | null = null;
-    const imageCount = Array.isArray(content.image)
-      ? content.image.filter((img) => img).length
-      : 0;
-    const isDirectVisualRequest =
-      imageCount > 0 &&
-      (analytics?.feature === "photo_qa" || analytics?.feature === "video_qa");
 
-    const recordAiRequest = async (
-      success: boolean,
-      extra?: {
-        outputLength?: number;
-        tokenCount?: number;
-        errorCode?: string;
-      },
-    ) => {
-      await aiRequestLogService.record({
-        requestId: analytics?.requestId,
-        installId: analytics?.installId,
-        sessionId: analytics?.sessionId,
-        platform: analytics?.platform,
-        appVersion: analytics?.appVersion,
-        feature: analytics?.feature,
-        toolUsed,
-        inputLength: content.text?.length ?? 0,
-        hasImage: imageCount > 0,
-        imageCount,
-        hasCoords: !!content.coords,
-        success,
-        errorCode: extra?.errorCode,
-        latencyMs: Date.now() - startedAt,
-        outputLength: extra?.outputLength,
-        tokenCount: extra?.tokenCount,
-      });
-    };
-
-    const respondWithUnverifiedNearbyLocation = async (
-      destinationLabel: string,
-    ) => {
-      const safeOutput =
-        `I could not verify a nearby ${destinationLabel} from your current location. ` +
-        "Try a more specific name or street address.";
-      const updatedHistory = appendConversationHistory(content.analytics, {
-        input: content.text,
-        output: safeOutput,
-        data: "Nearby destination lookup failed; no unverified location was used.",
-      });
-      await recordAiRequest(false, {
-        outputLength: safeOutput.length,
-        errorCode: "nearby_destination_not_verified",
-      });
-      res
-        .status(200)
-        .json({ output: safeOutput, history: updatedHistory, route: null });
-    };
-
-    const respondWithVerifiedWalkingDirections = async (
-      verified: VerifiedWalkingDirections,
-    ) => {
-      const output =
-        `${verified.directionsText}\n` +
-        `Destination: ${verified.placeName}, ${verified.placeAddress}.`;
-      const updatedHistory = appendConversationHistory(content.analytics, {
-        input: content.text,
-        output,
-        data: `Verified local route to ${verified.placeName}.`,
-      });
-      await recordAiRequest(true, { outputLength: output.length });
-      res.status(200).json({
-        output,
-        history: updatedHistory,
-        route: verified.route,
-      });
-    };
-
-    if (requiresVerifiedNearbyAnswer && !requestHadReliableCoords) {
-      const safeOutput = requestHadCoords
-        ? "Your location is not accurate enough for nearby directions. Enable precise location and try again."
-        : "I could not determine your current location, so I will not guess at nearby directions. Check location access and try again.";
-      const updatedHistory = appendConversationHistory(content.analytics, {
-        input: content.text,
-        output: safeOutput,
-        data: "Current location was unavailable; no place lookup was attempted.",
-      });
-      await recordAiRequest(false, {
-        outputLength: safeOutput.length,
-        errorCode: "current_location_unavailable",
-      });
-      res
-        .status(200)
-        .json({ output: safeOutput, history: updatedHistory, route: null });
-      return;
+    if (request.needsVerifiedNearbyAnswer && request.location !== "trusted") {
+      return reply.locationUnavailable();
     }
 
     let systemContent = "";
@@ -262,8 +163,8 @@ export class OpenAIQuestionService {
     }
     if (
       content.coords &&
-      !requiresVerifiedNearbyAnswer &&
-      !isDirectVisualRequest
+      !request.needsVerifiedNearbyAnswer &&
+      !request.visual
     ) {
       const geocodedCoords = await geocodeCoordinates(
         content.coords.latitude,
@@ -277,26 +178,23 @@ export class OpenAIQuestionService {
     if (content.coords?.orientation) {
         systemContent += `, Orientation - Alpha: ${content.coords.orientation.alpha}, Beta: ${content.coords.orientation.beta}, Gamma: ${content.coords.orientation.gamma}`;
       }
-    if (!content.coords) content.coords = { latitude: 0, longitude: 0 };
 
-    if (requiresVerifiedNearbyAnswer) {
-      const nearbyQuery = requestedNearbyQuery;
+    if (request.needsVerifiedNearbyAnswer) {
+      const { nearbyQuery } = request;
       if (!nearbyQuery) {
-        await respondWithUnverifiedNearbyLocation("destination");
-        return;
+        return reply.destinationNotVerified("destination");
       }
       try {
         const verifiedDirections = await getVerifiedNearbyWalkingDirections(
-          content.coords.latitude,
-          content.coords.longitude,
+          coords.latitude,
+          coords.longitude,
           nearbyQuery,
         );
         toolUsed = "verifiedNearbyWalkingDirections";
         verifiedNearbyAnswer = true;
         structuredRoute = verifiedDirections.route;
-        if (imageCount === 0) {
-          await respondWithVerifiedWalkingDirections(verifiedDirections);
-          return;
+        if (request.frameCount === 0) {
+          return await reply.verifiedDirections(verifiedDirections, toolUsed);
         }
         completeAIPrompt += directionsPrompt;
         relevantData = `Directions:\n${verifiedDirections.directionsText}`;
@@ -307,26 +205,23 @@ export class OpenAIQuestionService {
           relevantData;
       } catch (error) {
         console.error("Verified nearby directions lookup failed:", error);
-        await respondWithUnverifiedNearbyLocation(nearbyQuery);
-        return;
+        return reply.destinationNotVerified(nearbyQuery, toolUsed);
       }
     }
 
     try {
       if (verifiedNearbyAnswer) {
         console.log("Using deterministic nearby walking directions.");
-      } else if (isDirectVisualRequest) {
+      } else if (request.visual) {
         toolUsed =
-          analytics?.feature === "video_qa"
-            ? "videoDescription"
-            : "imageDescription";
+          request.visual === "video" ? "videoDescription" : "imageDescription";
         completeAIPrompt +=
-          analytics?.feature === "video_qa" ? videoPrompt : imagePrompt;
+          request.visual === "video" ? videoPrompt : imagePrompt;
       } else {
         const parsedRequest = await this.parseUserRequestInternal(
           content.text,
-          content.coords.latitude,
-          content.coords.longitude,
+          coords.latitude,
+          coords.longitude,
         );
         console.log(parsedRequest?.choices[0].message);
       //determine if chat gpt is returning an api link
@@ -358,24 +253,23 @@ export class OpenAIQuestionService {
             const fallbackDestination = String(
               parsedArgs.destination || "",
             ).trim();
-            if (!requestHadCoords || !fallbackDestination) {
-              await respondWithUnverifiedNearbyLocation(
+            if (request.location === "missing" || !fallbackDestination) {
+              return await reply.destinationNotVerified(
                 fallbackDestination || "destination",
+                toolUsed,
               );
-              return;
             }
             try {
               const verifiedDirections =
                 await getVerifiedNearbyWalkingDirections(
-                  content.coords.latitude,
-                  content.coords.longitude,
+                  coords.latitude,
+                  coords.longitude,
                   fallbackDestination,
                 );
               verifiedNearbyAnswer = true;
               structuredRoute = verifiedDirections.route;
-              if (imageCount === 0) {
-                await respondWithVerifiedWalkingDirections(verifiedDirections);
-                return;
+              if (request.frameCount === 0) {
+                return await reply.verifiedDirections(verifiedDirections, toolUsed);
               }
               completeAIPrompt += directionsPrompt;
               relevantData = `Directions:\n${verifiedDirections.directionsText}`;
@@ -389,8 +283,7 @@ export class OpenAIQuestionService {
                 "Fallback verified directions lookup failed:",
                 error,
               );
-              await respondWithUnverifiedNearbyLocation(fallbackDestination);
-              return;
+              return await reply.destinationNotVerified(fallbackDestination, toolUsed);
             }
           }
           if (
@@ -416,10 +309,9 @@ export class OpenAIQuestionService {
               // A model-built Find Place link without a bias can resolve to a
               // same-named branch anywhere; keep it near the user.
               const biasedLink =
-                content.coords &&
                 /findplacefromtext/i.test(link) &&
                 !/locationbias=/i.test(link)
-                  ? `${link}&locationbias=circle:5000@${content.coords.latitude},${content.coords.longitude}`
+                  ? `${link}&locationbias=circle:5000@${coords.latitude},${coords.longitude}`
                   : link;
               const places: any = await axios.get(
                 biasedLink + `&key=${getGoogleMapsApiKey()}`,
@@ -510,7 +402,7 @@ export class OpenAIQuestionService {
           const { address } = parsedArgs;
             const reqlink =
               `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?location=
-            ${content.coords.latitude},${content.coords.longitude}&fields=formatted_address%2Cname%2Cgeometry&inputtype=textquery&input=${address.replace(/\s+/g, "%2C")}` +
+            ${coords.latitude},${coords.longitude}&fields=formatted_address%2Cname%2Cgeometry&inputtype=textquery&input=${address.replace(/\s+/g, "%2C")}` +
               `&key=${getGoogleMapsApiKey()}`;
             console.log(reqlink);
           const location: any = await axios.get(reqlink);
@@ -519,7 +411,7 @@ export class OpenAIQuestionService {
               /(\d+)(st|nd|rd|th)\b/gi,
               "$1",
             );
-          const panoramaData = await getPanoramaData(ctx, cleanAddress);
+          const panoramaData = await getPanoramaData(cleanAddress);
           if (panoramaData) {
             console.log(panoramaData.image_description);
               if (
@@ -584,8 +476,8 @@ export class OpenAIQuestionService {
             console.log(parsedArgs.address);
             }
             const features = await getNearbyFeatures(
-              content.coords.latitude,
-              content.coords.longitude,
+              coords.latitude,
+              coords.longitude,
               0.06,
             );
           const trees: treeInterface[] = features.trees;
@@ -593,12 +485,12 @@ export class OpenAIQuestionService {
               features.sidewalkMaterials;
             const pedestrianRamps: pedestrianRampInterface[] =
               features.pedestrianRamps;
-          relevantData = `Nearby Features for location (${content.coords.latitude}, ${content.coords.longitude}):\n`;
+          relevantData = `Nearby Features for location (${coords.latitude}, ${coords.longitude}):\n`;
           relevantData += `Trees: ${trees.length}, Sidewalk Materials: ${sidewalkMaterials.length}, Pedestrian Ramps: ${pedestrianRamps.length}`;
           systemContent += `\n${relevantData}`;
           let staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?&zoom=18&size=640x640&maptype=roadmap`;
           // Add user location marker
-          staticMapUrl += `&markers=color:blue%7Clabel:U%7C${content.coords.latitude},${content.coords.longitude}`;
+          staticMapUrl += `&markers=color:blue%7Clabel:U%7C${coords.latitude},${coords.longitude}`;
             staticMapUrl += `&markers=color:green%7Clabel:T%7C${trees.map((tree) => `${tree.location.coordinates[1]},${tree.location.coordinates[0]}`).join("%7C")}`;
           // Define colors for each sidewalk material type
           const materialColors: Record<string, string> = {
@@ -657,7 +549,7 @@ export class OpenAIQuestionService {
                   "https://maps.googleapis.com/maps/api/place/nearbysearch/json",
                   {
                     params: {
-                      location: `${content.coords.latitude},${content.coords.longitude}`,
+                      location: `${coords.latitude},${coords.longitude}`,
                       rankby: "distance",
                       keyword: nearbyQuery,
                       key: getGoogleMapsApiKey(),
@@ -675,8 +567,8 @@ export class OpenAIQuestionService {
                     isNearbyPlaceCandidateRelevant(candidate, nearbyQuery),
                   ),
                   {
-                    lat: content.coords.latitude,
-                    lng: content.coords.longitude,
+                    lat: coords.latitude,
+                    lng: coords.longitude,
                   },
                 );
                 if (!nearbyPlace?.place_id) {
@@ -704,7 +596,7 @@ export class OpenAIQuestionService {
                       fields: "formatted_address,name,place_id",
                       inputtype: "textquery",
                       input: parsedArgs.destination,
-                      locationbias: `circle:50000@${content.coords.latitude},${content.coords.longitude}`,
+                      locationbias: `circle:50000@${coords.latitude},${coords.longitude}`,
                       key: getGoogleMapsApiKey(),
                     },
                     timeout: 20_000,
@@ -729,7 +621,7 @@ export class OpenAIQuestionService {
             console.log(formattedAddress);
 
             // step 2: get doorfront data if it exists for the formatted address
-            const panoramaData = await getPanoramaData(ctx, cleanAddress);
+            const panoramaData = await getPanoramaData(cleanAddress);
               let doorLocation:
                 | { lat: number; lng: number }
                 | undefined
@@ -770,7 +662,7 @@ export class OpenAIQuestionService {
                 {
                   params: {
                     mode: "walking",
-                    origin: `${content.coords.latitude},${content.coords.longitude}`,
+                    origin: `${coords.latitude},${coords.longitude}`,
                     destination: doorLocation,
                     key: getGoogleMapsApiKey(),
                   },
@@ -794,30 +686,10 @@ export class OpenAIQuestionService {
               systemContent += relevantData;
           } catch (error) {
               console.error("Nearby directions lookup failed:", error);
-              const failedDestination = String(
-                parsedArgs.destination || "that destination",
+              return await reply.destinationNotVerified(
+                String(parsedArgs.destination || "that destination"),
+                toolUsed,
               );
-              const safeOutput =
-                `I could not verify a nearby ${failedDestination} from your current location. ` +
-                "Try a more specific name or street address.";
-              const updatedHistory = appendConversationHistory(
-                content.analytics,
-                {
-                  input: content.text,
-                  output: safeOutput,
-                  data: "Nearby destination lookup failed; no unverified location was used.",
-                },
-              );
-              await recordAiRequest(false, {
-                outputLength: safeOutput.length,
-                errorCode: "nearby_destination_not_verified",
-              });
-              res.status(200).json({
-                output: safeOutput,
-                history: updatedHistory,
-                route: null,
-              });
-              return;
             }
           } else if (
             parsedRequest.choices[0].message.tool_calls![0].function.name ===
@@ -835,8 +707,8 @@ export class OpenAIQuestionService {
 
           const trainData = await getSubwayArrivals(
             route,
-            content.coords.latitude,
-              content.coords.longitude,
+            coords.latitude,
+              coords.longitude,
           );
 
           relevantData = `Live MTA Transit Information for line ${route}: ${trainData}`;
@@ -892,11 +764,6 @@ export class OpenAIQuestionService {
       });
       console.log("OpenAI API response:", chatCompletion.usage?.total_tokens);
       const outputText = chatCompletion.choices[0].message.content as string;
-      const updatedHistory = appendConversationHistory(analytics, {
-        input: content.text,
-        output: outputText,
-        data: relevantData,
-      });
 
       // 3. Only update if both conditions are met AND we have a valid ID
       if (panoramaId) {
@@ -905,21 +772,13 @@ export class OpenAIQuestionService {
           // We pass the panorama _id and the AI's generated output
         await addPanoramaDescription(panoramaId, outputText);
       }
-      await recordAiRequest(true, {
-        outputLength: outputText?.length ?? 0,
-        tokenCount: chatCompletion.usage?.total_tokens,
-      });
-      res.status(200).json({
-        output: outputText,
-        history: updatedHistory,
-        route: structuredRoute,
-      });
+      return await reply.modelAnswer(
+        { output: outputText, data: relevantData, route: structuredRoute },
+        { toolUsed, tokenCount: chatCompletion.usage?.total_tokens },
+      );
     } catch (e: any) {
       console.error("Error with OpenAI API request:", e);
-      await recordAiRequest(false, { errorCode: "openai_error" });
-      res
-        .status(500)
-        .json({ error: "Error processing your request: " + e.message });
+      return reply.modelFailed(e, toolUsed);
     }
   }
   // ----------------------------------------------------------------------------------------------------------------

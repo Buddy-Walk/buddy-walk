@@ -1085,6 +1085,23 @@ test("a Question whose final model call fails answers 500", async (t) => {
   }]);
 });
 
+test("answering a Question returns the answer and leaves the request as it was", async (t) => {
+  setUp(t);
+  fakeGoogle(t, {});
+  fakeModel(t, [DIRECTIONS_TOOL], []);
+  const content: textRequestBody = { text: FALLBACK_DIRECTIONS_QUESTION, coords: null, analytics: analytics() };
+  const before = structuredClone(content);
+
+  const result = await new OpenAIQuestionService().answerQuestion(content);
+
+  const output = unverifiedDestination("Citibank");
+  assert.deepEqual(result, {
+    status: 200,
+    body: { output, history: [{ input: FALLBACK_DIRECTIONS_QUESTION, output, data: UNVERIFIED_DATA }], route: null },
+  });
+  assert.deepEqual(content, before);
+});
+
 test("text to speech returns the model's MP3 bytes", async (t) => {
   setUp(t);
   const speechCalls: any[] = [];
