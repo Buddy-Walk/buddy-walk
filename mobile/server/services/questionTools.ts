@@ -50,7 +50,7 @@ const ROUTED_TOOLS: Record<string, RoutedTool> = {
   generateGoogleDirectionAPILink: {
     lookup: ({ destination }: { destination?: unknown }, { request, reply }) =>
       verifiedWalkingDirections({
-        lookup: "after routing",
+        path: "after routing",
         destination: String(destination || "").trim(),
         request,
         reply,
@@ -118,15 +118,16 @@ export async function toolEvidence(call: ToolCall, context: ToolContext): Promis
     console.error("Routed tool arguments were not JSON:", error);
     return { toolUsed };
   }
+  if (args === null) return { toolUsed };
   const tool = ROUTED_TOOLS[toolUsed];
-  const kept: Evidence = tool?.prompt === undefined ? { toolUsed } : { prompt: tool.prompt, toolUsed };
-  if (!tool?.lookup) return kept;
+  const toolOnly: Evidence = tool?.prompt === undefined ? { toolUsed } : { prompt: tool.prompt, toolUsed };
+  if (!tool?.lookup) return toolOnly;
   try {
     const found = await tool.lookup(args, context);
-    return isReply(found) ? found : { ...kept, ...found };
+    return isReply(found) ? found : { ...toolOnly, ...found };
   } catch (error) {
     console.error("Error including api information in OpenAI request:", error);
-    return kept;
+    return toolOnly;
   }
 }
 

@@ -396,6 +396,13 @@ test("a tool whose arguments are not JSON adds nothing but its name", async (t) 
   assert.deepEqual(requests, []);
 });
 
+test("a tool whose arguments are null adds nothing but its name", async (t) => {
+  const context = toolContext(t, "What does this sign say?");
+  for (const name of ["imageDescription", "useDoorfrontAPI", "generateTrainInformation"]) {
+    assert.deepEqual(await toolEvidence({ name, arguments: "null" }, context), { toolUsed: name });
+  }
+});
+
 /** Fake the routing call with one answer: a tool call, no tool call, or a failure. Returns its requests. */
 function fakeRouting(t: TestContext, answer: { name: string; args: object } | "no tool" | Error) {
   const requests: any[] = [];

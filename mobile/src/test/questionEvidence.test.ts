@@ -114,7 +114,7 @@ test("verified directions without frames answer without the model", async (t) =>
   fakeGoogle(t, FOUND_CITIBANK);
   const { request, reply, logged } = question(t);
 
-  const result = await verifiedWalkingDirections({ lookup: "up front", destination: "Citibank", request, reply });
+  const result = await verifiedWalkingDirections({ path: "up front", destination: "Citibank", request, reply });
 
   const output = `${CITIBANK_DIRECTIONS}\nDestination: Citibank, 10 Test Street.`;
   assert.deepEqual(result, { status: 200, body: {
@@ -129,7 +129,7 @@ test("verified directions with a photo give the model the route", async (t) => {
   const endpoints = fakeGoogle(t, FOUND_CITIBANK);
   const { request, reply, logged } = question(t, { image: [PHOTO] });
 
-  const evidence = await verifiedWalkingDirections({ lookup: "up front", destination: "Citibank", request, reply });
+  const evidence = await verifiedWalkingDirections({ path: "up front", destination: "Citibank", request, reply });
 
   assert.deepEqual(evidence, {
     prompt: directionsPrompt,
@@ -146,7 +146,7 @@ test("verified directions with no destination are refused before any lookup", as
   const endpoints = fakeGoogle(t, {});
   const { request, reply, logged } = question(t);
 
-  const result = await verifiedWalkingDirections({ lookup: "up front", destination: null, request, reply });
+  const result = await verifiedWalkingDirections({ path: "up front", destination: null, request, reply });
 
   assert.deepEqual(result, unverified("destination"));
   assert.deepEqual(endpoints, []);
@@ -157,7 +157,7 @@ test("verified directions to a destination Google cannot verify are refused", as
   fakeGoogle(t, NOT_FOUND);
   const { request, reply, logged } = question(t, { image: [PHOTO] });
 
-  const result = await verifiedWalkingDirections({ lookup: "up front", destination: "Citibank", request, reply });
+  const result = await verifiedWalkingDirections({ path: "up front", destination: "Citibank", request, reply });
 
   assert.deepEqual(result, unverified("Citibank"));
   assert.deepEqual(logged.map((row) => [row.errorCode, row.toolUsed]), [["nearby_destination_not_verified", undefined]]);
@@ -167,7 +167,7 @@ test("verified directions after tool routing log the directions tool", async (t)
   fakeGoogle(t, FOUND_CITIBANK);
   const { request, reply } = question(t, { image: [PHOTO] });
 
-  const evidence = await verifiedWalkingDirections({ lookup: "after routing", destination: "Citibank", request, reply });
+  const evidence = await verifiedWalkingDirections({ path: "after routing", destination: "Citibank", request, reply });
 
   assert.deepEqual(evidence, {
     prompt: directionsPrompt,
@@ -182,7 +182,7 @@ test("verified directions after tool routing log the directions tool when refuse
   fakeGoogle(t, NOT_FOUND);
   const { request, reply, logged } = question(t);
 
-  const result = await verifiedWalkingDirections({ lookup: "after routing", destination: "Citibank", request, reply });
+  const result = await verifiedWalkingDirections({ path: "after routing", destination: "Citibank", request, reply });
 
   assert.deepEqual(result, unverified("Citibank"));
   assert.deepEqual(logged.map((row) => [row.errorCode, row.toolUsed]), [
@@ -194,7 +194,7 @@ test("verified directions without a location are refused before any lookup", asy
   const endpoints = fakeGoogle(t, {});
   const { request, reply } = question(t, { coords: null });
 
-  const result = await verifiedWalkingDirections({ lookup: "after routing", destination: "Citibank", request, reply });
+  const result = await verifiedWalkingDirections({ path: "after routing", destination: "Citibank", request, reply });
 
   assert.deepEqual(result, unverified("Citibank"));
   assert.deepEqual(endpoints, []);

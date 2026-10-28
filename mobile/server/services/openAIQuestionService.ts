@@ -112,7 +112,7 @@ export class OpenAIQuestionService {
       }
 
     const evidence = request.needsVerifiedNearbyAnswer
-      ? await verifiedWalkingDirections({ lookup: "up front", destination: request.nearbyQuery, request, reply })
+      ? await verifiedWalkingDirections({ path: "up front", destination: request.nearbyQuery, request, reply })
       : request.visual
         ? visualEvidence(request.visual)
         : await routedEvidence({ text: content.text, request, reply });
@@ -154,11 +154,9 @@ export class OpenAIQuestionService {
       console.log("OpenAI API response:", chatCompletion.usage?.total_tokens);
       const outputText = chatCompletion.choices[0].message.content as string;
 
-      // 3. Only update if both conditions are met AND we have a valid ID
+      // Save the answer as the panorama's Doorfront description.
       if (evidence.panoramaId) {
           console.log("Generating new description for DF database...");
-
-          // We pass the panorama _id and the AI's generated output
         await addPanoramaDescription(evidence.panoramaId, outputText);
       }
       return await reply.modelAnswer(

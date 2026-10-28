@@ -55,21 +55,21 @@ const DIRECTIONS_TOOL_USED = {
  * the model when the Question has no frames, and refuses when the destination
  * cannot be verified; otherwise returns the route for the model to describe
  * against the frames.
- * `lookup` is "up front" for a Question read as asking for a nearby place, and
+ * `path` is "up front" for a Question read as asking for a nearby place, and
  * "after routing" when the routing call picked the directions tool.
  */
 export async function verifiedWalkingDirections({
-  lookup,
+  path,
   destination,
   request,
   reply,
 }: {
-  lookup: keyof typeof DIRECTIONS_TOOL_USED;
+  path: keyof typeof DIRECTIONS_TOOL_USED;
   destination: string | null;
   request: QuestionRequest;
   reply: QuestionReply;
 }): Promise<Evidence | QuestionResult> {
-  const toolUsed = DIRECTIONS_TOOL_USED[lookup];
+  const toolUsed = DIRECTIONS_TOOL_USED[path];
   if (request.location === "missing" || !destination) {
     return reply.destinationNotVerified(destination || "destination", toolUsed.notFound);
   }
