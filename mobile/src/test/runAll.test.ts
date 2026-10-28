@@ -7,6 +7,7 @@ import './lastMetersExits.test.ts';
 import './lastMetersTrial.test.ts';
 import './lastMetersDestination.test.ts';
 import './lastMetersProximityGate.test.ts';
+import './lastMetersPanoramaMatching.test.ts';
 import './lastMetersSafety.test.ts';
 import './lastMetersReplay.test.ts';
 import './lastMetersTestRow.test.ts';
