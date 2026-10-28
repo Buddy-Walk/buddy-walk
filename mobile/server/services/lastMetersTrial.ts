@@ -47,6 +47,9 @@ export interface HeadingAlignment {
   aligned?: boolean;
 }
 
+/** How the proximity gate let a trial answer: exact panorama matching, or a far-away aligned or approach answer. */
+export type NavigationMode = "approach" | "exact" | "aligned";
+
 /** The destination-focused Street View photo, or why it was skipped. */
 export interface DestinationReference {
   photo?: string;
@@ -58,7 +61,7 @@ export interface DestinationReference {
 export interface TrialFacts {
   /** The place name searched, after a question lead-in is removed. */
   destinationQuery: string;
-  navigationMode?: "approach" | "exact" | "aligned";
+  navigationMode?: NavigationMode;
   testScenario?: LastMetersTestScenario;
   verifiedDestination?: VerifiedNearbyDestination;
   /** What Google returned when no destination could be verified. */

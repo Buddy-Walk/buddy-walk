@@ -17,8 +17,6 @@ import {
   calculateLastMetersConfidence,
   compareCompassAndPanoramaHeadings,
   formatLastMetersDistance,
-  isLastMetersHeadingAligned,
-  lastMetersHeadingDifference,
   LAST_METERS_HEADINGS,
   LAST_METERS_PANORAMA_FOV_DEGREES,
   LAST_METERS_EXACT_RADIUS_METERS,
@@ -48,8 +46,9 @@ import {
   type StreetViewMetadata,
 } from "./streetViewPanorama";
 import { OpenAIQuestionService } from "./openAIQuestionService";
-import { LastMetersTrial, type HeadingAlignment } from "./lastMetersTrial";
+import { LastMetersTrial } from "./lastMetersTrial";
 import { findEntrance, proximityGatePrompt, verifyDestination } from "./lastMetersDestination";
+import { resolveProximityGate } from "./lastMetersProximityGate";
 dotenv.config();
 
 interface DestinationStreetViewReference {
@@ -269,28 +268,21 @@ export class LastMetersService {
 
       const { entrance, closedNotice } = await findEntrance(trial, request, verifiedDestination);
       const targetLocation = entrance.location;
+      const distanceMeters = entrance.distanceMeters;
+      const place = verifiedDestination;
 
-      const destinationBearing = calculateHeading({ lat, lng }, targetLocation);
-      let headingAlignment: HeadingAlignment = { destinationBearing };
-      if (typeof deviceHeading === "number") {
-        const headingDifferenceDegrees = lastMetersHeadingDifference(
-          deviceHeading,
-          destinationBearing,
-        );
-        const headingAligned = isLastMetersHeadingAligned(
-          deviceHeading,
-          destinationBearing,
-        );
-        headingAlignment = { destinationBearing, differenceDegrees: headingDifferenceDegrees, aligned: headingAligned };
+      const { mode, headingAlignment, gate } = resolveProximityGate(request, entrance, guidancePolicy.analysisGate);
+      const { destinationBearing, differenceDegrees, aligned } = headingAlignment;
+      if (typeof deviceHeading === "number" && differenceDegrees !== undefined) {
         trial.step({
           name: "heading_alignment",
           prompt:
             "Compare the phone compass heading with the verified destination bearing.",
           response:
-            `${headingAligned ? "ALIGNED" : "MISALIGNED"}: phone ` +
+            `${aligned ? "ALIGNED" : "MISALIGNED"}: phone ` +
             `${deviceHeading.toFixed(1)} degrees, destination ` +
             `${destinationBearing.toFixed(1)} degrees, difference ` +
-            `${headingDifferenceDegrees.toFixed(1)} degrees`,
+            `${differenceDegrees.toFixed(1)} degrees`,
           model: "deterministic-compass",
           success: true,
         });
@@ -301,14 +293,9 @@ export class LastMetersService {
       trial.source("phone_gps");
       if (typeof deviceHeading === "number") trial.source("phone_compass");
 
-      // Constants so the fallback closure below keeps the narrowed types.
-      const place = verifiedDestination;
-      const distanceMeters = entrance.distanceMeters;
-      const bearing = destinationBearing;
-      const gate = guidancePolicy.analysisGate(distanceMeters, gpsAccuracyMeters);
       trial.note({ gate });
 
-      if (headingAlignment.aligned && !gate.exact) {
+      if (mode === "aligned") {
         trial.note({ navigationMode: "aligned", testScenario: "heading_aligned" });
         trial.step({
           name: "proximity_gate",
@@ -325,7 +312,7 @@ export class LastMetersService {
           testLogId => saveBackgroundPanorama(testLogId, panoramaDownload));
       }
 
-      if (!gate.exact) {
+      if (mode === "approach") {
         trial.note({ navigationMode: "approach", testScenario: "test_b_approach" });
         const finalOutput =
           `${place.placeName}, ${place.placeAddress}, is approximately ${Math.round(distanceMeters)} meters away in a straight line. A walking route has not been verified. Use your primary walking navigation before trying Last Meters closer to the destination.` +
@@ -336,7 +323,7 @@ export class LastMetersService {
           prompt: proximityPrompt,
           response:
             `APPROACH_ONLY: ${Math.round(distanceMeters)} meters, ` +
-            `${bearing.toFixed(1)} degrees`,
+            `${destinationBearing.toFixed(1)} degrees`,
           model: "google-places",
           success: true,
         });
@@ -344,6 +331,7 @@ export class LastMetersService {
           testLogId => saveBackgroundPanorama(testLogId, panoramaDownload));
       }
 
+      // mode === "exact"
       trial.note({ navigationMode: "exact" });
       trial.step({
         name: "proximity_gate",
