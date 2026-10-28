@@ -30,7 +30,6 @@ import {
   buildPanoramaDebugImage,
   fetchSignCloseUps,
   processPanoramaTiles,
-  type StreetViewMetadata,
 } from "./streetViewPanorama";
 import { getVerifiedNearbyDestination, type VerifiedNearbyDestination } from "./verifiedDestination";
 import type { LastMetersRunResult } from "./lastMetersService";
@@ -73,11 +72,11 @@ export interface PanoramaHeadings {
   comparison: HeadingComparison;
   /** The destination's heading from the panorama camera. */
   targetHeading: number;
-  /** Step 2 saw the destination where the map places it. */
+  /** The panorama views showed the destination where the map places it. */
   visualMatch: boolean;
-  /** Step 2C read the destination's name on a sign. */
+  /** A sign close-up named the destination. */
   signTextMatched: boolean;
-  /** Set only when Step 2B confirmed the destination in the reference photo. */
+  /** The Street View photo aimed at the destination, set only when the destination was confirmed in it. */
   reference?: DestinationStreetViewReference;
   /** The panorama the headings were matched in. */
   panorama: Panorama;
@@ -90,9 +89,18 @@ export interface PanoramaHeadings {
 type BackupFacts = Pick<TrialFacts, "destinationReference" | "destinationReferenceUsed" | "signText">;
 
 /** One panorama's result: its headings, an exit, or a destination not found so matching may move on. */
-type PanoramaMatch =
+type OnePanoramaResult =
   | StepResult<PanoramaHeadings>
   | { kind: "destination_not_found"; currentHeading: number; backups?: BackupFacts };
+
+/** A panorama with where the map places the entrance as seen from its camera. */
+interface PanoramaWithMapBearing {
+  panorama: Panorama;
+  /** From the panorama camera to the entrance. */
+  mapBearing: number;
+  /** `mapBearing` snapped to one of the panorama's view headings. */
+  expectedTargetHeading: number;
+}
 
 /**
  * Matches the user's photo and the destination against Street View panoramas
@@ -111,7 +119,7 @@ export async function matchPanoramaHeadings(
     return { kind: "exit", result: await answerNoPanorama(trial, input, panoramaError) };
   }
   for (let attempt = 1; ; attempt++) {
-    const matched = await matchPanorama(trial, input, panorama);
+    const matched = await matchOnePanorama(trial, input, panorama);
     if (matched.kind !== "destination_not_found") return matched;
     const next = attempt < MAX_PANORAMAS ? await nextPanorama(input, panorama) : undefined;
     if (!next) {
@@ -192,23 +200,21 @@ async function answerDestinationNotFound(
 }
 
 /** Steps 1 and 2 on one panorama, with the reference photo and sign text backups when the destination is close. */
-async function matchPanorama(
+async function matchOnePanorama(
   trial: LastMetersTrial,
   input: PanoramaMatchingInput,
   panorama: Panorama,
-): Promise<PanoramaMatch> {
+): Promise<OnePanoramaResult> {
   const { request: { lat, lng, destination }, entrance } = input;
   trial.source("street_view_panorama");
   const { tiles } = panorama;
   trial.note({ panorama });
-  const panoramaDate = panorama.metadata.date;
-  const panoId = panorama.metadata.pano_id;
   const panoramaOrigin = panorama.metadata.location ?? { lat, lng };
-  const panoramaTargetBearing = calculateHeading(
+  const mapBearing = calculateHeading(
     panoramaOrigin,
     entrance.location,
   );
-  const expectedTargetHeading = snapLastMetersHeading(panoramaTargetBearing);
+  const target: PanoramaWithMapBearing = { panorama, mapBearing, expectedTargetHeading: snapLastMetersHeading(mapBearing) };
   trial.stage("panorama assembly");
   trial.note({ panoramaPhoto: await buildPanoramaDebugImage(tiles) });
   const panoramaOverview: ContentPart[] = tiles.flatMap((tile): ContentPart[] => [
@@ -222,15 +228,15 @@ async function matchPanorama(
 
   trial.stage("current-view matching");
   console.log("   ➤ Step 1: Locating User's Current View...");
-  const destinationMatch = startDestinationMatch(input, panoramaOverview, panoramaDate, expectedTargetHeading);
+  const destinationMatch = startDestinationMatch(input, panoramaOverview, target);
   const current = await matchCurrentView(trial, input, panoramaOverview, panorama);
   if (current.kind === "exit") return current;
   const { comparison, currentHeading } = current.value;
 
   trial.stage("destination matching");
   console.log("   ➤ Step 2: Locating Target Store...");
-  const visualTargetHeading = await readDestinationMatch(trial, destinationMatch, panoId, expectedTargetHeading);
-  const found = (targetHeading: number, evidence: Pick<PanoramaHeadings, "visualMatch" | "signTextMatched" | "reference">): PanoramaMatch =>
+  const visualTargetHeading = await readDestinationMatch(trial, destinationMatch, target);
+  const found = (targetHeading: number, evidence: Pick<PanoramaHeadings, "visualMatch" | "signTextMatched" | "reference">): OnePanoramaResult =>
     ({ kind: "ok", value: { currentHeading, comparison, targetHeading, panorama, ...evidence } });
   if (visualTargetHeading !== null) {
     return found(visualTargetHeading, { visualMatch: true, signTextMatched: false });
@@ -244,18 +250,18 @@ async function matchPanorama(
   console.log(
     "   Step 2B: Fetching a destination-focused Street View reference...",
   );
-  const signTextMatch = startSignTextMatch(trial, input, panorama.metadata, panoramaTargetBearing);
+  const signTextMatch = startSignTextMatch(trial, input, target);
   const { destinationReference, confirmed: reference } = await matchDestinationReference(trial, input, panorama);
   // Step 2C runs alongside Step 2B; only use its heading if 2B missed.
   trial.stage("sign text close-up");
-  const signText = await readSignTextMatch(trial, input, signTextMatch, panoId, expectedTargetHeading, reference !== undefined);
+  const signText = await readSignTextMatch(trial, input, signTextMatch, target);
   const signTextMatched = signText?.matched ?? false;
   const backups: BackupFacts = { destinationReference, destinationReferenceUsed: reference !== undefined, signText };
   if (!reference && !signTextMatched) return { kind: "destination_not_found", currentHeading, backups };
   trial.note(backups);
-  return reference
-    ? found(reference.targetHeading, { visualMatch: false, signTextMatched, reference })
-    : found(expectedTargetHeading, { visualMatch: false, signTextMatched });
+  if (reference) return found(reference.targetHeading, { visualMatch: false, signTextMatched, reference });
+  trial.note({ testScenario: "test_a_sign_text", panoramaTargetHeading: target.expectedTargetHeading });
+  return found(target.expectedTargetHeading, { visualMatch: false, signTextMatched });
 }
 
 /** How the destination is named in prompts. */
@@ -399,7 +405,8 @@ async function matchCurrentView(
 // ==========================================
 // STEP 2: FIND TARGET HEADING (Text Name + Panorama ONLY - NO USER PHOTO)
 // ==========================================
-function destinationPrompt(input: PanoramaMatchingInput, panoramaDate: string | undefined, expectedTargetHeading: number): string {
+function destinationPrompt(input: PanoramaMatchingInput, target: PanoramaWithMapBearing): string {
+  const { panorama: { metadata: { date: panoramaDate } }, expectedTargetHeading } = target;
   const panoramaDateContext = panoramaDate
     ? `Street View reports that this panorama was captured in ${panoramaDate}.`
     : "Street View did not provide a capture date for this panorama.";
@@ -416,10 +423,9 @@ type DestinationMatch = ReturnType<typeof startDestinationMatch>;
 function startDestinationMatch(
   input: PanoramaMatchingInput,
   panoramaOverview: ContentPart[],
-  panoramaDate: string | undefined,
-  expectedTargetHeading: number,
+  target: PanoramaWithMapBearing,
 ) {
-  const prompt = destinationPrompt(input, panoramaDate, expectedTargetHeading);
+  const prompt = destinationPrompt(input, target);
   const startedAt = Date.now();
   const request = getOpenAIClient().chat.completions.create({
     model: "gpt-4o-mini",
@@ -444,9 +450,9 @@ function startDestinationMatch(
 async function readDestinationMatch(
   trial: LastMetersTrial,
   destinationMatch: DestinationMatch,
-  panoId: string | undefined,
-  expectedTargetHeading: number,
+  target: PanoramaWithMapBearing,
 ): Promise<number | null> {
+  const { panorama, expectedTargetHeading } = target;
   const { response: step2Response, durationMs: step2DurationMs } = await destinationMatch.request;
   const step2Text = step2Response.choices[0].message.content?.trim() || "";
   const visuallyMatchedTargetHeading = parseLastMetersHeading(step2Text);
@@ -460,7 +466,7 @@ async function readDestinationMatch(
   }
   trial.step({
     name: "target_store_match",
-    panoId,
+    panoId: panorama.metadata.pano_id,
     durationMs: step2DurationMs,
     prompt: destinationMatch.prompt,
     response: step2Text,
@@ -481,10 +487,8 @@ async function readDestinationMatch(
 // ==========================================
 // STEP 2B: DESTINATION REFERENCE PHOTO
 // ==========================================
-interface DestinationStreetViewReference {
+interface DestinationStreetViewReference extends DestinationReference {
   photo: string;
-  date?: string;
-  status: string;
   placeName: string;
   placeAddress: string;
   targetHeading: number;
@@ -670,16 +674,15 @@ If no sign text is readable, reply exactly: NO_TEXT.`;
 function startSignTextMatch(
   trial: LastMetersTrial,
   input: PanoramaMatchingInput,
-  metadata: StreetViewMetadata,
-  panoramaTargetBearing: number,
+  target: PanoramaWithMapBearing,
 ) {
   const { request: { lat, lng } } = input;
   const signWork = (async () => {
     const closeUps = await fetchSignCloseUps(
-      metadata,
+      target.panorama.metadata,
       lat,
       lng,
-      panoramaTargetBearing,
+      target.mapBearing,
     );
     trial.source("street_view_sign_closeup");
     return getOpenAIClient().chat.completions.create({
@@ -710,23 +713,19 @@ async function readSignTextMatch(
   trial: LastMetersTrial,
   input: PanoramaMatchingInput,
   signWork: ReturnType<typeof startSignTextMatch>,
-  panoId: string | undefined,
-  expectedTargetHeading: number,
-  referenceUsed: boolean,
+  target: PanoramaWithMapBearing,
 ): Promise<TrialFacts["signText"]> {
   const { place } = input;
+  const { panorama, expectedTargetHeading } = target;
   try {
     const signResponse = await signWork;
     const signText = signResponse.choices[0].message.content?.trim() || "";
     const signTextMatched =
       !/^NO_TEXT$/i.test(signText) &&
       signTextMatchesPlaceName(signText, place.placeName);
-    if (signTextMatched && !referenceUsed) {
-      trial.note({ testScenario: "test_a_sign_text", panoramaTargetHeading: expectedTargetHeading });
-    }
     trial.step({
       name: "sign_text_match",
-      panoId,
+      panoId: panorama.metadata.pano_id,
       prompt: signTextPrompt,
       response: signText,
       parsedHeading: signTextMatched ? expectedTargetHeading : undefined,
