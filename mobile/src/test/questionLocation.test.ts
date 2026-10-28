@@ -48,6 +48,14 @@ test("a Question's compass heading and orientation follow its street address", a
   );
 });
 
+test("a Question's orientation is added without a compass heading", async (t) => {
+  fakeGeocoding(t);
+
+  const location = await describe({ coords: { ...TIMES_SQUARE, orientation: { alpha: 10, beta: null, gamma: 30 } } });
+
+  assert.equal(location, `Current Address: ${ADDRESS} , Orientation - Alpha: 10, Beta: null, Gamma: 30`);
+});
+
 test("a Question that needs a verified nearby answer is described without its street address", async (t) => {
   const urls = fakeGeocoding(t);
 

@@ -44,14 +44,14 @@ export class OpenAIQuestionService {
     if (request.needsVerifiedNearbyAnswer && request.location !== "trusted") {
       return reply.locationUnavailable();
     }
-    const location = await describeLocation(content, request);
+    const locationDescription = await describeLocation(content, request);
     const evidence = request.needsVerifiedNearbyAnswer
       ? await verifiedWalkingDirections({ path: "up front", destination: request.nearbyQuery, request, reply })
       : request.visual
         ? visualEvidence(request.visual)
         : await routedEvidence({ text: content.text, request, reply });
     if (isReply(evidence)) return evidence;
-    return answerWithModel({ content, location, evidence, reply });
+    return answerWithModel({ content, locationDescription, evidence, reply });
   }
   // ----------------------------------------------------------------------------------------------------------------
   //* OpenAI Audio API

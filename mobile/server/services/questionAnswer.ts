@@ -28,16 +28,16 @@ function maxTokensForFeature(feature?: string): number {
 /**
  * Answers a Question with the model, from where the user is and the evidence a
  * data source gathered.
- * `location` starts the system message's relevant data, as describeLocation returns it.
+ * `locationDescription` starts the system message's relevant data, as describeLocation returns it.
  */
 export async function answerWithModel({
   content,
-  location,
+  locationDescription,
   evidence,
   reply,
 }: {
   content: textRequestBody;
-  location: string;
+  locationDescription: string;
   evidence: Evidence;
   reply: QuestionReply;
 }): Promise<QuestionResult> {
@@ -56,7 +56,7 @@ export async function answerWithModel({
     }
   }
   userContent.push(...(evidence.images ?? []));
-  const relevantData = location + (evidence.relevantData ?? "");
+  const relevantData = locationDescription + (evidence.relevantData ?? "");
 
   try {
     console.log("system prompt: ", relevantData);

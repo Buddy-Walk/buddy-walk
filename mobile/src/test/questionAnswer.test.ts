@@ -52,7 +52,7 @@ async function answer(
   const request = readQuestionRequest(body);
   const result = await answerWithModel({
     content: body,
-    location: LOCATION,
+    locationDescription: LOCATION,
     evidence,
     reply: new QuestionReply(body, request),
   });
@@ -142,19 +142,23 @@ const LAST_METERS_INSTRUCTION =
   "physical door or entrance relative to their current view.";
 
 test("directions found after tool routing with a frame add the Last Meters instruction", async (t) => {
-  const model = fakeModel(t, ["The door is ahead.", "The door is ahead.", "Head north."]);
+  const model = fakeModel(t, ["The door is ahead.", "The door is ahead.", "Head north.", "Head north."]);
   const photo = "data:image/jpeg;base64,storefront";
 
   await answer(t, { prompt: "\nGive directions.", toolUsed: "generateGoogleDirectionAPILink" }, { image: [photo] });
   await answer(t, { prompt: "\nGive directions.", toolUsed: "verifiedNearbyWalkingDirections" }, { image: [photo] });
   await answer(t, { prompt: "\nGive directions.", toolUsed: "generateGoogleDirectionAPILink" });
+  // The app sends [null] for a Question without a photo.
+  await answer(t, { prompt: "\nGive directions.", toolUsed: "generateGoogleDirectionAPILink" }, { image: [null as any] });
 
   const prompts = model.map((request) => systemMessage(request).split("\n\nRelevant data: ")[0]);
   assert.deepEqual(prompts, [
     `${AIPrompt}\nGive directions.${LAST_METERS_INSTRUCTION}`,
     `${AIPrompt}\nGive directions.`,
     `${AIPrompt}\nGive directions.`,
+    `${AIPrompt}\nGive directions.`,
   ]);
+  assert.deepEqual(model[3].messages[1].content, [{ type: "text", text: "What is around me?" }]);
 });
 
 /**
