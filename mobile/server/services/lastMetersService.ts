@@ -10,7 +10,6 @@ import type { LastMetersPath } from "../config/lastMetersPaths";
 import { outdoorPanoramaRejection } from "../utils/outdoorPanorama";
 import { selectOutdoorPanorama, SceneClassifier, PanoramaAudit, PanoramaAttempt, PanoramaSearchBudget } from "./outdoorPanoramaSelection";
 import {
-  buildClosedNowNotice,
   buildHeadingConflictInstruction,
   buildLastMetersDistanceSentence,
   buildLastMetersSourceNote,
@@ -34,17 +33,9 @@ import {
   normalizeNearbyPlaceQuery,
   signTextMatchesPlaceName,
 } from "../utils/nearbyPlaces";
-import {
-  isBesideBuilding,
-  parseBuildingGeometry,
-  selectNearestEntrance,
-  usesBuildingEntrances,
-} from "../utils/buildingEntrances";
-import type { BuildingGeometry } from "../utils/buildingEntrances";
 import { parseLastMetersInput } from "../../src/utils/lastMetersInput";
 import { calculateHeading, getGoogleMapsApiKey } from "./googleMaps";
 import {
-  DestinationNotVerifiedError,
   getVerifiedNearbyDestination,
   type VerifiedNearbyDestination,
 } from "./verifiedDestination";
@@ -57,7 +48,8 @@ import {
   type StreetViewMetadata,
 } from "./streetViewPanorama";
 import { OpenAIQuestionService } from "./openAIQuestionService";
-import { LastMetersTrial, type GuidanceTarget, type HeadingAlignment } from "./lastMetersTrial";
+import { LastMetersTrial, type HeadingAlignment } from "./lastMetersTrial";
+import { findEntrance, proximityGatePrompt, verifyDestination } from "./lastMetersDestination";
 dotenv.config();
 
 interface DestinationStreetViewReference {
@@ -67,35 +59,6 @@ interface DestinationStreetViewReference {
   placeName: string;
   placeAddress: string;
   targetHeading: number;
-}
-
-/**
- * Building outline and entrance points from Geocoding. Optional data: any
- * failure means the trial falls back to the single Places pin.
- */
-async function getBuildingGeometry(
-  placeId: string,
-): Promise<BuildingGeometry | null> {
-  try {
-    const response = await axios.get(
-      "https://maps.googleapis.com/maps/api/geocode/json",
-      {
-        params: {
-          place_id: placeId,
-          extra_computations: "BUILDING_AND_ENTRANCES",
-          key: getGoogleMapsApiKey(),
-        },
-        timeout: 8_000,
-      },
-    );
-    if (response.data.status !== "OK" || !response.data.results?.[0]) {
-      return null;
-    }
-    return parseBuildingGeometry(response.data.results[0]);
-  } catch (error) {
-    console.warn("[Last Meters] Building entrance lookup failed:", error);
-    return null;
-  }
 }
 
 async function getDestinationStreetViewReference(
@@ -292,62 +255,10 @@ export class LastMetersService {
     });
 
     try {
-      const proximityPrompt =
-        `Resolve "${destinationQuery}" near the user's coordinates and use exact ` +
-        `panorama matching only within ${LAST_METERS_EXACT_RADIUS_METERS} meters ` +
-        "plus the phone's reported GPS error.";
-      let verifiedDestination: VerifiedNearbyDestination;
-      try {
-        verifiedDestination = await getVerifiedNearbyDestination(
-          lat,
-          lng,
-          destinationQuery,
-        );
-        trial.source("google_places");
-        trial.note({ verifiedDestination });
-        trial.step({
-          name: "destination_candidates",
-          prompt:
-            "Rank relevant Google Places candidates by distance from the user.",
-          response: verifiedDestination.candidateSummary,
-          model: "google-places",
-          success: true,
-        });
-      } catch (proximityError) {
-        trial.note({ testScenario: "destination_unverified" });
-        if (proximityError instanceof DestinationNotVerifiedError) {
-          trial.note({ destinationNotVerified: proximityError });
-          trial.source("google_places");
-        }
-        const message =
-          proximityError instanceof Error
-            ? proximityError.message
-            : "Destination proximity lookup failed.";
-        trial.step({
-          name: "proximity_gate",
-          prompt: proximityPrompt,
-          response: "DESTINATION_NOT_VERIFIED",
-          model: "google-places",
-          success: false,
-          error: message,
-        });
-        const finalOutput =
-          `I could not verify a nearby ${destinationQuery} from your current location. ` +
-          "Try a more specific name or street address." +
-          buildLastMetersSourceNote(null);
-        return await trial.answer({ warning: "destination_not_verified" }, {
-          finalOutput,
-          success: false,
-          error: "destination_not_verified",
-        });
-      }
-
-      const ambiguity = (verifiedDestination.placeCandidates || []).filter(candidate => candidate.relevant &&
-        candidate.placeId !== verifiedDestination.placeId && candidate.businessStatus !== "CLOSED_PERMANENTLY" &&
-        candidate.distanceMeters <= verifiedDestination.distanceMeters + Math.max(20, gpsAccuracyMeters ?? 20));
-      if (ambiguity.length) {
-        return await trial.withhold(["destination_branch_ambiguous"], `I found more than one nearby ${destinationQuery}. Please specify the street address: ${verifiedDestination.placeAddress} or ${ambiguity.slice(0, 2).map(c => c.address).join(" or ")}.`);
-      }
+      const proximityPrompt = proximityGatePrompt(destinationQuery);
+      const destinationResult = await verifyDestination(trial, request, destinationQuery);
+      if (destinationResult.kind === "exit") return destinationResult.result;
+      const verifiedDestination = destinationResult.value;
 
       // The panorama is taken at the user's position, so it can download
       // while the entrance lookup runs. Approach and aligned trials save it
@@ -356,63 +267,8 @@ export class LastMetersService {
       const panoramaDownload = processPanoramaTiles(lat, lng, classifyPanorama, auditPanorama, panoramaBudget, pinnedPanorama);
       panoramaDownload.catch(() => undefined);
 
-      let entrance: GuidanceTarget = {
-        source: "places_pin",
-        location: verifiedDestination.location,
-        distanceMeters: verifiedDestination.distanceMeters,
-      };
-      const buildingGeometry = await getBuildingGeometry(
-        verifiedDestination.placeId,
-      );
-      if (
-        buildingGeometry &&
-        usesBuildingEntrances(
-          verifiedDestination.placeId,
-          verifiedDestination.types,
-          buildingGeometry,
-        )
-      ) {
-        const besideBuilding = isBesideBuilding(
-          { lat, lng },
-          buildingGeometry.outlines,
-          gpsAccuracyMeters,
-        );
-        const nearestEntrance = selectNearestEntrance(
-          { lat, lng },
-          buildingGeometry.entrances,
-        );
-        entrance = nearestEntrance
-          ? {
-              source: "geocoding_entrance",
-              location: nearestEntrance.entrance.location,
-              distanceMeters: nearestEntrance.distanceMeters,
-              besideBuilding,
-            }
-          : { ...entrance, besideBuilding };
-        trial.source("google_building_entrances");
-        trial.step({
-          name: "building_entrances",
-          prompt:
-            "Use the Google Geocoding building entrance nearest the user instead of the single map pin.",
-          response:
-            (nearestEntrance
-              ? `NEAREST_ENTRANCE: ${Math.round(nearestEntrance.distanceMeters)} meters ` +
-                `(${buildingGeometry.entrances.length} listed)`
-              : "NO_ENTRANCES_LISTED") +
-            (besideBuilding ? "; USER_BESIDE_BUILDING" : ""),
-          model: "google-geocoding",
-          success: nearestEntrance !== null,
-        });
-      }
-      trial.note({ entrance });
+      const { entrance, closedNotice } = await findEntrance(trial, request, verifiedDestination);
       const targetLocation = entrance.location;
-
-      const closedNotice =
-        verifiedDestination.businessStatus === "CLOSED_TEMPORARILY"
-          ? buildClosedNowNotice(verifiedDestination.placeName, true)
-          : verifiedDestination.openNow === false
-            ? buildClosedNowNotice(verifiedDestination.placeName)
-            : "";
 
       const destinationBearing = calculateHeading({ lat, lng }, targetLocation);
       let headingAlignment: HeadingAlignment = { destinationBearing };
