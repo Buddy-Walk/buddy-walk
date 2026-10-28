@@ -23,6 +23,8 @@ import './questionRequest.test.ts';
 import './questionReply.test.ts';
 import './questionEvidence.test.ts';
 import './questionTools.test.ts';
+import './questionLocation.test.ts';
+import './questionAnswer.test.ts';
 import './nearbyPlaces.test.ts';
 import './lastMetersInput.test.ts';
 import './openingHours.test.ts';
