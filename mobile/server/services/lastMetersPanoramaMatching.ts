@@ -487,7 +487,7 @@ async function readDestinationMatch(
 // ==========================================
 // STEP 2B: DESTINATION REFERENCE PHOTO
 // ==========================================
-interface DestinationStreetViewReference extends DestinationReference {
+export interface DestinationStreetViewReference extends DestinationReference {
   photo: string;
   placeName: string;
   placeAddress: string;
