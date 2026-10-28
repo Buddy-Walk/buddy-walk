@@ -14,6 +14,14 @@ export type PanoramaAudit = (attempt: PanoramaAttempt) => void;
 export interface PanoramaSearchBudget { seen: Set<string>; deadline: number }
 export interface SelectedPanorama extends OutdoorPanoramaMetadata { date?: string }
 
+/** A search looks at no more than this many distinct panoramas. */
+const MAX_PANORAMAS_SEEN = 3;
+
+/** Whether a search has already looked at enough panoramas or run out of time. */
+export function panoramaSearchSpent(budget: PanoramaSearchBudget): boolean {
+  return budget.seen.size >= MAX_PANORAMAS_SEEN || Date.now() >= budget.deadline;
+}
+
 export function parseSceneVerdict(value: string): SceneVerdict {
   const verdict = value.trim().toLowerCase();
   return verdict === "outdoor" || verdict === "indoor" ? verdict : "uncertain";
@@ -28,8 +36,8 @@ export async function selectOutdoorPanorama(
     throw new Error("Panorama lookup requires valid supported coordinates.");
   }
   const attempts: PanoramaAttempt[] = [];
-  const seen = budget?.seen ?? new Set<string>();
-  const deadline = budget?.deadline ?? Date.now() + 45_000;
+  const search = budget ?? { seen: new Set<string>(), deadline: Date.now() + 45_000 };
+  const { seen, deadline } = search;
   const remaining = () => Math.max(1, Math.min(10_000, deadline - Date.now()));
   const record = (attempt: PanoramaAttempt) => {
     attempts.push(attempt);
@@ -41,7 +49,7 @@ export async function selectOutdoorPanorama(
   const probes = [[lat, lng], [lat + latOffset, lng], [lat, lng + lngOffset],
     [lat - latOffset, lng], [lat, lng - lngOffset]];
   for (const [probeLat, probeLng] of probes) {
-    if (seen.size >= 3 || Date.now() >= deadline) break;
+    if (panoramaSearchSpent(search)) break;
     let panoId: string | undefined;
     try {
       const { data: metadata } = await axios.get<SelectedPanorama>(

@@ -292,14 +292,17 @@ test("matchPanoramaHeadings never moves on from a pinned panorama", async t => {
 
 test("matchPanoramaHeadings tries at most three panoramas", async t => {
   // An empty search budget, so only the attempt limit stops it.
-  const { result, prompts } = await match(t, world({
+  const { result, prompts, saved } = await match(t, world({
     seen: [],
     panoramaDates: ["2025-01", "2025-02", "2025-03", "2025-04"],
-    vision: { currentView: ["90"], destination: ["NOT_VISIBLE"], reference: ["NOT_VISIBLE"], signText: ["NO_TEXT"] },
+    vision: { currentView: ["90"], destination: ["NOT_VISIBLE"], reference: ["NOT_VISIBLE"], signText: ["BAKERY", "PHARMACY", "BANK"] },
   }));
 
   assert.equal(result.kind, "exit");
   assert.equal(prompts.filter(prompt => prompt === "destination").length, 3);
+  const row = await saved();
+  assert.deepEqual({ panoId: row.panoId, signText: row.signText }, { panoId: "pano-3", signText: "BANK" },
+    "the row shows the last panorama's backups");
 });
 
 /** The answer an exit ended the run with. */

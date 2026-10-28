@@ -20,6 +20,7 @@ import type { LastMetersRequestInput } from "../utils/lastMetersReplay";
 import { calculateHeading, getGoogleMapsApiKey } from "./googleMaps";
 import { getOpenAIClient } from "./openAIClient";
 import {
+  panoramaSearchSpent,
   selectOutdoorPanorama,
   type PanoramaAudit,
   type PanoramaSearchBudget,
@@ -33,12 +34,9 @@ import {
 } from "./streetViewPanorama";
 import { getVerifiedNearbyDestination, type VerifiedNearbyDestination } from "./verifiedDestination";
 import type { LastMetersRunResult } from "./lastMetersService";
-import type { GuidanceTarget, LastMetersTrial, StepResult } from "./lastMetersTrial";
+import type { DestinationReference, GuidanceTarget, LastMetersTrial, StepResult, TrialFacts } from "./lastMetersTrial";
 
-/**
- * Matching tries at most this many panoramas at the user's position, and
- * stops searching once the search has looked at this many.
- */
+/** Matching tries at most this many panoramas at the user's position. */
 const MAX_PANORAMAS = 3;
 
 type Panorama = Awaited<ReturnType<typeof processPanoramaTiles>>;
@@ -85,8 +83,16 @@ export interface PanoramaHeadings {
   panorama: Panorama;
 }
 
-/** A panorama in which the destination could not be found, so matching may move on to another. */
-type PanoramaMatch = StepResult<PanoramaHeadings> | { kind: "destination_not_found"; currentHeading: number };
+/**
+ * What the reference photo and sign text backups learned about one panorama.
+ * Only the panorama the run answers from notes them on the Trial.
+ */
+type BackupFacts = Pick<TrialFacts, "destinationReference" | "destinationReferenceUsed" | "signText">;
+
+/** One panorama's result: its headings, an exit, or a destination not found so matching may move on. */
+type PanoramaMatch =
+  | StepResult<PanoramaHeadings>
+  | { kind: "destination_not_found"; currentHeading: number; backups?: BackupFacts };
 
 /**
  * Matches the user's photo and the destination against Street View panoramas
@@ -109,6 +115,7 @@ export async function matchPanoramaHeadings(
     if (matched.kind !== "destination_not_found") return matched;
     const next = attempt < MAX_PANORAMAS ? await nextPanorama(input, panorama) : undefined;
     if (!next) {
+      if (matched.backups) trial.note(matched.backups);
       return { kind: "exit", result: await answerDestinationNotFound(trial, input, panorama, matched.currentHeading) };
     }
     panorama = next;
@@ -152,7 +159,7 @@ async function answerNoPanorama(
  */
 async function nextPanorama(input: PanoramaMatchingInput, panorama: Panorama): Promise<Panorama | undefined> {
   const { request: { lat, lng }, search } = input;
-  if (search.pinned || search.budget.seen.size >= MAX_PANORAMAS || Date.now() >= search.budget.deadline) return undefined;
+  if (search.pinned || panoramaSearchSpent(search.budget)) return undefined;
   search.audit({ panoId: panorama.metadata.pano_id, status: "destination_not_visible",
     reason: "Destination matching failed; trying a distinct nearby outdoor panorama." });
   try {
@@ -191,8 +198,6 @@ async function matchPanorama(
   panorama: Panorama,
 ): Promise<PanoramaMatch> {
   const { request: { lat, lng, destination }, entrance } = input;
-  // A new panorama's row shows only its own backups.
-  trial.note({ destinationReference: undefined, destinationReferenceUsed: false, signText: undefined });
   trial.source("street_view_panorama");
   const { tiles } = panorama;
   trial.note({ panorama });
@@ -240,13 +245,17 @@ async function matchPanorama(
     "   Step 2B: Fetching a destination-focused Street View reference...",
   );
   const signTextMatch = startSignTextMatch(trial, input, panorama.metadata, panoramaTargetBearing);
-  const reference = await matchDestinationReference(trial, input, panorama);
+  const { destinationReference, confirmed: reference } = await matchDestinationReference(trial, input, panorama);
   // Step 2C runs alongside Step 2B; only use its heading if 2B missed.
   trial.stage("sign text close-up");
-  const signTextMatched = await readSignTextMatch(trial, input, signTextMatch, panoId, expectedTargetHeading, reference !== undefined);
-  if (reference) return found(reference.targetHeading, { visualMatch: false, signTextMatched, reference });
-  if (signTextMatched) return found(expectedTargetHeading, { visualMatch: false, signTextMatched });
-  return { kind: "destination_not_found", currentHeading };
+  const signText = await readSignTextMatch(trial, input, signTextMatch, panoId, expectedTargetHeading, reference !== undefined);
+  const signTextMatched = signText?.matched ?? false;
+  const backups: BackupFacts = { destinationReference, destinationReferenceUsed: reference !== undefined, signText };
+  if (!reference && !signTextMatched) return { kind: "destination_not_found", currentHeading, backups };
+  trial.note(backups);
+  return reference
+    ? found(reference.targetHeading, { visualMatch: false, signTextMatched, reference })
+    : found(expectedTargetHeading, { visualMatch: false, signTextMatched });
 }
 
 /** How the destination is named in prompts. */
@@ -559,22 +568,24 @@ Reply with exactly one token: VISIBLE or NOT_VISIBLE.
 Use VISIBLE only when the storefront, sign, or entrance clearly corresponds to the named destination. Do not infer identity from the prompt, nearby businesses, or a generic building entrance.`;
 }
 
-/** The reference photo aimed at the destination, when Step 2B confirms the destination in it. */
+/**
+ * Fetches the reference photo aimed at the destination, or says why it was
+ * skipped, and returns it as `confirmed` when Step 2B sees the destination in it.
+ */
 async function matchDestinationReference(
   trial: LastMetersTrial,
   input: PanoramaMatchingInput,
   panorama: Panorama,
-): Promise<DestinationStreetViewReference | undefined> {
+): Promise<{ destinationReference?: DestinationReference; confirmed?: DestinationStreetViewReference }> {
   const { request: { lat, lng }, destinationQuery, place, entrance, search } = input;
   const referencePrompt =
     `Fetch a Street View image aimed at the verified nearby location for ${destinationLabel(input)}, ` +
     "then confirm the destination in that image.";
   if (!shouldUseDestinationReference(entrance.distanceMeters, streetViewImageryAgeYears(panorama.metadata.date))) {
-    trial.note({ destinationReference: { status: "stale_imagery" }, destinationReferenceUsed: false });
     trial.step({ name: "destination_reference_match", prompt: referencePrompt,
       response: "SKIPPED: stale_imagery", model: "deterministic-age-gate", success: false,
       error: "Destination-reference check skipped because the panorama is older than 8 years; sign close-ups remain enabled." });
-    return undefined;
+    return { destinationReference: { status: "stale_imagery" } };
   }
   try {
     const reference = await getDestinationStreetViewReference(
@@ -586,7 +597,6 @@ async function matchDestinationReference(
       attempt => search.audit({ ...attempt, reason: `Destination reference: ${attempt.reason}` }),
     );
     trial.source("street_view_reference");
-    trial.note({ destinationReference: reference });
 
     trial.stage("destination reference verification");
     const step2bPrompt = destinationReferencePrompt(reference);
@@ -614,7 +624,6 @@ async function matchDestinationReference(
     const step2bText =
       step2bResponse.choices[0].message.content?.trim() || "";
     const destinationReferenceUsed = parseDestinationVisibility(step2bText);
-    trial.note({ destinationReferenceUsed });
     trial.step({
       name: "destination_reference_match",
       prompt: step2bPrompt,
@@ -629,7 +638,7 @@ async function matchDestinationReference(
         : "Destination was not confirmed in the focused Street View image.",
       tokenCount: step2bResponse.usage?.total_tokens,
     });
-    return destinationReferenceUsed ? reference : undefined;
+    return { destinationReference: reference, confirmed: destinationReferenceUsed ? reference : undefined };
   } catch (referenceError) {
     const message =
       referenceError instanceof Error
@@ -643,7 +652,7 @@ async function matchDestinationReference(
       success: false,
       error: message,
     });
-    return undefined;
+    return {};
   }
 }
 
@@ -696,7 +705,7 @@ function startSignTextMatch(
   return signWork;
 }
 
-/** Whether Step 2C read the destination's name on a sign. */
+/** The sign text Step 2C read, and whether it names the destination; undefined when the close-ups failed. */
 async function readSignTextMatch(
   trial: LastMetersTrial,
   input: PanoramaMatchingInput,
@@ -704,7 +713,7 @@ async function readSignTextMatch(
   panoId: string | undefined,
   expectedTargetHeading: number,
   referenceUsed: boolean,
-): Promise<boolean> {
+): Promise<TrialFacts["signText"]> {
   const { place } = input;
   try {
     const signResponse = await signWork;
@@ -712,7 +721,6 @@ async function readSignTextMatch(
     const signTextMatched =
       !/^NO_TEXT$/i.test(signText) &&
       signTextMatchesPlaceName(signText, place.placeName);
-    trial.note({ signText: { text: signText, matched: signTextMatched } });
     if (signTextMatched && !referenceUsed) {
       trial.note({ testScenario: "test_a_sign_text", panoramaTargetHeading: expectedTargetHeading });
     }
@@ -729,7 +737,7 @@ async function readSignTextMatch(
         : `No readable sign named ${place.placeName}.`,
       tokenCount: signResponse.usage?.total_tokens,
     });
-    return signTextMatched;
+    return { text: signText, matched: signTextMatched };
   } catch (signError) {
     trial.step({
       name: "sign_text_match",
@@ -741,6 +749,6 @@ async function readSignTextMatch(
           ? signError.message
           : "Sign close-up lookup failed.",
     });
-    return false;
+    return undefined;
   }
 }
