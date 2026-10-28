@@ -1,3 +1,4 @@
+import './doorfrontUri.ts';
 import '../config/apiHosts.test.ts';
 import './serverMode.test.ts';
 import './lastMetersNavigation.test.ts';
