@@ -17,19 +17,22 @@ import {
 import { normalizeNearbyPlaceQuery, signTextMatchesPlaceName } from "../utils/nearbyPlaces";
 import { outdoorPanoramaRejection } from "../utils/outdoorPanorama";
 import type { LastMetersRequestInput } from "../utils/lastMetersReplay";
-import { calculateHeading, getGoogleMapsApiKey } from "./googleMaps";
+import { calculateHeading, getGoogleMapsApiKey, type LatLng } from "./googleMaps";
 import { getOpenAIClient } from "./openAIClient";
 import {
   panoramaSearchSpent,
   selectOutdoorPanorama,
+  type PanoramaAttempt,
   type PanoramaAudit,
   type PanoramaSearchBudget,
   type SceneClassifier,
 } from "./outdoorPanoramaSelection";
 import {
   buildPanoramaDebugImage,
+  classifyPanoramaScene,
   fetchSignCloseUps,
   processPanoramaTiles,
+  type StreetViewMetadata,
 } from "./streetViewPanorama";
 import { getVerifiedNearbyDestination, type VerifiedNearbyDestination } from "./verifiedDestination";
 import type { LastMetersRunResult } from "./lastMetersService";
@@ -51,6 +54,26 @@ export interface PanoramaSearch {
   audit: PanoramaAudit;
   /** An original-panorama retry must not move on to a different panorama. */
   pinned: boolean;
+}
+
+/**
+ * Starts downloading the first panorama at the user's position, noting every
+ * panorama tried on the Trial. It downloads while the entrance lookup runs,
+ * and aligned and approach trials save it for review after they have answered.
+ */
+export function startPanoramaSearch(
+  trial: LastMetersTrial,
+  position: LatLng,
+  pinned: StreetViewMetadata | undefined,
+): PanoramaSearch {
+  const panoramaValidation: PanoramaAttempt[] = [];
+  trial.note({ panoramaValidation });
+  const audit: PanoramaAudit = attempt => panoramaValidation.push(attempt);
+  const classify: SceneClassifier = (images, timeoutMs) => classifyPanoramaScene(getOpenAIClient(), images, timeoutMs);
+  const budget: PanoramaSearchBudget = { seen: new Set(), deadline: Date.now() + 45_000 };
+  const first = processPanoramaTiles(position.lat, position.lng, classify, audit, budget, pinned);
+  void first.catch(() => undefined);
+  return { first, budget, classify, audit, pinned: pinned !== undefined };
 }
 
 /** What panorama heading matching needs to know about the user and where they are going. */
@@ -487,7 +510,7 @@ async function readDestinationMatch(
 // ==========================================
 // STEP 2B: DESTINATION REFERENCE PHOTO
 // ==========================================
-interface DestinationStreetViewReference extends DestinationReference {
+export interface DestinationStreetViewReference extends DestinationReference {
   photo: string;
   placeName: string;
   placeAddress: string;
