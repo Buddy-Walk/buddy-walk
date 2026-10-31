@@ -111,7 +111,7 @@ const photoJpeg = (() => {
 /** JSON as the app and the Trial store see it, without timings or photo bytes. */
 function comparable(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value, (key, field) => {
-    if (key === "latencyMs" || key === "durationMs") return undefined;
+    if (key === "latencyMs" || key === "durationMs" || key === "moduleTimingsMs") return undefined;
     if (key === "originalPhotoSha256") return "<photo hash>";
     return typeof field === "string" && field.startsWith("data:image/") ? "<photo data URL>" : field;
   }));
@@ -142,6 +142,10 @@ async function runExit(t: TestContext, policy: Policy, world: World) {
   });
   const trials: unknown[] = [];
   t.mock.method(lastMetersTestLogService, "record", async (row: unknown) => {
+    // Keep characterization snapshots stable, but verify every exit saves its timings.
+    const timings = (row as { moduleTimingsMs: Record<string, number> }).moduleTimingsMs;
+    assert.equal(typeof timings.step0, "number");
+    for (const ms of Object.values(timings)) assert.ok(Number.isFinite(ms) && ms >= 0);
     trials.push(row);
     return `trial-${trials.length}`;
   });

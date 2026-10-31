@@ -1,3 +1,4 @@
+import type { LastMetersModuleTimings } from "../../utils/lastMetersTiming";
 import mongoose, { Schema } from "mongoose";
 import { LAST_METERS_TEST_SCENARIOS } from "../../utils/lastMetersNavigation";
 import type { LastMetersTestScenario } from "../../utils/lastMetersNavigation";
@@ -115,6 +116,7 @@ export interface lastMetersTestLogInterface {
   success: boolean;
   error?: string;
   latencyMs: number;
+  moduleTimingsMs?: LastMetersModuleTimings;
   serverTs: Date;
 }
 
@@ -234,6 +236,13 @@ const LastMetersTestLogSchema = new Schema<lastMetersTestLogInterface>({
   success: { type: Boolean, required: true, index: true },
   error: { type: String },
   latencyMs: { type: Number, required: true },
+  moduleTimingsMs: {
+    step0: { type: Number },
+    moduleB: { type: Number },
+    moduleC: { type: Number },
+    moduleD: { type: Number },
+    moduleE: { type: Number },
+  },
   serverTs: { type: Date, default: Date.now, index: true },
 });
 
