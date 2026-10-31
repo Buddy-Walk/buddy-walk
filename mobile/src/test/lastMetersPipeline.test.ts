@@ -74,6 +74,17 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
     } }, `data:image/jpeg;base64,${jpeg.toString("base64")}`, "/api/last-meters");
     assert.equal(answer.testLogId, "trial-test");
     assert.equal(logged.runKind, "field");
+    const expectedModules = ["ambiguous", "missing-sensors"].includes(scenario)
+      ? ["step0"]
+      : ["conflict", "stale"].includes(scenario)
+        ? ["step0", "moduleB", "moduleC"]
+        : scenario === "verified-turn"
+          ? ["step0", "moduleB", "moduleC", "moduleD", "moduleE"]
+          : ["step0", "moduleB", "moduleC", "moduleD"];
+    assert.deepEqual(Object.keys(logged.moduleTimingsMs).sort(), expectedModules.sort());
+    for (const ms of Object.values(logged.moduleTimingsMs)) {
+      assert.ok(typeof ms === "number" && Number.isFinite(ms) && ms >= 0);
+    }
     assert.equal(logged.replayInput.sensors?.photoCapturedAt, scenario === "missing-sensors" ? undefined : now);
     if (["verified-turn", "detour", "low-confidence", "ambiguous", "missing-sensors"].includes(scenario)) {
       if (scenario === "verified-turn") {

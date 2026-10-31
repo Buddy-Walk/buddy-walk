@@ -613,6 +613,7 @@
 
     function buildModules(test) {
       var steps = test.steps || [];
+      var timings = test.moduleTimingsMs || {};
       var step0_input = findStep(steps, 'input_classification');
       var step0_proximity = findStep(steps, 'proximity_gate');
       var step0_entrances = findStep(steps, 'building_entrances');
@@ -642,6 +643,7 @@
       return {
         step0: {
           status: step0_proximity ? 'pass' : 'na',
+          durationMs: timings.step0,
           title: 'Step 0 · Geometric Reasoning & Pre-check',
           metrics: [
             ['Input', step0_input ? step0_input.response : '—'],
@@ -653,6 +655,7 @@
         },
         moduleB: {
           status: modBStatus,
+          durationMs: timings.moduleB,
           title: 'Module B · User Image Localization',
           metrics: [
             ['Panorama matched heading', test.panoramaMatchedHeading != null ? test.panoramaMatchedHeading + '°' : '—'],
@@ -664,6 +667,7 @@
         },
         moduleC: {
           status: modCStatus,
+          durationMs: timings.moduleC,
           title: 'Module C · Destination Localization',
           metrics: [
             ['Panorama search', modC_target ? (modC_target.response || '—') : '—'],
@@ -676,6 +680,7 @@
         },
         moduleD: {
           status: modDStatus,
+          durationMs: timings.moduleD,
           title: 'Module D · Confidence Fusion',
           metrics: [
             ['GPS Accuracy', test.gpsAccuracyMeters != null ? Math.round(test.gpsAccuracyMeters) + ' m' : '—'],
@@ -687,6 +692,7 @@
         },
         moduleE: {
           status: modEStatus,
+          durationMs: timings.moduleE,
           title: 'Module E · Guidance Generation',
           metrics: [
             ['Calculated Turn', test.turnInstruction || '—'],
@@ -716,6 +722,8 @@
       return (
         '<div class="module-block">' +
           '<div class="module-head"><span>' + esc(moduleData.title) + '</span>' + badge(moduleData.status) + '</div>' +
+          '<div class="module-metric"><b>Runtime:</b> ' +
+            (typeof moduleData.durationMs === 'number' ? esc(moduleData.durationMs) + ' ms' : '—') + '</div>' +
           metricsHtml + rawHtml +
         '</div>'
       );

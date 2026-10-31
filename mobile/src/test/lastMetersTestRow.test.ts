@@ -12,6 +12,15 @@ import {
 const PANORAMA = "data:image/jpeg;base64,AAAA";
 const PHOTO = "data:image/jpeg;base64,BBBBBB";
 
+test("dashboard list and detail responses preserve module timings, including zero and skipped modules", () => {
+  const moduleTimingsMs = { step0: 12, moduleB: 0, moduleC: 34.5 };
+  const row = { destination: "CVS", userPhoto: PHOTO, moduleTimingsMs };
+  const summary = { destination: row.destination, moduleTimingsMs, imageStats: imageStatsOf(row) };
+  for (const response of [toLastMetersTestResponse(row, false), toLastMetersTestResponse(row, true), toLastMetersTestSummaryResponse(summary)]) {
+    assert.deepEqual(response.moduleTimingsMs, moduleTimingsMs);
+  }
+});
+
 test("isStoredImage only accepts data URLs", () => {
   assert.equal(isStoredImage(PANORAMA), true);
   assert.equal(isStoredImage(""), false);
