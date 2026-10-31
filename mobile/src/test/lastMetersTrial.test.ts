@@ -1,4 +1,3 @@
-import { performance } from "node:perf_hooks";
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import sharp from "sharp";
@@ -29,7 +28,6 @@ const PLACE: VerifiedNearbyDestination = {
 /** Capture what the Trial saves instead of writing it. */
 function recordTrials(t: TestContext) {
   t.mock.timers.enable({ apis: ["Date"], now: NOW });
-  t.mock.method(performance, "now", () => 0);
   const rows: Record<string, unknown>[] = [];
   t.mock.method(lastMetersTestLogService, "record", async (row: Record<string, unknown>) => {
     rows.push(row);
@@ -130,7 +128,6 @@ test("a field run saves the Verified destination, entrance and resized photo as 
     currentHeading: undefined,
     steps: [{ name: "proximity_gate", prompt: "Gate", response: "APPROACH_ONLY: 48 meters", model: "google-places", success: true }],
     latencyMs: 0,
-    moduleTimingsMs: { step0: 0 },
     runKind: "field",
     requestPath: "/api/last-meters",
     finalOutput: "Walk closer.",

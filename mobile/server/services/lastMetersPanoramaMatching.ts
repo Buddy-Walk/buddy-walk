@@ -143,17 +143,12 @@ export async function matchPanoramaHeadings(
   }
   for (let attempt = 1; ; attempt++) {
     const matched = await matchOnePanorama(trial, input, panorama);
-    if (matched.kind !== "destination_not_found") {
-      if (matched.kind === "ok") trial.moduleTimer.stop("moduleC");
-      return matched;
-    }
+    if (matched.kind !== "destination_not_found") return matched;
     const next = attempt < MAX_PANORAMAS ? await nextPanorama(input, panorama) : undefined;
     if (!next) {
       if (matched.backups) trial.note(matched.backups);
       return { kind: "exit", result: await answerDestinationNotFound(trial, input, panorama, matched.currentHeading) };
     }
-    // Replacement panorama download belongs to C; shared assembly of the next does not.
-    trial.moduleTimer.stop("moduleC");
     panorama = next;
   }
 }
@@ -256,8 +251,7 @@ async function matchOnePanorama(
 
   trial.stage("current-view matching");
   console.log("   ➤ Step 1: Locating User's Current View...");
-  trial.moduleTimer.start("moduleB");
-  const destinationMatch = startDestinationMatch(trial, input, panoramaOverview, target);
+  const destinationMatch = startDestinationMatch(input, panoramaOverview, target);
   const current = await matchCurrentView(trial, input, panoramaOverview, panorama);
   if (current.kind === "exit") return current;
   const { comparison, currentHeading } = current.value;
@@ -395,7 +389,6 @@ async function matchCurrentView(
         ? "Both heading sources were not available."
         : undefined,
   });
-  trial.moduleTimer.stop("moduleB");
   if (currentHeading === undefined) {
     const finalOutput = trial.withheldMessage(["current_heading_unavailable"],
       "Your phone compass was unavailable or not calibrated, so I will not calculate a turn. " +
@@ -451,14 +444,12 @@ type DestinationMatch = ReturnType<typeof startDestinationMatch>;
 
 /** Starts Step 2 so it runs while Step 1 is awaited. */
 function startDestinationMatch(
-  trial: LastMetersTrial,
   input: PanoramaMatchingInput,
   panoramaOverview: ContentPart[],
   target: PanoramaWithMapBearing,
 ) {
   const prompt = destinationPrompt(input, target);
   const startedAt = Date.now();
-  trial.moduleTimer.start("moduleC");
   const request = getOpenAIClient().chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
@@ -472,8 +463,7 @@ function startDestinationMatch(
     ],
     temperature: 0.0,
     max_tokens: 12,
-  }).then(response => ({ response, durationMs: Date.now() - startedAt }))
-    .finally(() => trial.moduleTimer.stop("moduleC"));
+  }).then(response => ({ response, durationMs: Date.now() - startedAt }));
   // Observe errors even if a compass conflict returns before Step 2 is used.
   void request.catch(() => undefined);
   return { prompt, request };
@@ -487,8 +477,6 @@ async function readDestinationMatch(
 ): Promise<number | null> {
   const { panorama, expectedTargetHeading } = target;
   const { response: step2Response, durationMs: step2DurationMs } = await destinationMatch.request;
-  // Resume after the request settles, excluding any extra wait for Module B.
-  trial.moduleTimer.start("moduleC");
   const step2Text = step2Response.choices[0].message.content?.trim() || "";
   const visuallyMatchedTargetHeading = parseLastMetersHeading(step2Text);
   const targetHeading = resolveVerifiedTargetHeading(

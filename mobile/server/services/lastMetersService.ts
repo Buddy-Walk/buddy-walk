@@ -90,22 +90,18 @@ export class LastMetersService {
       if (proximity.kind === "exit") return proximity.result;
       const { destinationBearing } = proximity.value.headingAlignment;
 
-      trial.moduleTimer.stop("step0");
       const matching = await matchPanoramaHeadings(trial, {
         request, image, destinationQuery, place, entrance, closedNotice, search: panoramaSearch,
       });
       if (matching.kind === "exit") return matching.result;
       const headings = matching.value;
 
-      trial.moduleTimer.start("moduleD");
       const turn = await decideTurn(trial, {
         request, entrance, headings, guidanceHeading, turnReasons: guidancePolicy.turnReasons, sensorReasons: turnSensorReasons,
       });
-      trial.moduleTimer.stop("moduleD");
       if (turn.kind === "withhold") return await trial.withhold(turn.reasons, TURN_NOT_VERIFIED_MESSAGE);
       const { turnHeading, confidence, walkingEvidence } = turn;
 
-      trial.moduleTimer.start("moduleE");
       const { turnInstruction, finalOutput } = await composeGuidance(trial, {
         request, image, place, entrance, destinationBearing, turnHeading, walkingEvidence,
         reference: headings.reference, panoramaDate: headings.panorama.metadata.date, closedNotice, policy: guidancePolicy,

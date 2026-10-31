@@ -1,4 +1,3 @@
-import { createLastMetersModuleTimer } from "../utils/lastMetersTiming";
 import type { textRequestBody } from "../types";
 import { RECAPTURE_MESSAGE } from "../../src/utils/lastMetersSafety";
 import type { LastMetersGuidancePolicy, LastMetersGuidanceContext } from "../utils/lastMetersGuidancePolicy";
@@ -108,7 +107,6 @@ type TrialRow = Omit<Parameters<typeof lastMetersTestLogService.record>[0], "suc
  */
 export class LastMetersTrial {
   readonly startedAt = Date.now();
-  readonly moduleTimer = createLastMetersModuleTimer();
   private readonly request: LastMetersRequestInput;
   private readonly image: string;
   private readonly options: LastMetersRunOptions;
@@ -125,7 +123,6 @@ export class LastMetersTrial {
     options: LastMetersRunOptions;
     policy: LastMetersGuidancePolicy;
   }) {
-    this.moduleTimer.start("step0");
     this.request = input.request;
     this.image = input.image;
     this.options = input.options;
@@ -236,12 +233,9 @@ export class LastMetersTrial {
   }
 
   private async record(outcome: TrialOutcome): Promise<string | undefined> {
-    // Freeze before photo compression/storage; late parallel work must not change the saved times.
-    const moduleTimingsMs = this.moduleTimer.finish();
     const { retry, requestPath } = this.options;
     return lastMetersTestLogService.record({
       ...this.row(),
-      moduleTimingsMs,
       // A retry links to the original and reuses its stored photo.
       ...(retry
         ? {
