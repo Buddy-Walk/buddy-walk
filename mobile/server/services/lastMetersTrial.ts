@@ -26,10 +26,10 @@ import type { LastMetersRunOptions, LastMetersRunResult } from "./lastMetersServ
 
 export type TrialStep = lastMetersTestStepInterface;
 
-/** What every step returns. */
+/** Exits are deferred so the caller can finish timing before the Trial is saved. */
 export type StepResult<T> =
   | { kind: "ok"; value: T }
-  | { kind: "exit"; result: LastMetersRunResult };
+  | { kind: "exit"; respond: () => Promise<LastMetersRunResult> };
 
 /** Where guidance aims: the nearest listed building entrance, or else the Verified destination's map pin. */
 export interface GuidanceTarget {
@@ -125,7 +125,6 @@ export class LastMetersTrial {
     options: LastMetersRunOptions;
     policy: LastMetersGuidancePolicy;
   }) {
-    this.moduleTimer.start("step0");
     this.request = input.request;
     this.image = input.image;
     this.options = input.options;

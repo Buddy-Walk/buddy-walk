@@ -6,69 +6,107 @@ import vm from "node:vm";
 import { createLastMetersModuleTimer } from "../../server/utils/lastMetersTiming";
 import lastMetersTestLogModel from "../../server/database/models/lastMetersTestLog";
 
-test("module timings measure parallel work independently and accumulate retries", () => {
+function signal() {
+  let resolve!: () => void;
+  const promise = new Promise<void>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+test("time starts before work, waits for its result and accumulates separated stretches", async () => {
   let clock = 0;
   const timer = createLastMetersModuleTimer(() => clock);
-  timer.start("step0");
-  clock = 10;
-  timer.stop("step0");
-  timer.start("moduleB");
-  timer.start("moduleC");
-  clock = 30;
-  timer.stop("moduleC");
+  const answer = await timer.time("preCheck", async () => { clock = 10; return 42; });
+  assert.equal(answer, 42);
   clock = 100;
-  timer.stop("moduleB");
-  // C finished its first request while B was still running. Its second
-  // segment must not include the 70 ms spent waiting for B.
-  timer.start("moduleC");
-  clock = 140;
-  timer.stop("moduleC");
-  clock = 200;
-  timer.start("moduleB");
-  timer.start("moduleC");
-  clock = 205;
-  timer.stop("moduleB");
-  clock = 220;
-  timer.stop("moduleC");
-  timer.start("moduleD");
-  timer.stop("moduleD");
-  assert.deepEqual(timer.finish(), { step0: 10, moduleB: 95, moduleC: 80, moduleD: 0 });
+  await timer.time("preCheck", async () => { clock = 115; });
+  await timer.time("turnDecision", async () => undefined);
+  assert.deepEqual(timer.finish(), { preCheck: 25, turnDecision: 0 });
 });
 
-test("ending a failed trial freezes running timers and leaves skipped modules absent", () => {
+test("parallel modules finish independently without charging C for waiting on B", async () => {
   let clock = 0;
   const timer = createLastMetersModuleTimer(() => clock);
-  timer.start("moduleB");
-  clock = 10.125;
-  timer.start("moduleC");
-  clock = 20.555;
+  const endB = signal();
+  const endC = signal();
+  const b = timer.time("currentViewMatch", () => endB.promise);
+  const c = timer.time("destinationMatch", () => endC.promise);
+  clock = 20; endC.resolve(); await c;
+  clock = 100; endB.resolve(); await b;
+  clock = 200;
+  await timer.time("destinationMatch", async () => { clock = 240; });
+  assert.deepEqual(timer.finish(), { currentViewMatch: 100, destinationMatch: 60 });
+});
+
+test("synchronous throws and async rejections retain runtime and the original error", async () => {
+  let clock = 0;
+  const timer = createLastMetersModuleTimer(() => clock);
+  const error = new Error("provider failed");
+  await assert.rejects(timer.time("turnDecision", () => { clock = 15; throw error; }), e => e === error);
+  await assert.rejects(timer.time("guidance", async () => {
+    await Promise.resolve(); clock = 35; throw error;
+  }), e => e === error);
+  assert.deepEqual(timer.finish(), { turnDecision: 15, guidance: 20 });
+});
+
+test("finish drops pending timings, including an incomplete cumulative module, and freezes the row", async () => {
+  let clock = 0;
+  const timer = createLastMetersModuleTimer(() => clock);
+  await timer.time("destinationMatch", async () => { clock = 10; });
+  const endC = signal();
+  const c = timer.time("destinationMatch", () => endC.promise);
+  await timer.time("currentViewMatch", async () => { clock = 50; });
   const saved = timer.finish();
-  assert.deepEqual(saved, { moduleB: 20.56, moduleC: 10.43 });
-  clock = 500;
-  timer.stop("moduleC");
-  timer.start("moduleE");
+  assert.deepEqual(saved, { currentViewMatch: 40 });
+  clock = 250; endC.resolve(); await c;
+  await timer.time("guidance", async () => { clock = 500; });
   assert.deepEqual(timer.finish(), saved);
+  assert.deepEqual(saved, { currentViewMatch: 40 });
 });
 
-test("Mongo records retain module timings and allow older records without them", () => {
-  const row = new lastMetersTestLogModel({ moduleTimingsMs: { step0: 12, moduleB: 0, moduleC: 34.5 } });
-  const stored = row.toObject();
-  assert.deepEqual(stored.moduleTimingsMs, { step0: 12, moduleB: 0, moduleC: 34.5 });
-  const old = new lastMetersTestLogModel({}).toObject();
-  assert.equal(old.moduleTimingsMs?.moduleB, undefined);
+test("Mongo writes business names, never dashboard labels, and allows rows without timings", () => {
+  const timings = { preCheck: 12, currentViewMatch: 0, destinationMatch: 34.5, turnDecision: 3, guidance: 20 };
+  const row = new lastMetersTestLogModel({ moduleTimingsMs: { ...timings, moduleB: 999 } });
+  assert.deepEqual(row.toObject().moduleTimingsMs, timings);
+  assert.equal(new lastMetersTestLogModel({}).toObject().moduleTimingsMs?.currentViewMatch, undefined);
 });
 
-test("dashboard shows each module's own milliseconds, including zero and missing data", () => {
+function dashboard() {
   const html = readFileSync(resolve(__dirname, "../../server/views/lastMetersTests.html"), "utf8");
   const source = html.slice(html.indexOf("    function esc("), html.indexOf("    function failureExplanation("));
-  assert.ok(source.includes("function renderModuleBlock("));
   const page = vm.createContext({});
   vm.runInContext(source, page);
-  const modules = page.buildModules({ moduleTimingsMs: { step0: 12, moduleB: 0, moduleC: 34.5, moduleD: 1, moduleE: 25 } });
-  for (const [name, expected] of Object.entries({ step0: 12, moduleB: 0, moduleC: 34.5, moduleD: 1, moduleE: 25 })) {
-    assert.ok(page.renderModuleBlock(modules[name]).includes(`<b>Runtime:</b> ${expected} ms`));
+  return page;
+}
+
+test("dashboard maps business names to labels and shows whole ms in the heading, including zero", () => {
+  const page = dashboard();
+  const modules = page.buildModules({ moduleTimingsMs: {
+    preCheck: 12, currentViewMatch: 0, destinationMatch: 34.5, turnDecision: 1, guidance: 25,
+  } });
+  for (const [name, expected] of Object.entries({ step0: 12, moduleB: 0, moduleC: 35, moduleD: 1, moduleE: 25 })) {
+    assert.match(page.renderModuleBlock(modules[name]), new RegExp('class="module-head"><span>[^<]* — Runtime: ' + expected + ' ms</span>'));
   }
-  const old = page.buildModules({});
-  assert.ok(page.renderModuleBlock(old.moduleB).includes("<b>Runtime:</b> —"));
-  assert.ok(page.renderModuleBlock(page.buildModules({ moduleTimingsMs: {} }).moduleC).includes("<b>Runtime:</b> —"));
+  for (const value of [undefined, null, NaN, Infinity]) {
+    const empty = page.buildModules({ moduleTimingsMs: { currentViewMatch: value } });
+    assert.ok(page.renderModuleBlock(empty.moduleB).includes(" — Runtime: —</span>"));
+  }
+  assert.ok(page.renderModuleBlock(page.buildModules({}).moduleC).includes(" — Runtime: —</span>"));
+});
+
+test("dashboard still reads historical timings and gives new keys precedence even at zero", () => {
+  const page = dashboard();
+  const old = page.buildModules({ moduleTimingsMs: { step0: 12, moduleB: 19.9, moduleC: 40, moduleD: 2, moduleE: 3 } });
+  for (const [name, expected] of Object.entries({ step0: 12, moduleB: 20, moduleC: 40, moduleD: 2, moduleE: 3 })) {
+    assert.ok(page.renderModuleBlock(old[name]).includes(' — Runtime: ' + expected + ' ms'));
+  }
+  const mixed = page.buildModules({ moduleTimingsMs: { currentViewMatch: 0, moduleB: 999 } });
+  assert.equal(mixed.moduleB.durationMs, 0);
+});
+
+test("Step 0 displays the destination verification included in its runtime", () => {
+  const page = dashboard();
+  const candidates = { name: "destination_candidates", response: "Verified Target at 255 Greenwich St", success: true };
+  const preCheck = page.buildModules({ steps: [candidates] }).step0;
+  assert.ok(preCheck.raw.includes(candidates));
+  assert.ok(page.renderModuleBlock(preCheck).includes("Verified Target at 255 Greenwich St"));
 });

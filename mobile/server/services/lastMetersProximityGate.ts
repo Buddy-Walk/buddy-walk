@@ -133,7 +133,7 @@ export async function passProximityGate(
   const warning = mode === "aligned" ? "heading_already_aligned" : "destination_too_far";
   return {
     kind: "exit",
-    result: await trial.answer({ warning }, { finalOutput, success: true },
+    respond: () => trial.answer({ warning }, { finalOutput, success: true },
       testLogId => saveBackgroundPanorama(testLogId, input.firstPanorama)),
   };
 }

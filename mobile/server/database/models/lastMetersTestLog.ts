@@ -237,11 +237,11 @@ const LastMetersTestLogSchema = new Schema<lastMetersTestLogInterface>({
   error: { type: String },
   latencyMs: { type: Number, required: true },
   moduleTimingsMs: {
-    step0: { type: Number },
-    moduleB: { type: Number },
-    moduleC: { type: Number },
-    moduleD: { type: Number },
-    moduleE: { type: Number },
+    preCheck: { type: Number },
+    currentViewMatch: { type: Number },
+    destinationMatch: { type: Number },
+    turnDecision: { type: Number },
+    guidance: { type: Number },
   },
   serverTs: { type: Date, default: Date.now, index: true },
 });

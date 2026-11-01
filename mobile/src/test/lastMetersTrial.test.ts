@@ -130,7 +130,7 @@ test("a field run saves the Verified destination, entrance and resized photo as 
     currentHeading: undefined,
     steps: [{ name: "proximity_gate", prompt: "Gate", response: "APPROACH_ONLY: 48 meters", model: "google-places", success: true }],
     latencyMs: 0,
-    moduleTimingsMs: { step0: 0 },
+    moduleTimingsMs: {},
     runKind: "field",
     requestPath: "/api/last-meters",
     finalOutput: "Walk closer.",

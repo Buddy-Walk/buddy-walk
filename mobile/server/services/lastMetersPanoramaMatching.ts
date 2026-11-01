@@ -139,21 +139,18 @@ export async function matchPanoramaHeadings(
   try {
     panorama = await input.search.first;
   } catch (panoramaError) {
-    return { kind: "exit", result: await answerNoPanorama(trial, input, panoramaError) };
+    return { kind: "exit", respond: () => answerNoPanorama(trial, input, panoramaError) };
   }
   for (let attempt = 1; ; attempt++) {
     const matched = await matchOnePanorama(trial, input, panorama);
     if (matched.kind !== "destination_not_found") {
-      if (matched.kind === "ok") trial.moduleTimer.stop("moduleC");
       return matched;
     }
     const next = attempt < MAX_PANORAMAS ? await nextPanorama(input, panorama) : undefined;
     if (!next) {
       if (matched.backups) trial.note(matched.backups);
-      return { kind: "exit", result: await answerDestinationNotFound(trial, input, panorama, matched.currentHeading) };
+      return { kind: "exit", respond: () => answerDestinationNotFound(trial, input, panorama, matched.currentHeading) };
     }
-    // Replacement panorama download belongs to C; shared assembly of the next does not.
-    trial.moduleTimer.stop("moduleC");
     panorama = next;
   }
 }
@@ -256,9 +253,10 @@ async function matchOnePanorama(
 
   trial.stage("current-view matching");
   console.log("   ➤ Step 1: Locating User's Current View...");
-  trial.moduleTimer.start("moduleB");
-  const destinationMatch = startDestinationMatch(trial, input, panoramaOverview, target);
-  const current = await matchCurrentView(trial, input, panoramaOverview, panorama);
+  const destinationMatch = startDestinationMatch(input, panoramaOverview, target,
+    work => trial.moduleTimer.time("destinationMatch", work));
+  const current = await trial.moduleTimer.time("currentViewMatch",
+    () => matchCurrentView(trial, input, panoramaOverview, panorama));
   if (current.kind === "exit") return current;
   const { comparison, currentHeading } = current.value;
 
@@ -279,11 +277,15 @@ async function matchOnePanorama(
   console.log(
     "   Step 2B: Fetching a destination-focused Street View reference...",
   );
-  const signTextMatch = startSignTextMatch(trial, input, target);
-  const { destinationReference, confirmed: reference } = await matchDestinationReference(trial, input, panorama);
-  // Step 2C runs alongside Step 2B; only use its heading if 2B missed.
-  trial.stage("sign text close-up");
-  const signText = await readSignTextMatch(trial, input, signTextMatch, target);
+  // Time the parallel backups together, counting their shared elapsed time once.
+  const { destinationReference, reference, signText } = await trial.moduleTimer.time("destinationMatch", async () => {
+    const signTextMatch = startSignTextMatch(trial, input, target);
+    const { destinationReference, confirmed: reference } = await matchDestinationReference(trial, input, panorama);
+    // Step 2C runs alongside Step 2B; only use its heading if 2B missed.
+    trial.stage("sign text close-up");
+    const signText = await readSignTextMatch(trial, input, signTextMatch, target);
+    return { destinationReference, reference, signText };
+  });
   const signTextMatched = signText?.matched ?? false;
   const backups: BackupFacts = { destinationReference, destinationReferenceUsed: reference !== undefined, signText };
   if (!reference && !signTextMatched) return { kind: "destination_not_found", currentHeading, backups };
@@ -395,14 +397,13 @@ async function matchCurrentView(
         ? "Both heading sources were not available."
         : undefined,
   });
-  trial.moduleTimer.stop("moduleB");
   if (currentHeading === undefined) {
     const finalOutput = trial.withheldMessage(["current_heading_unavailable"],
       "Your phone compass was unavailable or not calibrated, so I will not calculate a turn. " +
       "Stay where you are, move the phone in a slow figure eight to recalibrate the compass, then take a new photo.");
     return {
       kind: "exit",
-      result: await trial.answer({ warning: "compass_heading_unavailable" }, {
+      respond: () => trial.answer({ warning: "compass_heading_unavailable" }, {
         finalOutput,
         success: false,
         error: "compass_heading_unavailable",
@@ -422,7 +423,7 @@ async function matchCurrentView(
       buildLastMetersSourceNote(panoramaDate);
     return {
       kind: "exit",
-      result: await trial.answer({ currentHeading, confidenceLevel: "low", warning: "heading_sources_disagree" }, {
+      respond: () => trial.answer({ currentHeading, confidenceLevel: "low", warning: "heading_sources_disagree" }, {
         finalOutput,
         success: false,
         error: "heading_sources_disagree",
@@ -451,15 +452,14 @@ type DestinationMatch = ReturnType<typeof startDestinationMatch>;
 
 /** Starts Step 2 so it runs while Step 1 is awaited. */
 function startDestinationMatch(
-  trial: LastMetersTrial,
   input: PanoramaMatchingInput,
   panoramaOverview: ContentPart[],
   target: PanoramaWithMapBearing,
+  timeRequest: (work: () => Promise<OpenAI.Chat.ChatCompletion>) => Promise<OpenAI.Chat.ChatCompletion>,
 ) {
   const prompt = destinationPrompt(input, target);
   const startedAt = Date.now();
-  trial.moduleTimer.start("moduleC");
-  const request = getOpenAIClient().chat.completions.create({
+  const request = timeRequest(() => getOpenAIClient().chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
       { role: "system", content: prompt },
@@ -472,8 +472,7 @@ function startDestinationMatch(
     ],
     temperature: 0.0,
     max_tokens: 12,
-  }).then(response => ({ response, durationMs: Date.now() - startedAt }))
-    .finally(() => trial.moduleTimer.stop("moduleC"));
+  })).then(response => ({ response, durationMs: Date.now() - startedAt }));
   // Observe errors even if a compass conflict returns before Step 2 is used.
   void request.catch(() => undefined);
   return { prompt, request };
@@ -487,8 +486,6 @@ async function readDestinationMatch(
 ): Promise<number | null> {
   const { panorama, expectedTargetHeading } = target;
   const { response: step2Response, durationMs: step2DurationMs } = await destinationMatch.request;
-  // Resume after the request settles, excluding any extra wait for Module B.
-  trial.moduleTimer.start("moduleC");
   const step2Text = step2Response.choices[0].message.content?.trim() || "";
   const visuallyMatchedTargetHeading = parseLastMetersHeading(step2Text);
   const targetHeading = resolveVerifiedTargetHeading(

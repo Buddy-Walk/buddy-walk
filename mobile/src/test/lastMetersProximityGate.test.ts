@@ -1,3 +1,4 @@
+import { resolveLastMetersStep } from "./resolveLastMetersStep";
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { passProximityGate, resolveProximityGate, type ProximityGateInput } from "../../server/services/lastMetersProximityGate";
@@ -107,7 +108,7 @@ async function gateTrial(t: TestContext, changes: Partial<ProximityGateInput>) {
   });
   const firstPanorama = Promise.reject(Object.assign(new Error("No panorama"), { code: "STREET_VIEW_NO_VALIDATED_OUTDOOR_PANORAMA" }));
   firstPanorama.catch(() => undefined);
-  const result = await passProximityGate(trial, {
+  const result = await resolveLastMetersStep(await passProximityGate(trial, {
     request,
     destinationQuery: "McDonald's",
     place: DESTINATION,
@@ -116,7 +117,7 @@ async function gateTrial(t: TestContext, changes: Partial<ProximityGateInput>) {
     firstPanorama,
     analysisGate: strictGate,
     ...changes,
-  });
+  }));
   /** End the Trial if the gate did not, so its saved row shows what the gate logged. */
   const saved = async () => {
     if (result.kind === "ok") await trial.answer({}, { success: true });

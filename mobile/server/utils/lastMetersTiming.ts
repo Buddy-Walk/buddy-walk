@@ -1,9 +1,12 @@
 import { performance } from "node:perf_hooks";
 
-export type LastMetersModule = "step0" | "moduleB" | "moduleC" | "moduleD" | "moduleE";
+export type LastMetersModule = "preCheck" | "currentViewMatch" | "destinationMatch" | "turnDecision" | "guidance";
+/** Missing means skipped or unfinished, never zero. UI labels are mapped by buildModules. */
 export type LastMetersModuleTimings = Partial<Record<LastMetersModule, number>>;
 
-/** Independent elapsed times; a module can pause while another module runs. */
+/** Completed stretches accumulate; different modules may overlap in wall-clock time.
+ * Stretches of the same module run in sequence; parallel backups share one stretch.
+ */
 export function createLastMetersModuleTimer(now = () => performance.now()) {
   const started = new Map<LastMetersModule, number>();
   const durations: LastMetersModuleTimings = {};
@@ -20,13 +23,21 @@ export function createLastMetersModuleTimer(now = () => performance.now()) {
   };
 
   return {
-    start,
-    stop,
-    // Close unfinished work when a trial fails or returns early. Late promise
-    // callbacks must not change the timings already saved with that trial.
+    async time<T>(name: LastMetersModule, work: () => Promise<T>): Promise<T> {
+      start(name);
+      try {
+        return await work();
+      } finally {
+        stop(name);
+      }
+    },
     finish(): LastMetersModuleTimings {
-      for (const name of started.keys()) stop(name);
+      // A pending request has no full timing. Earlier stretches alone would
+      // also misrepresent its module's total, so omit the whole module.
+      for (const name of started.keys()) delete durations[name];
+      started.clear();
       finished = true;
+      // Late async completions cannot modify this snapshot or restart timers.
       return Object.fromEntries(Object.entries(durations).map(([name, ms]) =>
         [name, Math.round(ms * 100) / 100],
       ));

@@ -1,3 +1,4 @@
+import { resolveLastMetersStep } from "./resolveLastMetersStep";
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import axios from "axios";
@@ -78,7 +79,7 @@ function arrange(t: TestContext, google: Google) {
 test("verifyDestination returns the nearest matching place and logs the candidates it ranked", async t => {
   const { trial, saved } = arrange(t, { places: [place(NEAR)] });
 
-  const result = await verifyDestination(trial, REQUEST, "McDonald's");
+  const result = await resolveLastMetersStep(await verifyDestination(trial, REQUEST, "McDonald's"));
 
   assert.equal(result.kind, "ok");
   const destination = result.kind === "ok" ? result.value : assert.fail();
@@ -95,7 +96,7 @@ test("verifyDestination returns the nearest matching place and logs the candidat
 test("verifyDestination ends the run when no nearby place matches, saving what Google searched", async t => {
   const { trial, rows } = arrange(t, { places: [] });
 
-  const result = await verifyDestination(trial, REQUEST, "McDonald's");
+  const result = await resolveLastMetersStep(await verifyDestination(trial, REQUEST, "McDonald's"));
 
   assert.equal(result.kind, "exit");
   const answer = result.kind === "exit" ? result.result : assert.fail();
@@ -115,7 +116,7 @@ test("verifyDestination ends the run when no nearby place matches, saving what G
 test("verifyDestination ends the run when Google Places fails, saving the error", async t => {
   const { trial, rows } = arrange(t, { places: [], failure: new Error("Request failed with status code 503") });
 
-  const result = await verifyDestination(trial, REQUEST, "McDonald's");
+  const result = await resolveLastMetersStep(await verifyDestination(trial, REQUEST, "McDonald's"));
 
   assert.equal(result.kind === "exit" && result.result.kind === "response" && result.result.body.warning, "destination_not_verified");
   assert.deepEqual(rows[0].dataSources, [], "no Places answer, so no Places source");
@@ -125,7 +126,7 @@ test("verifyDestination ends the run when Google Places fails, saving the error"
 test("verifyDestination asks for the street address when another branch is about as close", async t => {
   const { trial, rows } = arrange(t, { places: [place(NEAR), place({ lat: 40.70046, lng: -74 }, "mcdonalds-two", "12 Test Street")] });
 
-  const result = await verifyDestination(trial, REQUEST, "McDonald's");
+  const result = await resolveLastMetersStep(await verifyDestination(trial, REQUEST, "McDonald's"));
 
   assert.equal(result.kind, "exit");
   const answer = result.kind === "exit" ? result.result : assert.fail();
@@ -139,7 +140,7 @@ test("verifyDestination ignores a permanently closed branch at the same distance
     places: [place(NEAR), place({ lat: 40.70046, lng: -74 }, "mcdonalds-two", "12 Test Street", { business_status: "CLOSED_PERMANENTLY" })],
   });
 
-  const result = await verifyDestination(trial, REQUEST, "McDonald's");
+  const result = await resolveLastMetersStep(await verifyDestination(trial, REQUEST, "McDonald's"));
 
   assert.equal(result.kind === "ok" && result.value.placeId, "mcdonalds");
 });

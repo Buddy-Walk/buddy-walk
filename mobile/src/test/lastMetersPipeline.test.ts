@@ -75,12 +75,12 @@ for (const scenario of ["conflict", "stale", "second-panorama", "parallel-fallba
     assert.equal(answer.testLogId, "trial-test");
     assert.equal(logged.runKind, "field");
     const expectedModules = ["ambiguous", "missing-sensors"].includes(scenario)
-      ? ["step0"]
+      ? ["preCheck"]
       : ["conflict", "stale"].includes(scenario)
-        ? ["step0", "moduleB", "moduleC"]
+        ? ["preCheck", "currentViewMatch", "destinationMatch"]
         : scenario === "verified-turn"
-          ? ["step0", "moduleB", "moduleC", "moduleD", "moduleE"]
-          : ["step0", "moduleB", "moduleC", "moduleD"];
+          ? ["preCheck", "currentViewMatch", "destinationMatch", "turnDecision", "guidance"]
+          : ["preCheck", "currentViewMatch", "destinationMatch", "turnDecision"];
     assert.deepEqual(Object.keys(logged.moduleTimingsMs).sort(), expectedModules.sort());
     for (const ms of Object.values(logged.moduleTimingsMs)) {
       assert.ok(typeof ms === "number" && Number.isFinite(ms) && ms >= 0);

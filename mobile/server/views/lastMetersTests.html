@@ -614,6 +614,7 @@
     function buildModules(test) {
       var steps = test.steps || [];
       var timings = test.moduleTimingsMs || {};
+      var step0_candidates = findStep(steps, 'destination_candidates');
       var step0_input = findStep(steps, 'input_classification');
       var step0_proximity = findStep(steps, 'proximity_gate');
       var step0_entrances = findStep(steps, 'building_entrances');
@@ -643,19 +644,20 @@
       return {
         step0: {
           status: step0_proximity ? 'pass' : 'na',
-          durationMs: timings.step0,
+          durationMs: timings.preCheck != null ? timings.preCheck : timings.step0,
           title: 'Step 0 · Geometric Reasoning & Pre-check',
           metrics: [
             ['Input', step0_input ? step0_input.response : '—'],
+            ['Destination verification', step0_candidates ? step0_candidates.response : '—'],
             ['Approach Gate', step0_proximity ? step0_proximity.response : '—'],
             ['Building entrances', step0_entrances ? step0_entrances.response : 'Not used (single map pin)'],
             ['Heading Alignment', step0_headingAlignment ? step0_headingAlignment.response : '—']
           ],
-          raw: [step0_input, step0_proximity, step0_entrances, step0_headingAlignment].filter(Boolean)
+          raw: [step0_input, step0_candidates, step0_proximity, step0_entrances, step0_headingAlignment].filter(Boolean)
         },
         moduleB: {
           status: modBStatus,
-          durationMs: timings.moduleB,
+          durationMs: timings.currentViewMatch != null ? timings.currentViewMatch : timings.moduleB,
           title: 'Module B · User Image Localization',
           metrics: [
             ['Panorama matched heading', test.panoramaMatchedHeading != null ? test.panoramaMatchedHeading + '°' : '—'],
@@ -667,7 +669,7 @@
         },
         moduleC: {
           status: modCStatus,
-          durationMs: timings.moduleC,
+          durationMs: timings.destinationMatch != null ? timings.destinationMatch : timings.moduleC,
           title: 'Module C · Destination Localization',
           metrics: [
             ['Panorama search', modC_target ? (modC_target.response || '—') : '—'],
@@ -680,7 +682,7 @@
         },
         moduleD: {
           status: modDStatus,
-          durationMs: timings.moduleD,
+          durationMs: timings.turnDecision != null ? timings.turnDecision : timings.moduleD,
           title: 'Module D · Confidence Fusion',
           metrics: [
             ['GPS Accuracy', test.gpsAccuracyMeters != null ? Math.round(test.gpsAccuracyMeters) + ' m' : '—'],
@@ -692,7 +694,7 @@
         },
         moduleE: {
           status: modEStatus,
-          durationMs: timings.moduleE,
+          durationMs: timings.guidance != null ? timings.guidance : timings.moduleE,
           title: 'Module E · Guidance Generation',
           metrics: [
             ['Calculated Turn', test.turnInstruction || '—'],
@@ -721,9 +723,9 @@
       
       return (
         '<div class="module-block">' +
-          '<div class="module-head"><span>' + esc(moduleData.title) + '</span>' + badge(moduleData.status) + '</div>' +
-          '<div class="module-metric"><b>Runtime:</b> ' +
-            (typeof moduleData.durationMs === 'number' ? esc(moduleData.durationMs) + ' ms' : '—') + '</div>' +
+          '<div class="module-head"><span>' + esc(moduleData.title) + ' — Runtime: ' +
+            (typeof moduleData.durationMs === 'number' && Number.isFinite(moduleData.durationMs) ? esc(Math.round(moduleData.durationMs)) + ' ms' : '—') +
+            '</span>' + badge(moduleData.status) + '</div>' +
           metricsHtml + rawHtml +
         '</div>'
       );

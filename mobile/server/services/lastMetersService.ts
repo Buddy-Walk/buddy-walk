@@ -62,54 +62,58 @@ export class LastMetersService {
     const turnSensorReasons = () =>
       guidancePolicy.turnSensorReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime);
 
-    // Identify field policy changes separately from the shared pipeline and replay schema versions.
-    if (guidancePolicy.version) trial.step({
-      name: "mobile_guidance_policy", prompt: "Analyze the capture before applying turn-only prerequisites.",
-      response: guidancePolicy.version, model: "mobile-field-policy", success: true,
-    });
-    const initialSensorReasons = guidancePolicy.initialSensorReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow());
-    if (initialSensorReasons.length) return trial.withhold(initialSensorReasons);
+    // Keep classification and initial sensor exits outside the main failure handler.
+    // Both pre-check stretches accumulate under one business name.
+    const input = await trial.moduleTimer.time("preCheck", async () => {
+      if (guidancePolicy.version) trial.step({
+        name: "mobile_guidance_policy", prompt: "Analyze the capture before applying turn-only prerequisites.",
+        response: guidancePolicy.version, model: "mobile-field-policy", success: true,
+      });
+      const initialSensorReasons = guidancePolicy.initialSensorReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow());
+      if (initialSensorReasons.length) return { kind: "exit" as const, respond: () => trial.withhold(initialSensorReasons) };
 
-    logRequest(request, image);
-    const input = await classifyInput(trial, request, image);
-    if (input.kind === "exit") return input.result;
+      logRequest(request, image);
+      return classifyInput(trial, request, image);
+    });
+    if (input.kind === "exit") return input.respond();
     const destinationQuery = input.value;
 
     try {
-      const destinationResult = await verifyDestination(trial, request, destinationQuery);
-      if (destinationResult.kind === "exit") return destinationResult.result;
-      const place = destinationResult.value;
+      const prepared = await trial.moduleTimer.time("preCheck", async () => {
+        const destinationResult = await verifyDestination(trial, request, destinationQuery);
+        if (destinationResult.kind === "exit") return destinationResult;
+        const place = destinationResult.value;
 
-      const panoramaSearch = startPanoramaSearch(trial, { lat, lng }, pinnedPanorama);
-      const { entrance, closedNotice } = await findEntrance(trial, request, place);
-
-      const proximity = await passProximityGate(trial, {
-        request, destinationQuery, place, entrance, closedNotice,
-        firstPanorama: panoramaSearch.first, analysisGate: guidancePolicy.analysisGate,
+        const panoramaSearch = startPanoramaSearch(trial, { lat, lng }, pinnedPanorama);
+        const { entrance, closedNotice } = await findEntrance(trial, request, place);
+        const proximity = await passProximityGate(trial, {
+          request, destinationQuery, place, entrance, closedNotice,
+          firstPanorama: panoramaSearch.first, analysisGate: guidancePolicy.analysisGate,
+        });
+        if (proximity.kind === "exit") return proximity;
+        return { kind: "ok" as const, value: {
+          place, panoramaSearch, entrance, closedNotice, destinationBearing: proximity.value.headingAlignment.destinationBearing,
+        } };
       });
-      if (proximity.kind === "exit") return proximity.result;
-      const { destinationBearing } = proximity.value.headingAlignment;
+      if (prepared.kind === "exit") return await prepared.respond();
+      const { place, panoramaSearch, entrance, closedNotice, destinationBearing } = prepared.value;
 
-      trial.moduleTimer.stop("step0");
       const matching = await matchPanoramaHeadings(trial, {
         request, image, destinationQuery, place, entrance, closedNotice, search: panoramaSearch,
       });
-      if (matching.kind === "exit") return matching.result;
+      if (matching.kind === "exit") return await matching.respond();
       const headings = matching.value;
 
-      trial.moduleTimer.start("moduleD");
-      const turn = await decideTurn(trial, {
+      const turn = await trial.moduleTimer.time("turnDecision", () => decideTurn(trial, {
         request, entrance, headings, guidanceHeading, turnReasons: guidancePolicy.turnReasons, sensorReasons: turnSensorReasons,
-      });
-      trial.moduleTimer.stop("moduleD");
+      }));
       if (turn.kind === "withhold") return await trial.withhold(turn.reasons, TURN_NOT_VERIFIED_MESSAGE);
       const { turnHeading, confidence, walkingEvidence } = turn;
 
-      trial.moduleTimer.start("moduleE");
-      const { turnInstruction, finalOutput } = await composeGuidance(trial, {
+      const { turnInstruction, finalOutput } = await trial.moduleTimer.time("guidance", () => composeGuidance(trial, {
         request, image, place, entrance, destinationBearing, turnHeading, walkingEvidence,
         reference: headings.reference, panoramaDate: headings.panorama.metadata.date, closedNotice, policy: guidancePolicy,
-      });
+      }));
 
       const lateReasons = turnSensorReasons();
       if (lateReasons.length) return await trial.withhold(lateReasons);

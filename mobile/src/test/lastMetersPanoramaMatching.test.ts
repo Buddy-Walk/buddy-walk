@@ -1,3 +1,4 @@
+import { resolveLastMetersStep } from "./resolveLastMetersStep";
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
 import { setImmediate as nextTurn } from "node:timers/promises";
@@ -151,8 +152,7 @@ async function match(t: TestContext, given: World) {
   };
   t.mock.method(console, "log", () => undefined);
 
-  trial.moduleTimer.stop("step0");
-  const result = await matchPanoramaHeadings(trial, input);
+  const result = await resolveLastMetersStep(await matchPanoramaHeadings(trial, input));
 
   /** End the Trial if matching did not, so its saved row shows what matching logged. */
   const saved = async () => {
@@ -193,10 +193,10 @@ test("parallel matching excludes C's idle wait for B from the saved replay timin
   assert.equal(result.kind, "ok");
   const row = await saved();
   assert.equal(row.runKind, "replay");
-  assert.deepEqual(row.moduleTimingsMs, { step0: 0, moduleB: 100, moduleC: 20 });
+  assert.deepEqual(row.moduleTimingsMs, { currentViewMatch: 100, destinationMatch: 20 });
 });
 
-test("a compass conflict freezes a pending C request when the trial ends", { timeout: 5000 }, async t => {
+test("a compass conflict omits pending C timing and ignores its late completion", { timeout: 5000 }, async t => {
   let clock = 0;
   t.mock.method(performance, "now", () => clock);
   const finishDestination = signal();
@@ -209,11 +209,11 @@ test("a compass conflict freezes a pending C request when the trial ends", { tim
   }));
   assert.equal(result.kind, "exit");
   const row = await saved();
-  assert.deepEqual(row.moduleTimingsMs, { step0: 0, moduleB: 40, moduleC: 40 });
+  assert.deepEqual(row.moduleTimingsMs, { currentViewMatch: 40 });
   clock = 250;
   finishDestination.resolve();
   await nextTurn();
-  assert.deepEqual(row.moduleTimingsMs, { step0: 0, moduleB: 40, moduleC: 40 });
+  assert.deepEqual(row.moduleTimingsMs, { currentViewMatch: 40 });
 });
 
 test("matching a second panorama accumulates B and C instead of replacing the first attempt", async t => {
@@ -228,7 +228,47 @@ test("matching a second panorama accumulates B and C instead of replacing the fi
   assert.equal(result.kind, "ok");
   const row = await saved();
   assert.equal(row.panoId, "pano-2");
-  assert.deepEqual(row.moduleTimingsMs, { step0: 0, moduleB: 20, moduleC: 20 });
+  assert.deepEqual(row.moduleTimingsMs, { currentViewMatch: 10, destinationMatch: 20 });
+});
+
+test("a missing compass also omits a pending C request", { timeout: 5000 }, async t => {
+  let clock = 0;
+  t.mock.method(performance, "now", () => clock);
+  const finishDestination = signal();
+  const { result, saved } = await match(t, world({
+    deviceHeading: undefined,
+    beforeVisionResponse: async vision => {
+      if (vision === "destination") await finishDestination.promise;
+      if (vision === "currentView") clock = 40;
+    },
+  }));
+  assert.equal(result.kind, "exit");
+  const row = await saved();
+  assert.deepEqual(row.moduleTimingsMs, { currentViewMatch: 40 });
+  clock = 250; finishDestination.resolve(); await nextTurn();
+  assert.deepEqual(row.moduleTimingsMs, { currentViewMatch: 40 });
+});
+
+test("parallel 2B and 2C backups count their shared elapsed time once", { timeout: 5000 }, async t => {
+  let clock = 0;
+  t.mock.method(performance, "now", () => clock);
+  const referenceStarted = signal();
+  const signStarted = signal();
+  const endReference = signal();
+  const endSign = signal();
+  const pending = match(t, world({
+    vision: { currentView: ["90"], destination: ["NOT_VISIBLE"], reference: ["VISIBLE"], signText: ["NO_TEXT"] },
+    beforeVisionResponse: async vision => {
+      if (vision === "reference") { referenceStarted.resolve(); await endReference.promise; }
+      if (vision === "signText") { signStarted.resolve(); await endSign.promise; }
+    },
+  }));
+  await Promise.all([referenceStarted.promise, signStarted.promise]);
+  clock = 20; endReference.resolve(); await nextTurn();
+  clock = 50; endSign.resolve();
+  const { result, saved } = await pending;
+  assert.equal(result.kind, "ok");
+  assert.deepEqual((await saved()).moduleTimingsMs, { currentViewMatch: 0, destinationMatch: 50 });
 });
 
 test("matchPanoramaHeadings finds the user's heading and the destination in the first panorama", async t => {

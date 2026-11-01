@@ -3,6 +3,10 @@ import test, { snapshot, type TestContext } from "node:test";
 import axios from "axios";
 import OpenAI from "openai";
 import sharp from "sharp";
+import { performance } from "node:perf_hooks";
+import { LastMetersTrial } from "../../server/services/lastMetersTrial";
+import { strictLastMetersGuidancePolicy } from "../../server/utils/lastMetersGuidancePolicy";
+import type { LastMetersModuleTimings } from "../../server/utils/lastMetersTiming";
 import { LastMetersService } from "../../server/services/lastMetersService";
 import { MobileLastMetersService } from "../../server/services/mobileLastMeters";
 import { lastMetersTestLogService } from "../../server/services/lastMetersTestLog";
@@ -118,7 +122,7 @@ function comparable(value: unknown): unknown {
 }
 
 /** Run one app request against the faked providers and collect everything it answered and saved. */
-async function runExit(t: TestContext, policy: Policy, world: World) {
+async function runExit(t: TestContext, policy: Policy, world: World, checkTimings?: (timings: LastMetersModuleTimings) => void) {
   t.mock.timers.enable({ apis: ["Date"], now: NOW });
   setTestEnv(t, { GOOGLE_MAPS_API_KEY: "test-maps", OPENAI_API_KEY: "test-openai" });
   const jpeg = await photoJpeg;
@@ -144,8 +148,9 @@ async function runExit(t: TestContext, policy: Policy, world: World) {
   t.mock.method(lastMetersTestLogService, "record", async (row: unknown) => {
     // Keep characterization snapshots stable, but verify every exit saves its timings.
     const timings = (row as { moduleTimingsMs: Record<string, number> }).moduleTimingsMs;
-    assert.equal(typeof timings.step0, "number");
+    assert.equal(typeof timings.preCheck, "number");
     for (const ms of Object.values(timings)) assert.ok(Number.isFinite(ms) && ms >= 0);
+    checkTimings?.(timings);
     trials.push(row);
     return `trial-${trials.length}`;
   });
@@ -287,3 +292,79 @@ for (const exit of exits) {
     });
   }
 }
+
+test("guidance stops before the answer is assembled and saved", async t => {
+  let clock = 0;
+  t.mock.method(performance, "now", () => clock);
+  const world = verifiedTurnWorld();
+  world.duringGuidance = () => { clock = 25; };
+  const answer = LastMetersTrial.prototype.answer;
+  t.mock.method(LastMetersTrial.prototype, "answer", function (this: LastMetersTrial, ...args: Parameters<typeof answer>) {
+    clock = 1_000;
+    return answer.apply(this, args);
+  });
+  let recorded = false;
+  await runExit(t, "strict", world, timings => {
+    recorded = true;
+    assert.equal(timings.guidance, 25);
+    assert.equal(timings.turnDecision, 0);
+  });
+  assert.ok(recorded);
+});
+
+for (const module of ["guidance", "turnDecision"] as const) {
+  test(`${module} keeps its runtime when work throws before the failure is saved`, async t => {
+    let clock = 0;
+    t.mock.method(performance, "now", () => clock);
+    const world = verifiedTurnWorld();
+    if (module === "guidance") {
+      world.duringGuidance = () => { clock = 25; };
+      world.vision.landmarks = new Error("Guidance provider failed");
+    } else {
+      t.mock.method(strictLastMetersGuidancePolicy, "turnReasons", () => {
+        clock = 25; throw new Error("Turn decision failed");
+      });
+    }
+    const fail = LastMetersTrial.prototype.fail;
+    t.mock.method(LastMetersTrial.prototype, "fail", function (this: LastMetersTrial, error: unknown) {
+      clock = 1_000;
+      return fail.call(this, error);
+    });
+    let recorded = false;
+    const result = await runExit(t, "strict", world, timings => {
+      recorded = true;
+      assert.equal(timings[module], 25);
+    }) as { answer: { status: number } };
+    assert.equal(result.answer.status, 502);
+    assert.ok(recorded);
+  });
+}
+
+test("classification errors stay outside the pipeline failure handler", async t => {
+  const error = new Error("Classification failed");
+  const step = LastMetersTrial.prototype.step;
+  t.mock.method(LastMetersTrial.prototype, "step", function (this: LastMetersTrial, value: Parameters<typeof step>[0]) {
+    if (value.name === "input_classification") throw error;
+    step.call(this, value);
+  });
+  const fail = t.mock.method(LastMetersTrial.prototype, "fail");
+  await assert.rejects(runExit(t, "strict", verifiedTurnWorld(), () => assert.fail("must not save a failed Trial here")), e => e === error);
+  assert.equal(fail.mock.callCount(), 0);
+});
+
+test("pre-check errors after classification still save a failed Trial with completed timing", async t => {
+  let clock = 0;
+  t.mock.method(performance, "now", () => clock);
+  const note = LastMetersTrial.prototype.note;
+  t.mock.method(LastMetersTrial.prototype, "note", function (this: LastMetersTrial, facts: Parameters<typeof note>[0]) {
+    if (facts.entrance) { clock = 30; throw new Error("Entrance failed"); }
+    note.call(this, facts);
+  });
+  let recorded = false;
+  const result = await runExit(t, "strict", verifiedTurnWorld(), timings => {
+    recorded = true;
+    assert.deepEqual(timings, { preCheck: 30 });
+  }) as { answer: { status: number } };
+  assert.equal(result.answer.status, 502);
+  assert.ok(recorded);
+});
