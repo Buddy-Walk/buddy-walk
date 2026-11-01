@@ -75,7 +75,7 @@ export async function verifyDestination(
       buildLastMetersSourceNote(null);
     return {
       kind: "exit",
-      result: await trial.answer({ warning: "destination_not_verified" }, {
+      respond: () => trial.answer({ warning: "destination_not_verified" }, {
         finalOutput,
         success: false,
         error: "destination_not_verified",
@@ -89,7 +89,7 @@ export async function verifyDestination(
   if (ambiguity.length) {
     return {
       kind: "exit",
-      result: await trial.withhold(["destination_branch_ambiguous"], `I found more than one nearby ${destinationQuery}. Please specify the street address: ${verifiedDestination.placeAddress} or ${ambiguity.slice(0, 2).map(c => c.address).join(" or ")}.`),
+      respond: () => trial.withhold(["destination_branch_ambiguous"], `I found more than one nearby ${destinationQuery}. Please specify the street address: ${verifiedDestination.placeAddress} or ${ambiguity.slice(0, 2).map(c => c.address).join(" or ")}.`),
     };
   }
   return { kind: "ok", value: verifiedDestination };

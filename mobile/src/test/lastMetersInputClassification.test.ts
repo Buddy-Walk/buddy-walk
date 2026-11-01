@@ -1,3 +1,4 @@
+import { resolveLastMetersStep } from "./resolveLastMetersStep";
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { classifyInput } from "../../server/services/lastMetersInputClassification";
@@ -24,7 +25,7 @@ async function classify(t: TestContext, destination: string) {
     options: { retry: { retryOf: "original-1", panoramaMode: "fresh", defaultsApplied: [], replayInput: { receivedAt: NOW } as any } },
     policy: strictLastMetersGuidancePolicy,
   });
-  const result = await classifyInput(trial, request, PHOTO);
+  const result = await resolveLastMetersStep(await classifyInput(trial, request, PHOTO));
   /** End the Trial if classifying did not, so its saved row shows what it logged. */
   const saved = async () => {
     if (result.kind === "ok") await trial.answer({}, { success: true });

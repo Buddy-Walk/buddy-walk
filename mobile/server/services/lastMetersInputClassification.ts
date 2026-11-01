@@ -33,7 +33,7 @@ export async function classifyInput(
       );
     return {
       kind: "exit",
-      result: await trial.question({
+      respond: () => trial.question({
         text: destination,
         image: asksAboutSurroundings && image ? [image] : undefined,
         coords: {
