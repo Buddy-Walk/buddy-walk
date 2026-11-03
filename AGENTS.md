@@ -16,8 +16,3 @@ See `docs/agents/triage-labels.md`.
 
 Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root.
 See `docs/agents/domain.md`.
-
-### Team handbook
-
-Human-facing map of the product and how we work: `docs/team/`.
-Not published to GitHub Pages.
