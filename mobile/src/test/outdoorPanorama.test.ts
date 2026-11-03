@@ -231,3 +231,42 @@ test("panorama grid includes all sixteen tiles and decimal labels render", async
   const dotOffset = (46 * 640 + 425) * 4;
   assert.equal(label[dotOffset], 255);
 });
+
+/** Answers each metadata lookup with the camera for its lookup point's distance from the user at 40.7,-74. */
+function camerasAround(nearest: object, preview: Buffer) {
+  const cameras: Record<number, object> = {
+    0: nearest,
+    // About 6 meters south of the user, and 28 meters north across the street.
+    10: { ...metadata, pano_id: "beside", location: { lat: 40.69995, lng: -74 } },
+    30: { ...metadata, pano_id: "across", location: { lat: 40.70025, lng: -74 } },
+  };
+  const probeMeters: number[] = [];
+  const get = async (url: string, options: any) => {
+    if (!url.endsWith("/metadata")) return { data: preview };
+    const [probeLat, probeLng] = options.params.location.split(",").map(Number);
+    const meters = Math.round(Math.hypot((probeLat - 40.7) * 111_320, (probeLng + 74) * 111_320 * Math.cos(40.7 * Math.PI / 180)));
+    probeMeters.push(meters);
+    return { data: cameras[meters] };
+  };
+  return { get, probeMeters };
+}
+
+test("a contributor photosphere nearest the user leads to the Google camera beside them, not one 30 meters away", async (t) => {
+  const preview = await sharp({ create: { width: 640, height: 640, channels: 3, background: "#123456" } }).jpeg().toBuffer();
+  const { get, probeMeters } = camerasAround({ ...metadata, pano_id: "photosphere", copyright: "Contributor" }, preview);
+  t.mock.method(axios, "get", get);
+  const result = await selectOutdoorPanorama(40.7, -74, "unit-test", async () => "outdoor");
+  assert.equal(result.metadata.pano_id, "beside");
+  assert.deepEqual(probeMeters, [0, 10]);
+  assert.deepEqual(result.attempts.map(a => [a.status, a.distanceMeters]), [["metadata_rejected", undefined], ["accepted", 6]]);
+});
+
+test("moving on from a panorama already evaluated still looks 30 meters away", async (t) => {
+  const preview = await sharp({ create: { width: 640, height: 640, channels: 3, background: "#123456" } }).jpeg().toBuffer();
+  const { get, probeMeters } = camerasAround({ ...metadata, pano_id: "evaluated" }, preview);
+  t.mock.method(axios, "get", get);
+  const budget = { seen: new Set(["evaluated"]), deadline: Date.now() + 45_000 };
+  const result = await selectOutdoorPanorama(40.7, -74, "unit-test", async () => "outdoor", undefined, budget);
+  assert.equal(result.metadata.pano_id, "across");
+  assert.deepEqual(probeMeters, [0, 30]);
+});
