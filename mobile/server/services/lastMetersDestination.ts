@@ -12,6 +12,7 @@ import {
   usesBuildingEntrances,
   type BuildingGeometry,
 } from "../utils/buildingEntrances";
+import { candidatesAtOtherAddresses } from "../utils/nearbyPlaces";
 import { getGoogleMapsApiKey } from "./googleMaps";
 import {
   DestinationNotVerifiedError,
@@ -83,7 +84,7 @@ export async function verifyDestination(
     };
   }
 
-  const ambiguity = (verifiedDestination.placeCandidates || []).filter(candidate => candidate.relevant &&
+  const ambiguity = candidatesAtOtherAddresses(verifiedDestination.placeCandidates || [], verifiedDestination.placeAddress).filter(candidate => candidate.relevant &&
     candidate.placeId !== verifiedDestination.placeId && candidate.businessStatus !== "CLOSED_PERMANENTLY" &&
     candidate.distanceMeters <= verifiedDestination.distanceMeters + Math.max(20, gpsAccuracyMeters ?? 20));
   if (ambiguity.length) {
