@@ -83,6 +83,21 @@ function normalizeMatchText(value: string): string {
     .trim();
 }
 
+/**
+ * Candidates at a different street address from `address`. Google lists a
+ * store and its counters or co-brands at one address ("Target", "Target
+ * Grocery"), and those are one building rather than separate branches.
+ */
+export function candidatesAtOtherAddresses(
+  candidates: PlaceCandidateLog[],
+  address: string
+): PlaceCandidateLog[] {
+  const ownAddress = normalizeMatchText(address);
+  return candidates.filter(
+    (candidate) => ownAddress === "" || normalizeMatchText(candidate.address) !== ownAddress
+  );
+}
+
 /** Optimal string alignment distance (Levenshtein plus adjacent swaps). */
 export function editDistance(a: string, b: string): number {
   const rows = a.length + 1;

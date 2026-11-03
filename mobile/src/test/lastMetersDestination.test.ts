@@ -145,6 +145,31 @@ test("verifyDestination ignores a permanently closed branch at the same distance
   assert.equal(result.kind === "ok" && result.value.placeId, "mcdonalds");
 });
 
+test("verifyDestination treats another listing at the destination's address as the same building", async t => {
+  // Like "Target" and "Target Grocery", both listed at 255 Greenwich St.
+  const { trial } = arrange(t, {
+    places: [place(NEAR), place({ lat: 40.70046, lng: -74 }, "mcdonalds-express", "10 Test Street", { name: "McDonald's Express" })],
+  });
+
+  const result = await resolveLastMetersStep(await verifyDestination(trial, REQUEST, "McDonald's"));
+
+  assert.equal(result.kind === "ok" && result.value.placeId, "mcdonalds");
+});
+
+test("verifyDestination names only another branch's address when the destination's building has two listings", async t => {
+  const { trial } = arrange(t, { places: [
+    place(NEAR),
+    place({ lat: 40.70046, lng: -74 }, "mcdonalds-express", "10 Test Street", { name: "McDonald's Express" }),
+    place({ lat: 40.70047, lng: -74 }, "mcdonalds-two", "12 Test Street"),
+  ] });
+
+  const result = await resolveLastMetersStep(await verifyDestination(trial, REQUEST, "McDonald's"));
+
+  const answer = result.kind === "exit" ? result.result : assert.fail();
+  assert.equal(answer.kind === "response" && answer.body.output,
+    "I found more than one nearby McDonald's. Please specify the street address: 10 Test Street or 12 Test Street.");
+});
+
 test("findEntrance aims at the map pin when Google lists no building", async t => {
   const { trial, requests, saved } = arrange(t, { places: [] });
 

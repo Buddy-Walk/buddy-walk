@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  candidatesAtOtherAddresses,
   describeNearbyPlaceCandidates,
   editDistance,
   extractNearbyPlaceQuery,
@@ -289,4 +290,13 @@ test("signTextMatchesPlaceName confirms only signs that name the destination", (
   assert.equal(signTextMatchesPlaceName("CITIZENS BANK", "Citi"), false);
   assert.equal(signTextMatchesPlaceName("PIZZA", "Frank's Pizza"), false);
   assert.equal(signTextMatchesPlaceName("NO_TEXT", "Subway"), false);
+});
+
+test("candidatesAtOtherAddresses drops listings at the same street address, ignoring case and punctuation", () => {
+  const candidate = (placeId: string, address: string) =>
+    ({ placeId, name: "Target", address, distanceMeters: 60, types: [], relevant: true, source: "nearby" });
+  const candidates = [candidate("grocery", "255 greenwich st., New York"), candidate("soho", "600 Broadway, New York")];
+  assert.deepEqual(candidatesAtOtherAddresses(candidates, "255 Greenwich St, New York").map((c) => c.placeId), ["soho"]);
+  // Without an address to compare, every candidate may be another branch.
+  assert.deepEqual(candidatesAtOtherAddresses(candidates, "").map((c) => c.placeId), ["grocery", "soho"]);
 });
