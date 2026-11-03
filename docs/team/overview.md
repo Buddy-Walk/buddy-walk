@@ -51,6 +51,6 @@ Do not push to `main`. Do not treat someone else's PR as a request surface.
 | Usage dashboard | `/usage?token=...` |
 | Product site | GitHub Pages from `docs/` |
 
-As of 2 November 2026 the Render service builds from this org repo's `main` (live commit `6080b6b`). Auto-deploy is off until an organization owner installs Render's GitHub app on Buddy-Walk. Until then: **Manual Deploy → Deploy latest commit**.
+As of 2 November 2026 the Render service builds from this org repo's `main`. A merge to `main` that touches `mobile/` deploys through GitHub Actions. Confirm `deployedCommit` on `/api/last-meters/review-status`.
 
-The two panorama fixes ([PR #43](https://github.com/Buddy-Walk/buddy-walk/pull/43), [PR #45](https://github.com/Buddy-Walk/buddy-walk/pull/45)) are not on `main` yet. Merging them, then a Manual Deploy, is what ships them to testers.
+The two panorama fixes ([PR #43](https://github.com/Buddy-Walk/buddy-walk/pull/43), [PR #45](https://github.com/Buddy-Walk/buddy-walk/pull/45)) are not on `main` yet. Merging them is what ships them to testers.

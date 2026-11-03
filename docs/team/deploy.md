@@ -16,10 +16,10 @@ It now builds this org repo. Testers' app builds keep working: `POST /api/last-m
 ## How a change reaches testers
 
 1. Merge the PR to `main`.
-2. On Render: **Manual Deploy → Deploy latest commit**.
+2. GitHub Actions (`Deploy buddy-walk-api`) hits the Render deploy hook. No dashboard click.
 3. Confirm `deployedCommit` on `/api/last-meters/review-status` is the merge you expect.
 
-Auto-deploy is off. Render's GitHub app only sees Raymond's personal repos. Installing it on the Buddy-Walk organization needs an **organization owner**. Until that happens, every merge needs the manual step.
+Render's own Auto-Deploy does not fire (the GitHub app is not on the Buddy-Walk org). The workflow is the auto-deploy.
 
 Do not re-sync the Blueprint on the old personal repo. That would point the service back.
 

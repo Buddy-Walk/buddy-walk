@@ -5,8 +5,7 @@ Things that have already cost us time. Read once; keep them.
 ## Production is this org repo, deployed by hand
 
 Render `buddy-walk-api` tracks `Buddy-Walk/buddy-walk` `main`.
-It does **not** auto-deploy. After merge: Manual Deploy → Deploy latest commit.
-Confirm `deployedCommit` on `/api/last-meters/review-status`.
+A merge to `main` that touches `mobile/` deploys through GitHub Actions. Confirm `deployedCommit` on `/api/last-meters/review-status`.
 
 The personal repo `Justraymond99/buddy_walk` is retired for production. Pushing there, or re-syncing its Blueprint, points testers at stale code.
 

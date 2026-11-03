@@ -50,10 +50,9 @@ No imagery within 40 meters, moving on after `destination_not_visible`, and ever
 
 On 2 November 2026 the `buddy-walk-api` Render service was switched to build `mobile/` from `Buddy-Walk/buddy-walk` `main`, connected as a public Git repository. Live commit at switch-over: `6080b6b`.
 
-Render auto-deploys only repositories connected through its GitHub app, and installing that app on the Buddy-Walk organization needs an organization owner.
-Until an owner does, deploy each merge with **Manual Deploy → Deploy latest commit**.
+A merge to `main` that touches `mobile/` deploys through GitHub Actions (`Deploy buddy-walk-api`). Confirm `deployedCommit` on `/api/last-meters/review-status`.
 
-PRs #43 and #45 are not on `main` yet. Merge them, then Manual Deploy, or testers still see the old panorama behavior.
+PRs #43 and #45 are not on `main` yet. Merge them, or testers still see the old panorama behavior.
 
 App builds already in testers' hands keep working: `POST /api/last-mile` stays as an alias of `POST /api/last-meters` (ADR 0001).
 Dashboard-only paths were renamed:
