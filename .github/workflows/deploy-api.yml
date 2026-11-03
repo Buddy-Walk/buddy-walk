@@ -1,0 +1,28 @@
+# Render's GitHub app is not installed on the Buddy-Walk org, so this service
+# is connected as a public Git URL and native Auto-Deploy never fires.
+# A push to main hits the service deploy hook instead.
+name: Deploy buddy-walk-api
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mobile/**"
+      - "render.yaml"
+      - ".github/workflows/deploy-api.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy
+        env:
+          DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEPLOY_HOOK_URL}" ]; then
+            echo "Set the RENDER_DEPLOY_HOOK_URL repository secret to the buddy-walk-api deploy hook." >&2
+            exit 1
+          fi
+          curl -fsS -X POST "${DEPLOY_HOOK_URL}?ref=${GITHUB_SHA}"
