@@ -45,7 +45,7 @@ Each run is a **Trial**. The team reviews and retries Trials on `/last-meters-te
 Retries replay the saved row; they must not write a new "live" Mongo retry path from a laptop.
 
 Characterization of every exit: `mobile/src/test/lastMetersExits.test.ts` plus its snapshot.
-Do not edit the snapshot, and do not edit Mykael's or Hanyuan's tests, to land a behavior change.
+Do not edit the snapshot to land a behavior change.
 
 ## More detail
 

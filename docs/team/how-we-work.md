@@ -40,18 +40,6 @@ If you change a pipeline:
 - Run the existing tests in `mobile/`: `npm test` (from `mobile/`, after `npm ci`).
 - Do not edit `lastMetersExits.test.ts.snapshot` unless you have regenerated it on purpose and can explain every changed exit.
 - Tests mock `axios` and the OpenAI client. Do not introduce ports/adapters for those (ADR 0002).
-- Do not edit Mykael's or Hanyuan's tests to make yours pass.
-
-## Blame before you edit
-
-On every line you delete or rewrite:
-
-```
-git blame -w -M -C -C -- path
-```
-
-If the line is Mykael's or Hanyuan's, leave it. Add a helper, wrap their call, or extend a list they do not own.
-The Nov 2 panorama fixes follow that rule: a new helper in `nearbyPlaces.ts`, and a replacement of Raymond's probe list only.
 
 ## What not to do
 

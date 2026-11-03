@@ -40,9 +40,6 @@ Buddy-Walk/buddy-walk
 Work lands through GitHub issues and pull requests on `Buddy-Walk/buddy-walk`.
 Do not push to `main`. Do not treat someone else's PR as a request surface.
 
-When you change Last Meters or Questions, preserve lines Mykael and Hanyuan wrote.
-Check `git blame -w -M -C -C` on every line you remove. Add helpers or tests around their code; do not rewrite it to make a fix tidier.
-
 ## What is live today
 
 | Thing | Where |

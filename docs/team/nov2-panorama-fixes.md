@@ -46,12 +46,6 @@ Three TD Bank Trials a minute apart got cameras 5, 6 and 28 meters away.
 After a photosphere at the user's position, the search now looks 10 meters around the user before 30 meters away.
 No imagery within 40 meters, moving on after `destination_not_visible`, and every check a camera must pass work as before.
 
-## Whose code changed
-
-Both fixes edit only lines Raymond wrote (in `816ddd0` and `97b8cce`) and add the rest.
-No line Mykael or Hanyuan wrote is edited, and their tests and the `lastMetersExits.test.ts.snapshot` characterization snapshot are unchanged.
-Checked with `git blame -w -M -C -C` on every removed line.
-
 ## Deploying
 
 On 2 November 2026 the `buddy-walk-api` Render service was switched to build `mobile/` from `Buddy-Walk/buddy-walk` `main`, connected as a public Git repository. Live commit at switch-over: `6080b6b`.

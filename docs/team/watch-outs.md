@@ -20,11 +20,6 @@ Deploy check: `/api/last-meters/review-status`.
 
 Collections, analytics feature, and a few step names. See ADR 0001. Comments in code point there on purpose.
 
-## Preserve Mykael and Hanyuan
-
-`git blame -w -M -C -C` before deleting a line.
-Do not edit their tests. Do not touch `lastMetersExits.test.ts.snapshot` to squeeze a fix through.
-
 ## Street View stays
 
 This org repo restored Street View (`97b8cce`). CONTEXT.md and the ADRs assume it.
