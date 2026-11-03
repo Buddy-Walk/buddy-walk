@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import questionRoute from "./routes/question"
 import lastMetersRoute, { mountLastMeters } from "./routes/lastMeters"
+import { mountLastMetersDashboardAliases } from "./config/lastMetersDashboardAliases"
 import chatLogRoute from "./routes/chatLog"
 import tokenRoute from "./routes/token"
 import companionRoute from "./routes/companion"
@@ -146,6 +147,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   app.use("/api/telemetry", telemetryRoute)
   app.use("/api/feedback", feedbackRoute)
   app.use("/api/last-meters-tests", lastMetersTestLogRoute)
+  app.use("/api/last-mile-tests", lastMetersTestLogRoute)
 
   app.get('/api/health', async (_req, res) => {
     const mode = describeServerMode();
@@ -257,6 +259,8 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     res.set('Cache-Control', 'no-store');
     res.type('html').send(html);
   });
+
+  mountLastMetersDashboardAliases(app);
 
   // The dashboard has no bundler; it loads uuid's browser build from here to
   // make UUIDv7 idempotency keys for retries.
