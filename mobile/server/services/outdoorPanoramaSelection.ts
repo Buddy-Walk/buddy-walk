@@ -44,11 +44,20 @@ export async function selectOutdoorPanorama(
     audit(attempt);
     console.info("[panorama-validation]", JSON.stringify(attempt));
   };
-  const latOffset = 30 / 111_320;
-  const lngOffset = latOffset / Math.cos(lat * Math.PI / 180);
-  const probes = [[lat, lng], [lat + latOffset, lng], [lat, lng + lngOffset],
-    [lat - latOffset, lng], [lat, lng - lngOffset]];
-  for (const [probeLat, probeLng] of probes) {
+  const probeRing = (meters: number) => {
+    const latOffset = meters / 111_320;
+    const lngOffset = latOffset / Math.cos(lat * Math.PI / 180);
+    return [[lat + latOffset, lng], [lat, lng + lngOffset], [lat - latOffset, lng], [lat, lng - lngOffset]];
+  };
+  function* probes() {
+    yield [lat, lng];
+    // A contributor photosphere nearest the user hides the Google camera a few
+    // meters away from a lookup at the user's own position.
+    const nearest = attempts[attempts.length - 1];
+    if (nearest?.panoId && nearest.status === "metadata_rejected") yield* probeRing(10);
+    yield* probeRing(30);
+  }
+  for (const [probeLat, probeLng] of probes()) {
     if (panoramaSearchSpent(search)) break;
     let panoId: string | undefined;
     try {
