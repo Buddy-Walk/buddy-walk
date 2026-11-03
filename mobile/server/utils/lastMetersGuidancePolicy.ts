@@ -61,6 +61,8 @@ function mobileTurnReasons(input: Parameters<typeof preciseTurnReasons>[0]): str
     if (reason === "confidence_not_high" && input.confidenceLevel === "medium") return false;
     // These results turn the user in place; they do not authorize walking along an unverified route.
     if (reason === input.walking.reason && !input.walking.verified) return false;
+    // GPS-to-pin bearing is noise at Last Meters range; a corroborated photo is the orientation evidence.
+    if (reason === "bearing_uncertainty_too_large" && input.photoMatched && input.headingAgrees === true) return false;
     return true;
   });
 }

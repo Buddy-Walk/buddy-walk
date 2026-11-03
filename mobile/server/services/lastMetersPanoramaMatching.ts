@@ -17,6 +17,7 @@ import {
 import { normalizeNearbyPlaceQuery, signTextMatchesPlaceName } from "../utils/nearbyPlaces";
 import { outdoorPanoramaRejection } from "../utils/outdoorPanorama";
 import type { LastMetersRequestInput } from "../utils/lastMetersReplay";
+import { distanceBetween } from "../../src/utils/lastMetersSafety";
 import { calculateHeading, getGoogleMapsApiKey, type LatLng } from "./googleMaps";
 import { getOpenAIClient } from "./openAIClient";
 import {
@@ -40,6 +41,11 @@ import type { DestinationReference, GuidanceTarget, LastMetersTrial, StepResult,
 
 /** Matching tries at most this many panoramas at the user's position. */
 const MAX_PANORAMAS = 3;
+/**
+ * A camera this far from the capture is a different viewpoint. An unmatched
+ * current view may be the camera, not the photo, so matching may move on.
+ */
+const CURRENT_VIEW_RETRY_CAMERA_METERS = 10;
 
 type Panorama = Awaited<ReturnType<typeof processPanoramaTiles>>;
 type HeadingComparison = ReturnType<typeof compareCompassAndPanoramaHeadings>;
@@ -141,13 +147,26 @@ export async function matchPanoramaHeadings(
   } catch (panoramaError) {
     return { kind: "exit", respond: () => answerNoPanorama(trial, input, panoramaError) };
   }
+  let unmatchedViewFallback: Extract<OnePanoramaResult, { kind: "ok" }> | undefined;
   for (let attempt = 1; ; attempt++) {
     const matched = await matchOnePanorama(trial, input, panorama);
     if (matched.kind !== "destination_not_found") {
+      if (shouldTryAnotherPanoramaForUnmatchedCurrentView(matched, input, panorama, attempt)) {
+        const next = await nextPanoramaIfCurrentViewUnmatched(input, panorama);
+        if (next) {
+          unmatchedViewFallback = matched;
+          panorama = next;
+          continue;
+        }
+      }
       return matched;
     }
     const next = attempt < MAX_PANORAMAS ? await nextPanorama(input, panorama) : undefined;
     if (!next) {
+      if (unmatchedViewFallback) {
+        trial.note({ panorama: unmatchedViewFallback.value.panorama });
+        return unmatchedViewFallback;
+      }
       if (matched.backups) trial.note(matched.backups);
       return { kind: "exit", respond: () => answerDestinationNotFound(trial, input, panorama, matched.currentHeading) };
     }
@@ -195,6 +214,41 @@ async function nextPanorama(input: PanoramaMatchingInput, panorama: Panorama): P
   if (search.pinned || panoramaSearchSpent(search.budget)) return undefined;
   search.audit({ panoId: panorama.metadata.pano_id, status: "destination_not_visible",
     reason: "Destination matching failed; trying a distinct nearby outdoor panorama." });
+  try {
+    return await processPanoramaTiles(lat, lng, search.classify, search.audit, search.budget);
+  } catch { return undefined; }
+}
+
+function currentViewUnmatched(matched: OnePanoramaResult): matched is Extract<OnePanoramaResult, { kind: "ok" }> {
+  return matched.kind === "ok" && matched.value.comparison.panoramaMatchedHeading === null;
+}
+
+function panoramaCameraDistanceMeters(panorama: Panorama, user: LatLng): number {
+  return panorama.metadata.location ? distanceBetween(panorama.metadata.location, user) : 0;
+}
+
+/** Move on when the photo missed a camera that is not at the capture; keep the first match if nothing closer works. */
+function shouldTryAnotherPanoramaForUnmatchedCurrentView(
+  matched: OnePanoramaResult,
+  input: PanoramaMatchingInput,
+  panorama: Panorama,
+  attempt: number,
+): matched is Extract<OnePanoramaResult, { kind: "ok" }> {
+  return currentViewUnmatched(matched)
+    && !input.search.pinned
+    && attempt < MAX_PANORAMAS
+    && !panoramaSearchSpent(input.search.budget)
+    && panoramaCameraDistanceMeters(panorama, input.request) > CURRENT_VIEW_RETRY_CAMERA_METERS;
+}
+
+async function nextPanoramaIfCurrentViewUnmatched(
+  input: PanoramaMatchingInput,
+  panorama: Panorama,
+): Promise<Panorama | undefined> {
+  const { request: { lat, lng }, search } = input;
+  if (search.pinned || panoramaSearchSpent(search.budget)) return undefined;
+  search.audit({ panoId: panorama.metadata.pano_id, status: "current_view_not_matched",
+    reason: "The photo did not match this camera; trying a distinct nearby outdoor panorama." });
   try {
     return await processPanoramaTiles(lat, lng, search.classify, search.audit, search.budget);
   } catch { return undefined; }

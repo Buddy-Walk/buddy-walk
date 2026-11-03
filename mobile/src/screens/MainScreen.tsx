@@ -1422,7 +1422,7 @@ export default function MainScreen({ navigation }: Props) {
         const latest = locationRef.current;
         if (!metadata || !latest) return undefined;
         return { ...metadata, latestPosition: { lat: latest.coords.latitude, lng: latest.coords.longitude,
-          accuracy: latest.coords.accuracy ?? -1, timestamp: latest.timestamp },
+          accuracy: latest.coords.accuracy ?? loc?.coords.accuracy ?? -1, timestamp: latest.timestamp },
           latestHeading: headingRef.current ?? -1, latestHeadingTimestamp: headingTimestampRef.current,
           latestHeadingReference: headingReferenceRef.current };
       };
