@@ -9,6 +9,7 @@ on:
     paths:
       - "docs/**"
       - "!docs/agents/**"
+      - "!docs/team/**"
       - ".github/workflows/deploy-pages.yml"
   workflow_dispatch:
 
@@ -37,6 +38,9 @@ jobs:
       # docs/agents/ holds agent config, not site content
       - name: Exclude agent docs
         run: rm -rf docs/agents
+
+      - name: Exclude team handbook
+        run: rm -rf docs/team
 
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3

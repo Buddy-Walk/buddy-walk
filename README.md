@@ -5,6 +5,7 @@
 | | |
 |---|---|
 | **Live docs** | [https://justraymond99.github.io/buddy_walk/](https://justraymond99.github.io/buddy_walk/) — enable once: **Settings → Pages → Build and deployment → Source: GitHub Actions**, then push `main` (workflow: [.github/workflows/deploy-pages.yml](.github/workflows/deploy-pages.yml)) |
+| **Team handbook** | [`docs/team/`](docs/team/) — how the app, API, Last Meters, Questions, and deploys fit together |
 | **App source** | [`mobile/`](mobile/) |
 | **Setup** | [mobile/README.md](mobile/README.md) |
 
