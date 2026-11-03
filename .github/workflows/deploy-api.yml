@@ -25,4 +25,5 @@ jobs:
             echo "Set the RENDER_DEPLOY_HOOK_URL repository secret to the buddy-walk-api deploy hook." >&2
             exit 1
           fi
-          curl -fsS -X POST "${DEPLOY_HOOK_URL}?ref=${GITHUB_SHA}"
+          # The hook URL already has ?key=; extra query params must use &.
+          curl -fsS -X POST "${DEPLOY_HOOK_URL}&ref=${GITHUB_SHA}"
