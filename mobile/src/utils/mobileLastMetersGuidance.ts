@@ -11,10 +11,13 @@ export function mobileTurnSensorReasons(
   const [sensors, position, , accuracy] = args;
   const reasons = sensorSafetyReasons(...args);
   const latest = sensors?.latestPosition;
+  const captureAccuracy = Number.isFinite(accuracy) && accuracy! >= 0 ? accuracy! : undefined;
+  const latestAccuracy = Number.isFinite(latest?.accuracy) && latest!.accuracy >= 0
+    ? latest!.accuracy
+    : captureAccuracy;
   if (
-    latest && Number.isFinite(accuracy) && accuracy! >= 0 &&
-    Number.isFinite(latest.accuracy) && latest.accuracy >= 0 &&
-    distanceBetween(position, latest) <= Math.max(5, Math.hypot(accuracy!, latest.accuracy))
+    latest && captureAccuracy !== undefined && latestAccuracy !== undefined &&
+    distanceBetween(position, latest) <= Math.max(5, Math.hypot(captureAccuracy, latestAccuracy))
   ) {
     return reasons.filter(reason => reason !== "moved_since_capture");
   }

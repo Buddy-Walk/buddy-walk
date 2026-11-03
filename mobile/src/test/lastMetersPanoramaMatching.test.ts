@@ -72,6 +72,8 @@ interface World {
   pinned?: boolean;
   /** Where the entrance is, and whether the user stands beside its building. */
   entrance?: { location: typeof NEAR; distanceMeters: number; besideBuilding?: boolean };
+  /** Camera coordinates for each panorama date; defaults to the user. */
+  panoramaLocations?: { lat: number; lng: number }[];
 }
 
 function world(changes: Partial<World> = {}): World {
@@ -88,7 +90,8 @@ async function match(t: TestContext, given: World) {
   setTestEnv(t, { GOOGLE_MAPS_API_KEY: "test-maps", OPENAI_API_KEY: "test-openai" });
   const jpeg = await photoJpeg;
   const panoramas = given.panoramaDates.map((date, index) => ({
-    status: "OK", pano_id: `pano-${index + 1}`, copyright: "Google", date, location: USER,
+    status: "OK", pano_id: `pano-${index + 1}`, copyright: "Google", date,
+    location: given.panoramaLocations?.[index] ?? USER,
   }));
   let searched = 1;
   t.mock.method(axios, "get", async (url: string, options?: { params?: { location?: string } }) => {
@@ -512,4 +515,51 @@ test("matchPanoramaHeadings keeps to the map pin when neither backup confirms th
     { testScenario: row.testScenario, signText: row.signText, destinationReferenceUsed: row.destinationReferenceUsed, destinationPhotoStatus: row.destinationPhotoStatus },
     { testScenario: "test_a_reference", signText: "NO_TEXT", destinationReferenceUsed: false, destinationPhotoStatus: "OK" },
   );
+});
+
+/** About 20 meters north of the user, far enough that an unmatched current view may be the camera. */
+const OFFSET_CAMERA = { lat: USER.lat + 20 / 111_320, lng: USER.lng };
+
+test("matching keeps an unmatched current view when the camera is already at the capture", async t => {
+  const { result, prompts, audits, saved } = await match(t, world({
+    panoramaDates: ["2025-01", "2025-02"],
+    vision: { currentView: ["NOT_VISIBLE", "90"], destination: ["0", "0"], reference: ["NOT_VISIBLE"], signText: ["NO_TEXT"] },
+  }));
+  assert.equal(result.kind, "ok");
+  if (result.kind !== "ok") return;
+  assert.equal(result.value.comparison.panoramaMatchedHeading, null);
+  const row = await saved();
+  assert.equal(row.panoId, "pano-1");
+  assert.equal(prompts.filter(prompt => prompt === "currentView").length, 1);
+  assert.equal(audits.some(audit => audit.status === "current_view_not_matched"), false);
+});
+
+test("matching tries a closer panorama when the photo misses a distant camera", async t => {
+  const { result, prompts, audits, saved } = await match(t, world({
+    panoramaDates: ["2025-01", "2025-02"],
+    panoramaLocations: [OFFSET_CAMERA, USER],
+    vision: { currentView: ["NOT_VISIBLE", "90"], destination: ["0", "0"], reference: ["NOT_VISIBLE"], signText: ["NO_TEXT"] },
+  }));
+  assert.equal(result.kind, "ok");
+  if (result.kind !== "ok") return;
+  assert.equal(result.value.comparison.panoramaMatchedHeading, 90);
+  const row = await saved();
+  assert.equal(row.panoId, "pano-2");
+  assert.deepEqual(prompts.filter(prompt => prompt === "currentView"), ["currentView", "currentView"]);
+  assert.deepEqual(audits.filter(audit => audit.status === "current_view_not_matched").map(audit => audit.panoId), ["pano-1"]);
+});
+
+test("matching keeps the distant unmatched view when the next panorama also misses the destination", async t => {
+  const { result, saved } = await match(t, world({
+    panoramaDates: ["2025-01", "2025-02"],
+    panoramaLocations: [OFFSET_CAMERA, USER],
+    entrance: { location: MID, distanceMeters: 111 },
+    vision: { currentView: ["NOT_VISIBLE", "90"], destination: ["0", "NOT_VISIBLE"], reference: ["NOT_VISIBLE"], signText: ["NO_TEXT"] },
+  }));
+  assert.equal(result.kind, "ok");
+  if (result.kind !== "ok") return;
+  assert.equal(result.value.comparison.panoramaMatchedHeading, null);
+  assert.equal(result.value.panorama.metadata.pano_id, "pano-1");
+  const row = await saved();
+  assert.equal(row.panoId, "pano-1");
 });

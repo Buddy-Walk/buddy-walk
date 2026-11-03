@@ -6,7 +6,9 @@ import sharp from "sharp";
 import { MobileLastMetersService, mobileReviewPanoramaStatus } from "../../server/services/mobileLastMeters";
 import { lastMetersTestLogService } from "../../server/services/lastMetersTestLog";
 import { buildReplayInput, type LastMetersRequestInput } from "../../server/utils/lastMetersReplay";
-import { mobileResponseSensorReasons } from "../utils/mobileLastMetersGuidance";
+import { mobileLastMetersGuidancePolicy } from "../../server/utils/lastMetersGuidancePolicy";
+import { preciseTurnReasons } from "../../server/utils/lastMetersPolicy";
+import { mobileResponseSensorReasons, mobileTurnSensorReasons } from "../utils/mobileLastMetersGuidance";
 import { setTestEnv } from "./testEnv";
 
 /** Produce a valid request without assuming Google's optional entrance listing exists. */
@@ -188,6 +190,31 @@ test("mobile speech checks preserve factual answers and detect actual movement b
   assert.deepEqual(check({ targetHeading: 0 }), [], "GPS jitter within reported accuracy is not proven movement");
   sensors.latestPosition.lat += 0.001;
   assert.ok(check({ targetHeading: 0 }).includes("moved_since_capture"));
+});
+
+test("mobile sensor reasons treat missing latest GPS accuracy as capture accuracy for jitter", () => {
+  const now = 1_800_000_000_000;
+  const request = capture(now);
+  const sensors = structuredClone(request.sensors!);
+  sensors.latestPosition.lat += 0.00007;
+  sensors.latestPosition.accuracy = -1;
+  assert.deepEqual(
+    mobileTurnSensorReasons(sensors, request, 90, request.gpsAccuracyMeters, now, now)
+      .filter(reason => reason === "moved_since_capture"),
+    [],
+  );
+});
+
+test("mobile turn reasons ignore GPS cone noise when the photo and compass already agree", () => {
+  const input = {
+    confidenceLevel: "high" as const, photoMatched: true, headingAgrees: true, compassAccuracy: 3,
+    gpsAccuracy: 14, distanceMeters: 20, entranceListed: true, visualTargetMatched: true,
+    walking: { verified: true, reason: "walking_route_consistent_not_accessibility_verified" }, sensorReasons: [] as string[],
+  };
+  assert.ok(preciseTurnReasons(input).includes("bearing_uncertainty_too_large"));
+  assert.equal(mobileLastMetersGuidancePolicy.turnReasons(input).includes("bearing_uncertainty_too_large"), false);
+  assert.ok(mobileLastMetersGuidancePolicy.turnReasons({ ...input, photoMatched: false })
+    .includes("bearing_uncertainty_too_large"));
 });
 
 test("mobile status identifies the new field policy and configured provider capability", t => {
