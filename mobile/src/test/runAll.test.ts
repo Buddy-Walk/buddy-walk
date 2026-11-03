@@ -27,6 +27,7 @@ import './questionTools.test.ts';
 import './questionLocation.test.ts';
 import './questionAnswer.test.ts';
 import './nearbyPlaces.test.ts';
+import './lastMetersDashboardAliases.test.ts';
 import './lastMetersInput.test.ts';
 import './openingHours.test.ts';
 import './buildingEntrances.test.ts';
