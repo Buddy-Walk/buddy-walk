@@ -35,9 +35,12 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
-      # docs/agents/ is agent config; docs/team/ is the internal handbook.
-      - name: Exclude internal docs
-        run: rm -rf docs/agents docs/team
+      # docs/agents/ holds agent config, not site content
+      - name: Exclude agent docs
+        run: rm -rf docs/agents
+
+      - name: Exclude team handbook
+        run: rm -rf docs/team
 
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
