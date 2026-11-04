@@ -49,8 +49,11 @@ The old Trials URL was `/last-mile-tests`. Update bookmarks.
 
 ## App builds
 
-EAS / TestFlight is a separate decision. `EXPO_PUBLIC_API_URL` defaults to this Render host.
-Do not ship `EXPO_PUBLIC_BYPASS_AUTH=true` in a production build unless the team has agreed.
+GitHub Actions (`Build and Submit iOS to TestFlight`) runs EAS production iOS `--auto-submit` on push to `main` when native app files change. API-only and test-only changes do not start a build. Manual `workflow_dispatch` still works.
+
+Store `EXPO_TOKEN` as a repository secret. Apple submit credentials stay in Expo for `ascAppId` `6778142780`.
+
+TestFlight uses `https://buddy-walk-api.onrender.com`. Do not ship `EXPO_PUBLIC_BYPASS_AUTH=true` in a production build unless the team has agreed.
 
 ## GitHub Pages
 
