@@ -18,7 +18,7 @@ See ADR 0004 (`docs/adr/0004-team-console-on-cloudflare-workers-behind-access.md
 
 ```bash
 bun install
-infisical run --env=dev --path=/team-console -- vp dev --port 3000
+infisical run --env=dev -- vp dev --port 3000
 ```
 
 The page lists whether each secret is set, never its value.
@@ -41,7 +41,7 @@ Tests cover plain modules in Node, so the Cloudflare plugin is left out when Vit
 | `ADMIN_TOKEN`  | Sent to mobile/server as `x-admin-token` from server functions.   |
 | `API_BASE_URL` | mobile/server's base URL: local in dev, production when deployed. |
 
-Values live in Infisical, in the `buddy-walk` project under `/team-console`, with `dev` and `prod` environments.
+Values live in Infisical, at the root of the `buddy-walk` project, with `dev` and `prod` environments.
 Production gets them through an Infisical Secret Sync to the Worker.
 Locally, `infisical run` sets them as process env, and workerd reads them because `wrangler.jsonc` lists them under `secrets.required`.
 `.env.example` lists the names; real env files are gitignored.
