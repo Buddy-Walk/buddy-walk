@@ -20,6 +20,11 @@ Guidance that takes a user standing near a destination the final stretch to its 
 _Avoid_: Last mile
 
 **Trial**:
-One recorded Last Meters run, from the app or replayed from the dashboard, with the evidence gathered, each step taken, and the answer given.
-The team reviews and retries Trials on the dashboard.
+One recorded Last Meters run, from the app or replayed from the Team console, with the evidence gathered, each step taken, and the answer given.
+The team reviews and retries Trials on the Team console.
 _Avoid_: Test log record, field test, last mile test
+
+**Team console**:
+The internal site where the team reviews and retries Trials and checks usage.
+Only team members can reach it.
+_Avoid_: Dashboard, test app, admin page
