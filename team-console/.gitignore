@@ -1,0 +1,19 @@
+node_modules
+.DS_Store
+dist
+dist-ssr
+*.local
+.nitro
+.tanstack
+.wrangler
+.output
+.vinxi
+__unconfig*
+
+# Secrets come from Infisical; only the example is committed.
+.env*
+.dev.vars*
+!.env.example
+
+# The root .gitignore ignores vite.config.ts for the legacy root app.
+!vite.config.ts
