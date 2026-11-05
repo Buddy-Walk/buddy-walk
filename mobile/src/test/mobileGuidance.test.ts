@@ -205,6 +205,38 @@ test("mobile sensor reasons treat missing latest GPS accuracy as capture accurac
   );
 });
 
+test("mobile sensor reasons treat missing capture GPS accuracy as latest accuracy for jitter", () => {
+  const now = 1_800_000_000_000;
+  const request = capture(now);
+  const sensors = structuredClone(request.sensors!);
+  sensors.latestPosition.lat += 0.00007;
+  assert.deepEqual(
+    mobileTurnSensorReasons(sensors, request, 90, undefined, now, now)
+      .filter(reason => reason === "moved_since_capture"),
+    [],
+  );
+});
+
+test("mobile sensor reasons forgive building-scale GPS jumps inside the sum of reported accuracies", () => {
+  const now = 1_800_000_000_000;
+  const request = capture(now);
+  request.gpsAccuracyMeters = 10;
+  const sensors = structuredClone(request.sensors!);
+  sensors.latestPosition.accuracy = 10;
+  // About 18 meters north: beyond hypot(10,10)≈14 but inside 10+10.
+  sensors.latestPosition.lat += 0.00016;
+  assert.deepEqual(
+    mobileTurnSensorReasons(sensors, request, 90, request.gpsAccuracyMeters, now, now)
+      .filter(reason => reason === "moved_since_capture"),
+    [],
+  );
+  sensors.latestPosition.lat += 0.001;
+  assert.ok(
+    mobileTurnSensorReasons(sensors, request, 90, request.gpsAccuracyMeters, now, now)
+      .includes("moved_since_capture"),
+  );
+});
+
 test("mobile turn reasons ignore GPS cone noise when the photo and compass already agree", () => {
   const input = {
     confidenceLevel: "high" as const, photoMatched: true, headingAgrees: true, compassAccuracy: 3,
