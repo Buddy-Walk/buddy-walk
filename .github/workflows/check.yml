@@ -1,0 +1,59 @@
+# Runs on every PR so the check can be required in branch protection.
+# A path filter on the trigger would leave it pending on PRs that skip
+# team-console/, so the job skips its steps instead.
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  team-console:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    defaults:
+      run:
+        working-directory: team-console
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Look for team-console changes
+        id: changes
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            team-console:
+              - "team-console/**"
+              - ".github/workflows/check.yml"
+
+      - name: Set up Node.js
+        if: steps.changes.outputs.team-console == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Set up bun
+        if: steps.changes.outputs.team-console == 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Install dependencies
+        if: steps.changes.outputs.team-console == 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Format, lint and type checks
+        if: steps.changes.outputs.team-console == 'true'
+        run: bunx vp check
+
+      - name: Tests
+        if: steps.changes.outputs.team-console == 'true'
+        run: bunx vp test
