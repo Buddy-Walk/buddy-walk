@@ -21,7 +21,7 @@ bun install
 bun run dev
 ```
 
-`bun run dev` runs `vp dev` under `infisical run --env=dev`, so the dev secrets reach workerd.
+`bun run dev` runs `vp dev` under `infisical run --env=dev --path=/team-console`, so the dev secrets reach workerd.
 The page lists whether each secret is set, never its value.
 Without Infisical, `vp dev --port 3000` still starts and reports both secrets as missing.
 
@@ -43,13 +43,14 @@ Tests cover plain modules in Node, so the Cloudflare plugin is left out when Vit
 | `ADMIN_TOKEN`  | Sent to mobile/server as `x-admin-token` from server functions.   |
 | `API_BASE_URL` | mobile/server's base URL: local in dev, production when deployed. |
 
-Values live in Infisical, at the root of the `buddy-walk` project, with `dev` and `prod` environments.
+Values live in Infisical, in the `/team-console` folder of the `buddy-walk` project, with `dev` and `prod` environments.
+The project holds the whole repo's secrets, so every command here reads only that folder.
 Production gets them through an Infisical Secret Sync to the Worker.
 Previews don't read the Worker's secrets, so they get them from the Previews Base config, which the sync can't reach.
 After changing a value in Infisical, copy the `prod` values into it:
 
 ```bash
-infisical export --env=prod --format=dotenv | bunx wrangler preview base-config secret bulk
+infisical export --env=prod --path=/team-console --format=dotenv | bunx wrangler preview base-config secret bulk
 ```
 
 Only Previews created after that pick up the new values.
