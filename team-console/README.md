@@ -60,11 +60,4 @@ Cloudflare Access protects both, letting in members of the `Buddy-Walk` GitHub o
 Workers Builds runs `bun run build`, then `bunx wrangler deploy` on `main` or `bunx wrangler versions upload` on other branches.
 Those inherit the secrets already on the Worker, so they need the Secret Sync in place.
 
-The Worker's first deploy has to bring its secrets, since `secrets.required` gives it nothing to inherit:
-
-```bash
-bun run build
-bunx wrangler deploy --secrets-file <(infisical export --env=prod --path=/team-console --format=dotenv)
-```
-
 `bun run deploy` builds and deploys by hand with wrangler, if Workers Builds is unavailable.
