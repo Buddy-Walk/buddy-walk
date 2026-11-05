@@ -16,7 +16,7 @@ Issue titles, PR titles, comments, and test names use those words.
 ## Issue, then branch, then PR
 
 1. Open a GitHub issue that states the problem in product language.
-2. Branch from current `main` with a prefix: `fix/`, `docs/`, `refactor/`, `test/`.
+2. Branch from current `main` with a prefix: `feat/`, `fix/`, `docs/`, `refactor/`, `test/`.
 3. Keep the diff to that issue. Do not mix a rename, a refactor, and a behavior change.
 4. Open a PR against `main`. Do not push to `main`.
 
