@@ -1,6 +1,24 @@
+import { readFileSync } from "node:fs";
+import { parseEnv } from "node:util";
+
+import { parse } from "jsonc-parser";
 import { describe, expect, it } from "vite-plus/test";
 
-import { secretStatus } from "./secrets";
+import { secretNames, secretStatus } from "./secrets";
+
+const readProjectFile = (name: string) =>
+  readFileSync(new URL(`../../${name}`, import.meta.url), "utf8");
+
+describe("secretNames", () => {
+  it("matches the secrets wrangler.jsonc requires", () => {
+    const wrangler = parse(readProjectFile("wrangler.jsonc"));
+    expect(wrangler.secrets.required).toEqual([...secretNames]);
+  });
+
+  it("matches the names in .env.example", () => {
+    expect(Object.keys(parseEnv(readProjectFile(".env.example")))).toEqual([...secretNames]);
+  });
+});
 
 describe("secretStatus", () => {
   it("reports each secret as set or missing", () => {

@@ -1,4 +1,8 @@
-export const secretNames = ["ADMIN_TOKEN", "API_BASE_URL"] as const;
+// Keep in step with wrangler.jsonc `secrets.required` and .env.example; secrets.test.ts checks both.
+export const secretNames = [
+  "ADMIN_TOKEN",
+  "API_BASE_URL",
+] as const satisfies readonly (keyof Env)[];
 
 export type SecretName = (typeof secretNames)[number];
 
