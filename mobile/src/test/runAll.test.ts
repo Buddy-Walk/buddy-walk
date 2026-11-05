@@ -42,3 +42,5 @@ import '../utils/webAudioUnlock.test.ts';
 import '../utils/briefAiInstruction.test.ts';
 import '../api/companion.test.ts';
 import './mobileGuidance.test.ts';
+import '../utils/safetyGateVoicePrompt.test.ts';
+import './lastMetersVoicePlayback.test.ts';
