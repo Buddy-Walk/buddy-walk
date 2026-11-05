@@ -9,4 +9,6 @@
   "observability": { "enabled": true },
   // Values come from Infisical: a Secret Sync in production, `infisical run` locally.
   "secrets": { "required": ["ADMIN_TOKEN", "API_BASE_URL"] },
+  // Branch builds run `wrangler preview`; Previews take secrets from the Previews Base config.
+  "previews": {},
 }
