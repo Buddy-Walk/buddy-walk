@@ -18,11 +18,12 @@ See ADR 0004 (`docs/adr/0004-team-console-on-cloudflare-workers-behind-access.md
 
 ```bash
 bun install
-infisical run --env=dev -- vp dev --port 3000
+bun run dev
 ```
 
+`bun run dev` runs `vp dev` under `infisical run --env=dev`, so the dev secrets reach workerd.
 The page lists whether each secret is set, never its value.
-Without Infisical, `vp dev` still starts and reports both secrets as missing.
+Without Infisical, `vp dev --port 3000` still starts and reports both secrets as missing.
 
 ## Test and check
 

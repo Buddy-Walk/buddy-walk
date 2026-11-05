@@ -6,7 +6,7 @@
     "#/*": "./src/*"
   },
   "scripts": {
-    "dev": "vp dev --port 3000",
+    "dev": "infisical run --env=dev -- vp dev --port 3000",
     "build": "vp build",
     "preview": "vp preview",
     "cf-typegen": "wrangler types",
