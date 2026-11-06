@@ -36,6 +36,7 @@ vp test    # Vitest
 CI runs both, plus `vp build`, on every PR that touches `team-console/` (`.github/workflows/check.yml`).
 `vp check --fix` formats and applies lint fixes.
 Tests cover plain modules in Node, so the Cloudflare plugin is left out when Vitest runs.
+Lint also runs the console's own rules in `lint/plugin.ts`, which have their tests beside them.
 
 ## Secrets
 
