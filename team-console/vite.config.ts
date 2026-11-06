@@ -17,7 +17,11 @@ const config = defineConfig({
     rules: { "vite-plus/prefer-vite-plus-imports": "error" },
     options: { typeAware: true, typeCheck: true },
   },
-  test: { include: ["src/**/*.test.ts"] },
+  test: {
+    include: ["src/**/*.test.ts"],
+    // Trials group by week in the reader's time zone; tests pin the team's.
+    env: { TZ: "America/New_York" },
+  },
   resolve: { tsconfigPaths: true },
   plugins: lazyPlugins(() => [
     devtools(),

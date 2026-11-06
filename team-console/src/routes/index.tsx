@@ -1,5 +1,5 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { secretNames } from "#/lib/secrets";
 import { secretStatusQuery } from "#/server/secrets";
@@ -15,7 +15,12 @@ function Home() {
   return (
     <main className="mx-auto max-w-2xl p-8">
       <h1 className="text-3xl font-semibold">Team console</h1>
-      <p className="mt-2 text-muted-foreground">Trials and usage will live here.</p>
+      <p className="mt-2 text-muted-foreground">
+        <Link to="/trials" className="text-primary underline">
+          Trials
+        </Link>
+        , and usage soon.
+      </p>
       <h2 className="mt-8 text-lg font-medium">Secrets</h2>
       <ul className="mt-2 space-y-1">
         {secretNames.map((name) => (
