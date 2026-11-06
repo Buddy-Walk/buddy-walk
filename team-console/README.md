@@ -13,6 +13,7 @@ See ADR 0004 (`docs/adr/0004-team-console-on-cloudflare-workers-behind-access.md
 - Tailwind v4 and shadcn/ui for styling (`bunx shadcn@latest add <component>` adds components).
 - TanStack Query owns server data.
   Route loaders call `context.queryClient.ensureQueryData(...)` and components read the same query with `useSuspenseQuery`.
+  A page that must stay usable when its data fails to load, like `/trials`, prefetches with `prefetchQuery` instead and reads with `useQuery`, so the error shows inline beside its controls.
 
 ## Run
 

@@ -10,33 +10,52 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TrialsRouteImport } from './routes/trials'
+import { Route as TrialsTrialIdRouteImport } from './routes/trials.$trialId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TrialsRoute = TrialsRouteImport.update({
+  id: '/trials',
+  path: '/trials',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TrialsTrialIdRoute = TrialsTrialIdRouteImport.update({
+  id: '/$trialId',
+  path: '/$trialId',
+  getParentRoute: () => TrialsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/trials': typeof TrialsRouteWithChildren
+  '/trials/$trialId': typeof TrialsTrialIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/trials': typeof TrialsRouteWithChildren
+  '/trials/$trialId': typeof TrialsTrialIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/trials': typeof TrialsRouteWithChildren
+  '/trials/$trialId': typeof TrialsTrialIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/trials' | '/trials/$trialId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/trials' | '/trials/$trialId'
+  id: '__root__' | '/' | '/trials' | '/trials/$trialId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  TrialsRoute: typeof TrialsRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +67,37 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/trials': {
+      id: '/trials'
+      path: '/trials'
+      fullPath: '/trials'
+      preLoaderRoute: typeof TrialsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/trials/$trialId': {
+      id: '/trials/$trialId'
+      path: '/$trialId'
+      fullPath: '/trials/$trialId'
+      preLoaderRoute: typeof TrialsTrialIdRouteImport
+      parentRoute: typeof TrialsRoute
+    }
   }
 }
 
+interface TrialsRouteChildren {
+  TrialsTrialIdRoute: typeof TrialsTrialIdRoute
+}
+
+const TrialsRouteChildren: TrialsRouteChildren = {
+  TrialsTrialIdRoute: TrialsTrialIdRoute,
+}
+
+const TrialsRouteWithChildren =
+  TrialsRoute._addFileChildren(TrialsRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  TrialsRoute: TrialsRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
