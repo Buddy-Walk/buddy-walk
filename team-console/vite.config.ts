@@ -13,12 +13,15 @@ const config = defineConfig({
   fmt: { ignorePatterns: generated },
   lint: {
     ignorePatterns: generated,
-    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
-    rules: { "vite-plus/prefer-vite-plus-imports": "error" },
+    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }, "./lint/plugin.ts"],
+    rules: {
+      "vite-plus/prefer-vite-plus-imports": "error",
+      "team-console/effect-block-body": "error",
+    },
     options: { typeAware: true, typeCheck: true },
   },
   test: {
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "lint/**/*.test.ts"],
     // Trials group by week in the reader's time zone; tests pin the team's.
     env: { TZ: "America/New_York" },
   },
