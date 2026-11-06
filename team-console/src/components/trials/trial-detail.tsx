@@ -5,6 +5,7 @@ import {
   formatMeters,
   formatRuntime,
   formatShortDate,
+  MISSING,
   panoramaModeText,
   retryNumber,
   UNVERSIONED,
@@ -167,6 +168,7 @@ function PlaceCandidates({ trial }: { trial: TrialDetail }) {
           <tbody>
             {candidates.map((candidate, i) => {
               const chosen =
+                candidate.name !== undefined &&
                 candidate.name === trial.destinationPlaceName &&
                 candidate.address === trial.destinationPlaceAddress;
               return (
@@ -175,7 +177,11 @@ function PlaceCandidates({ trial }: { trial: TrialDetail }) {
                     {candidate.name} {chosen && <b>(chosen)</b>}
                     <div className="text-xs text-muted-foreground">{candidate.address}</div>
                   </td>
-                  <td className="p-2 whitespace-nowrap">{candidate.distanceMeters} m</td>
+                  <td className="p-2 whitespace-nowrap">
+                    {candidate.distanceMeters === undefined
+                      ? MISSING
+                      : `${candidate.distanceMeters} m`}
+                  </td>
                   <td
                     className={cn(
                       "p-2 font-bold",

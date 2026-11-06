@@ -3,23 +3,37 @@ import { z } from "zod";
 // Shapes of mobile/server's /api/last-meters-tests responses, following
 // mobile/server/utils/lastMetersTestRow.ts. Only the fields the console reads
 // are listed; zod drops the rest.
+//
+// Every Trial ever saved must still show, so only the fields mobile/server
+// computes for each row are required. A saved field that is absent, null or in
+// an older shape reads as missing instead of failing the whole response.
 
-/** Absent or null in mobile/server's JSON; the console reads both as missing. */
+/** A saved field, read as missing when absent, null or in an older shape. */
 const maybe = <T extends z.ZodType>(schema: T) =>
   schema
     .nullish()
     .transform((value) => value ?? undefined)
-    .optional();
+    .optional()
+    .catch(undefined);
 
-/** An array mobile/server may leave out on older Trials. */
-const list = <T extends z.ZodType>(schema: T) =>
+/** A saved array, leaving out items in an older shape. Absent reads as empty. */
+const list = <T extends z.ZodType>(item: T) =>
   z
-    .array(schema)
-    .nullish()
-    .transform((value) => value ?? []);
+    .array(z.unknown())
+    .transform((values) =>
+      values.flatMap((value) => {
+        const parsed = item.safeParse(value);
+        return parsed.success ? [parsed.data] : [];
+      }),
+    )
+    .catch([]);
 
 export const REVIEW_OUTCOMES = ["got_there", "needed_retake", "would_not_get_there"] as const;
 export type ReviewOutcome = (typeof REVIEW_OUTCOMES)[number];
+
+// How Trials were reviewed before outcome scoring; "untested" means not reviewed.
+export const REVIEWER_STATUSES = ["untested", "pass", "partial", "fail"] as const;
+export type ReviewerStatus = (typeof REVIEWER_STATUSES)[number];
 
 export const TURN_CORRECTNESS = ["correct", "wrong", "no_turn_given"] as const;
 export const ENTRANCE_CORRECTNESS = ["correct", "wrong", "not_identified"] as const;
@@ -61,11 +75,11 @@ const panoramaAttemptSchema = z.object({
 });
 
 const placeCandidateSchema = z.object({
-  name: z.string(),
+  name: maybe(z.string()),
   address: maybe(z.string()),
-  distanceMeters: z.number(),
+  distanceMeters: maybe(z.number()),
   types: list(z.string()),
-  relevant: z.boolean(),
+  relevant: maybe(z.boolean()),
   source: maybe(z.string()),
 });
 export type PlaceCandidate = z.output<typeof placeCandidateSchema>;
@@ -132,6 +146,7 @@ export const trialSchema = z.object({
   moduleTimingsMs: maybe(moduleTimingsSchema),
 
   reviewOutcome: maybe(z.enum(REVIEW_OUTCOMES)),
+  reviewerStatus: maybe(z.enum(REVIEWER_STATUSES)),
   turnCorrectness: maybe(z.enum(TURN_CORRECTNESS)),
   entranceCorrectness: maybe(z.enum(ENTRANCE_CORRECTNESS)),
 
@@ -161,6 +176,7 @@ const retryHistoryEntrySchema = z.object({
   error: maybe(z.string()),
   finalOutput: maybe(z.string()),
   reviewOutcome: maybe(z.enum(REVIEW_OUTCOMES)),
+  reviewerStatus: maybe(z.enum(REVIEWER_STATUSES)),
   pipelineVersion: maybe(z.string()),
   deployedCommit: maybe(z.string()),
   safetyReasons: list(z.string()),

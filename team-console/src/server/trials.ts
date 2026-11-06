@@ -8,7 +8,8 @@ import { trialDetailResponseSchema, trialListResponseSchema } from "#/lib/trials
 
 /**
  * GETs one of mobile/server's Last Meters endpoints as the team, and checks the
- * response against its schema so a change in mobile/server's shape fails here.
+ * response against its schema. A change to the fields mobile/server computes
+ * fails here; saved fields from older Trials read as missing (see schema.ts).
  */
 async function getFromApi<T extends z.ZodType>(
   path: string,
