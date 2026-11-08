@@ -1,16 +1,18 @@
-import { queryOptions } from "@tanstack/react-query";
+import { queryOptions, type Query } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { viewParams } from "#/lib/trials/export";
 import { MAX_LIMIT } from "#/lib/trials/filters";
+import { retryAnswerFrom } from "#/lib/trials/retry";
 import { reviewInputSchema, reviewRequest } from "#/lib/trials/review";
 import {
+  PANORAMA_MODES,
   savedReviewResponseSchema,
   trialDetailResponseSchema,
   trialListResponseSchema,
 } from "#/lib/trials/schema";
-import { callApi } from "#/server/api";
+import { callApi, fetchApi } from "#/server/api";
 
 /**
  * Checks a response from one of mobile/server's Last Meters endpoints against
@@ -45,17 +47,18 @@ const trialsParams = z.object({
 });
 export type TrialsParams = z.output<typeof trialsParams>;
 
-/** The newest Trials, without images, which only the detail loads. */
+/** The newest Trials, without images, which only the detail loads, and whether retries are on. */
 export const listTrials = createServerFn()
   .validator(trialsParams)
   .handler(async ({ data }) => {
-    const { data: trials } = await getFromApi(
+    const { data: trials, retry } = await getFromApi(
       "/api/last-meters-tests",
       viewParams(data),
       trialListResponseSchema,
     );
-    return trials;
+    return { trials, retry };
   });
+export type TrialList = Awaited<ReturnType<typeof listTrials>>;
 
 /** One Trial with its photo, saved Street View images and retry history. */
 export const getTrial = createServerFn()
@@ -67,6 +70,41 @@ export const getTrial = createServerFn()
       trialDetailResponseSchema,
     );
     return trial;
+  });
+
+/** A Trial's retry history and replay facts, without the images the detail loads. */
+export const getTrialRuns = createServerFn()
+  .validator(z.object({ trialId: z.string().min(1) }))
+  .handler(async ({ data }) => {
+    const { data: trial } = await getFromApi(
+      `/api/last-meters-tests/${encodeURIComponent(data.trialId)}`,
+      {},
+      trialDetailResponseSchema,
+    );
+    return trial;
+  });
+
+/**
+ * Sends one retry, which runs for as long as the pipeline takes. Its answer is
+ * returned rather than thrown, so the browser can tell a refusal from a failed
+ * send and send it again under the same key.
+ */
+export const retryTrial = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      trialId: z.string().min(1),
+      panoramaMode: z.enum(PANORAMA_MODES),
+      idempotencyKey: z.uuid(),
+    }),
+  )
+  .handler(async ({ data: { trialId, panoramaMode, idempotencyKey } }) => {
+    const response = await fetchApi(`/api/last-meters-tests/${encodeURIComponent(trialId)}/retry`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": idempotencyKey },
+      body: JSON.stringify({ panoramaMode }),
+    });
+    const body: unknown = await response.json().catch(() => undefined);
+    return retryAnswerFrom(response.status, body);
   });
 
 /** Saves a Trial's review and returns it as saved, which is what the console shows. */
@@ -101,3 +139,15 @@ export const trialQuery = (trialId: string) =>
     staleTime: 0,
     refetchOnWindowFocus: false,
   });
+
+// Under the detail's key, so a saved review reaches its retry history here too.
+// Light enough to fetch on every open and poll while a retry runs.
+export const trialRunsQuery = (trialId: string) =>
+  queryOptions({
+    queryKey: ["trial", trialId, "runs"],
+    queryFn: () => getTrialRuns({ data: { trialId } }),
+    retry: false,
+    staleTime: 0,
+  });
+
+export const isTrialRunsQuery = (query: Query) => query.queryKey[2] === "runs";

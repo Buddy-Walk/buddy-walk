@@ -197,6 +197,10 @@ start("mobile-server", `${mobileDir}node_modules/.bin/tsx`, ["server/index.ts"],
   MONGODB_URI: mongoUri,
   ADMIN_TOKEN: token,
   PORT: String(apiPort),
+  // Empty, so mobile/.env can't supply real keys and a retry here can never spend money.
+  OPENAI_API_KEY: "",
+  GOOGLE_MAPS_API_KEY: "",
+  GOOGLE_API_KEY: "",
 });
 await waitFor(
   "mobile-server",
@@ -209,9 +213,12 @@ start("console", "bunx", ["vp", "dev", "--port", String(port), "--strictPort"], 
 });
 await waitFor("console", responds(consoleUrl));
 
-writeFileSync(`${stackDir}/env`, `API_BASE_URL=${apiBase}\nADMIN_TOKEN=${token}\n`);
+writeFileSync(
+  `${stackDir}/env`,
+  `API_BASE_URL=${apiBase}\nADMIN_TOKEN=${token}\nMONGO_URI=${mongoUri}\n`,
+);
 console.log(`Team console: ${consoleUrl}/trials`);
-console.log(`mobile/server: ${apiBase} (API_BASE_URL and ADMIN_TOKEN in .stack/env)`);
+console.log(`mobile/server: ${apiBase} (API_BASE_URL, ADMIN_TOKEN and MONGO_URI in .stack/env)`);
 console.log(`Logs: .stack/*.log`);
 
 if (command.length) {

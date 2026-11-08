@@ -1,8 +1,8 @@
 import { useMutation, useQueryClient, type Query } from "@tanstack/react-query";
 
 import { detailWithReview, trialsWithReview, type ReviewInput } from "#/lib/trials/review";
-import type { Trial, TrialDetail } from "#/lib/trials/schema";
-import { saveReview } from "#/server/trials";
+import type { TrialDetail } from "#/lib/trials/schema";
+import { saveReview, type TrialList } from "#/server/trials";
 
 /**
  * Saves a Trial's review and shows it everywhere at once, from what mobile/server
@@ -21,9 +21,9 @@ export function useSaveReview(trialId: string) {
       const wasLoading = (query: Query) => loading.some((load) => load === query);
       await queryClient.cancelQueries({ predicate: wasLoading });
 
-      queryClient.setQueriesData<Trial[]>(
+      queryClient.setQueriesData<TrialList>(
         { queryKey: ["trials"] },
-        (trials) => trials && trialsWithReview(trials, trialId, saved),
+        (list) => list && { ...list, trials: trialsWithReview(list.trials, trialId, saved) },
       );
       queryClient.setQueriesData<TrialDetail>(
         { queryKey: ["trial"] },

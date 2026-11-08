@@ -2,6 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { trialDetailResponseSchema, trialListResponseSchema } from "./schema";
 
+const retriesOn = { available: true };
+
 // A list row as mobile/server's list() sends it: the summary response plus retry facts.
 const listRow = {
   _id: "6720f1c2a1b2c3d4e5f60718",
@@ -54,7 +56,7 @@ describe("trialListResponseSchema", () => {
   });
 
   it("reads null and absent fields as missing", () => {
-    const [trial] = trialListResponseSchema.parse({ data: [listRow] }).data;
+    const [trial] = trialListResponseSchema.parse({ retry: retriesOn, data: [listRow] }).data;
 
     expect(trial.panoramaMatchedHeading).toBeUndefined();
     expect(trial.safetyReasons).toEqual([]);
@@ -62,7 +64,7 @@ describe("trialListResponseSchema", () => {
   });
 
   it("drops the image placeholders the list sends", () => {
-    const [trial] = trialListResponseSchema.parse({ data: [listRow] }).data;
+    const [trial] = trialListResponseSchema.parse({ retry: retriesOn, data: [listRow] }).data;
 
     expect(trial).not.toHaveProperty("userPhoto");
   });
@@ -70,11 +72,12 @@ describe("trialListResponseSchema", () => {
   it("rejects a row without an id", () => {
     const { _id, ...withoutId } = listRow;
 
-    expect(() => trialListResponseSchema.parse({ data: [withoutId] })).toThrow();
+    expect(() => trialListResponseSchema.parse({ retry: retriesOn, data: [withoutId] })).toThrow();
   });
 
   it("keeps a Trial saved in an older shape, reading its unknown values as missing", () => {
     const [trial] = trialListResponseSchema.parse({
+      retry: retriesOn,
       data: [
         {
           ...listRow,
@@ -97,6 +100,7 @@ describe("trialListResponseSchema", () => {
 
   it("leaves out list items saved in an older shape", () => {
     const [trial] = trialListResponseSchema.parse({
+      retry: retriesOn,
       data: [
         {
           ...listRow,
@@ -110,6 +114,79 @@ describe("trialListResponseSchema", () => {
     expect(trial.steps).toEqual([{ name: "confidence_fusion" }]);
     expect(trial.safetyReasons).toEqual(["low_light"]);
     expect(trial.placesSearches).toEqual([]);
+  });
+});
+
+describe("retry facts", () => {
+  const row = (fields: Record<string, unknown>) =>
+    trialListResponseSchema.parse({ retry: retriesOn, data: [{ ...listRow, ...fields }] }).data[0];
+
+  it("reads how a Trial can be replayed", () => {
+    const { replay } = row({
+      replay: {
+        status: "replayable_with_defaults",
+        defaultsApplied: ["compass accuracy level 3"],
+        originalPanorama: { available: true, panoId: "panoA", panoramaDate: "2025-06" },
+      },
+    });
+    expect(replay).toEqual({
+      status: "replayable_with_defaults",
+      defaultsApplied: ["compass accuracy level 3"],
+      originalPanorama: { available: true, panoId: "panoA", panoramaDate: "2025-06" },
+    });
+  });
+
+  it("reads a retry running on the server", () => {
+    expect(
+      row({ runningRetry: { panoramaMode: "original", startedAt: 1730000000000 } }),
+    ).toMatchObject({
+      runningRetry: { panoramaMode: "original", startedAt: 1730000000000 },
+    });
+  });
+
+  it("reads no running retry as none", () => {
+    expect(row({ runningRetry: null }).runningRetry).toBeUndefined();
+  });
+
+  it("fails when mobile/server changes the retry facts it computes", () => {
+    expect(() => row({ runningRetry: { panoramaMode: "legacy", startedAt: 1 } })).toThrow();
+    expect(() => row({ replay: undefined })).toThrow();
+    expect(() => row({ replay: { status: "maybe", defaultsApplied: [] } })).toThrow();
+  });
+
+  it("keeps a saved panorama value in an older shape from failing the row", () => {
+    const { replay } = row({
+      replay: {
+        status: "replayable",
+        defaultsApplied: [],
+        originalPanorama: { available: true, panoId: "panoA", panoramaDate: 202506 },
+      },
+    });
+    expect(replay.originalPanorama).toEqual({ available: true, panoId: "panoA" });
+  });
+
+  it("reads whether retries are on for the server", () => {
+    const off = { available: false, reason: "Set OPENAI_API_KEY." };
+    expect(trialListResponseSchema.parse({ data: [], retry: off }).retry).toEqual(off);
+  });
+
+  it("fails a response that doesn't say whether retries are on", () => {
+    expect(() => trialListResponseSchema.parse({ data: [] })).toThrow();
+  });
+
+  it("reads the retry running on a detail's history", () => {
+    const { data } = trialDetailResponseSchema.parse({
+      data: {
+        ...listRow,
+        history: {
+          originalId: listRow._id,
+          original: null,
+          retries: [],
+          runningRetry: { panoramaMode: "fresh", startedAt: 1730000000000 },
+        },
+      },
+    });
+    expect(data.history?.runningRetry).toEqual({ panoramaMode: "fresh", startedAt: 1730000000000 });
   });
 });
 

@@ -3,6 +3,8 @@ import { createFileRoute, Outlet, stripSearchParams } from "@tanstack/react-rout
 import { RefreshCwIcon } from "lucide-react";
 import { useMemo } from "react";
 
+import { RetriesProvider, useRunningRetries } from "#/components/trials/retries";
+import { RetriesOffNote } from "#/components/trials/retry-controls";
 import { TrialsFilters } from "#/components/trials/trials-filters";
 import { TrialsSummaryCards } from "#/components/trials/trials-summary";
 import { TrialsTable } from "#/components/trials/trials-table";
@@ -15,6 +17,7 @@ import {
   viewTrials,
   type TrialsSearch,
 } from "#/lib/trials/filters";
+import { RETRIES_ON, retryPollInterval } from "#/lib/trials/retry";
 import { trialsQuery } from "#/server/trials";
 
 export const Route = createFileRoute("/trials")({
@@ -37,19 +40,26 @@ function TrialsPage() {
   const search = Route.useSearch();
   const deps = Route.useLoaderDeps();
   const navigate = Route.useNavigate();
-  const trials = useQuery({ ...trialsQuery(deps), placeholderData: keepPreviousData });
+  const runningHere = useRunningRetries().size > 0;
+  const trials = useQuery({
+    ...trialsQuery(deps),
+    placeholderData: keepPreviousData,
+    // A hidden tab keeps polling, so it isn't showing a finished retry as running when it returns.
+    refetchInterval: ({ state: { data } }) =>
+      retryPollInterval(data?.trials.map((trial) => trial.runningRetry) ?? [], runningHere),
+    refetchIntervalInBackground: true,
+  });
+  const list = trials.data?.trials;
+  const availability = trials.data?.retry ?? RETRIES_ON;
 
-  const view = useMemo(
-    () => (trials.data ? viewTrials(trials.data, search) : undefined),
-    [trials.data, search],
-  );
+  const view = useMemo(() => (list ? viewTrials(list, search) : undefined), [list, search]);
 
   // Filter changes replace the history entry, so back leaves the list rather than undoing a filter.
   const updateSearch = (patch: Partial<TrialsSearch>) =>
     navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true, resetScroll: false });
 
   return (
-    <>
+    <RetriesProvider availability={availability}>
       <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-4 border-b bg-background px-6 py-4">
         <div>
           <h1 className="text-lg font-semibold">Last Meters Trials</h1>
@@ -72,12 +82,12 @@ function TrialsPage() {
         <TrialsFilters search={search} onChange={updateSearch} />
 
         <p className="text-sm text-muted-foreground" aria-live="polite">
-          {view && trials.data
+          {view && list
             ? `${
-                view.shown.length === trials.data.length
+                view.shown.length === list.length
                   ? view.shown.length
-                  : `${view.shown.length} of ${trials.data.length}`
-              } Trial${trials.data.length === 1 ? "" : "s"} shown - updated ${new Date(
+                  : `${view.shown.length} of ${list.length}`
+              } Trial${list.length === 1 ? "" : "s"} shown - updated ${new Date(
                 trials.dataUpdatedAt,
               ).toLocaleTimeString()}`
             : trials.isPending
@@ -93,6 +103,8 @@ function TrialsPage() {
           </Alert>
         )}
 
+        <RetriesOffNote availability={availability} />
+
         {view && <TrialsSummaryCards summary={view.summary} />}
 
         <TrialsTable
@@ -104,6 +116,6 @@ function TrialsPage() {
       </main>
 
       <Outlet />
-    </>
+    </RetriesProvider>
   );
 }

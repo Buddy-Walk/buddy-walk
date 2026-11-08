@@ -1,3 +1,4 @@
+import { Loader2Icon } from "lucide-react";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import {
@@ -7,14 +8,19 @@ import {
   shortCommit,
 } from "#/lib/trials/display";
 import { outcomeOf } from "#/lib/trials/outcome";
-import type { RetryHistory, RetryHistoryEntry, TrialDetail } from "#/lib/trials/schema";
+import { retryBlockedReason } from "#/lib/trials/retry";
+import type {
+  RetryHistory,
+  RetryHistoryEntry,
+  RunningRetry,
+  TrialDetail,
+} from "#/lib/trials/schema";
 import { cn } from "#/lib/utils";
 
 import { ModuleBadge, OutcomeMark } from "./badges";
+import { Elapsed, RetryButton, RetryReason } from "./retry-controls";
+import { useRetryAvailability, useRunningRetries } from "./retries";
 import { clickOpensRow, TrialLink, useOpenTrial } from "./trial-link";
-
-/** The id of the retry history section, so a link can open a Trial scrolled to it. */
-export const RETRY_HISTORY_HASH = "retry-history";
 
 // The order is a per-browser preference; storage can be unavailable.
 const ORDER_KEY = "trials.historyNewestFirst";
@@ -187,6 +193,26 @@ function HistoryRow({
   );
 }
 
+function RunningRow({ running, label }: { running: RunningRetry; label: string }) {
+  return (
+    <tr className="border-b align-top last:border-b-0">
+      <td className="p-2.5">
+        <span className="inline-flex items-center gap-1.5 font-bold whitespace-nowrap text-violet-700">
+          <Loader2Icon aria-hidden className="size-3 animate-spin" />
+          {label}
+        </span>
+      </td>
+      <td className="p-2.5 whitespace-nowrap tabular-nums">
+        Running <Elapsed since={running.startedAt} />
+      </td>
+      <td className="p-2.5">{PANORAMA_MODE_LABELS[running.panoramaMode]}</td>
+      <td colSpan={3} className="p-2.5 text-muted-foreground">
+        Waiting for the pipeline. This can take up to a minute.
+      </td>
+    </tr>
+  );
+}
+
 /** Every run of one field Trial: the original pinned first, then its numbered retries. */
 export function RetryHistorySection({
   id,
@@ -200,9 +226,16 @@ export function RetryHistorySection({
   const [newestFirst, setNewestFirst] = useState(readNewestFirst);
   const scroller = useRef<HTMLDivElement>(null);
   const { original, retries } = history;
+  const availability = useRetryAvailability();
+  const running = useRunningRetries().get(history.originalId) ?? history.runningRetry;
+  const blocked = retryBlockedReason(trial, availability);
 
   // Retries keep their numbers in either order.
-  const runs = retries.map((entry, i) => ({ entry, label: `Retry ${i + 1}` }));
+  const runs: (
+    | { entry: RetryHistoryEntry; label: string }
+    | { running: RunningRetry; label: string }
+  )[] = retries.map((entry, i) => ({ entry, label: `Retry ${i + 1}` }));
+  if (running) runs.push({ running, label: `Retry ${retries.length + 1}` });
   if (newestFirst) runs.reverse();
 
   // Scrolls the capped table, not the page, so the run being viewed is fully visible.
@@ -235,29 +268,33 @@ export function RetryHistorySection({
               : "No retries yet. A retry re-runs the stored photo and inputs through the current pipeline."}
           </p>
         </div>
-        {retries.length > 1 && (
-          <div
-            role="group"
-            aria-label="Order of retries"
-            className="inline-flex rounded-lg border bg-background p-0.5"
-          >
-            {[
-              [false, "Oldest first"],
-              [true, "Newest first"],
-            ].map(([newest, text]) => (
-              <button
-                key={String(newest)}
-                type="button"
-                aria-pressed={newestFirst === newest}
-                onClick={() => chooseOrder(newest as boolean)}
-                className="rounded-md px-2.5 py-1 text-xs font-semibold whitespace-nowrap text-muted-foreground hover:text-foreground aria-pressed:bg-violet-100 aria-pressed:text-violet-800"
-              >
-                {text}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {runs.length > 1 && (
+            <div
+              role="group"
+              aria-label="Order of retries"
+              className="inline-flex rounded-lg border bg-background p-0.5"
+            >
+              {[
+                [false, "Oldest first"],
+                [true, "Newest first"],
+              ].map(([newest, text]) => (
+                <button
+                  key={String(newest)}
+                  type="button"
+                  aria-pressed={newestFirst === newest}
+                  onClick={() => chooseOrder(newest as boolean)}
+                  className="rounded-md px-2.5 py-1 text-xs font-semibold whitespace-nowrap text-muted-foreground hover:text-foreground aria-pressed:bg-violet-100 aria-pressed:text-violet-800"
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+          )}
+          <RetryButton trial={trial} running={running} blocked={blocked} />
+        </div>
       </div>
+      {blocked && !running && <RetryReason className="-mt-1 mb-3">{blocked}</RetryReason>}
       <div
         ref={scroller}
         tabIndex={0}
@@ -292,15 +329,19 @@ export function RetryHistorySection({
                 </td>
               </tr>
             )}
-            {runs.map(({ entry, label }) => (
-              <HistoryRow
-                key={entry.id}
-                entry={entry}
-                label={label}
-                current={entry.id === trial._id}
-                original={original}
-              />
-            ))}
+            {runs.map((run) =>
+              "entry" in run ? (
+                <HistoryRow
+                  key={run.entry.id}
+                  entry={run.entry}
+                  label={run.label}
+                  current={run.entry.id === trial._id}
+                  original={original}
+                />
+              ) : (
+                <RunningRow key="running" running={run.running} label={run.label} />
+              ),
+            )}
           </tbody>
         </table>
       </div>

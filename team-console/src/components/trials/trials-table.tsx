@@ -19,11 +19,12 @@ import {
 } from "#/lib/trials/display";
 import { distanceGate } from "#/lib/trials/filters";
 import { buildModules } from "#/lib/trials/modules";
+import { RETRY_HISTORY_HASH } from "#/lib/trials/retry";
 import type { Trial } from "#/lib/trials/schema";
 import { cn } from "#/lib/utils";
 
 import { GateBadge, ModuleBadge } from "./badges";
-import { RETRY_HISTORY_HASH } from "./retry-history";
+import { RetryCell } from "./retry-controls";
 import { clickOpensRow, TrialLink, useOpenTrial } from "./trial-link";
 import { QuickOutcome } from "./trial-review";
 
@@ -38,6 +39,7 @@ const COLUMNS = [
   "Mod C (destination)",
   "Mod D (confidence)",
   "Mod E (guidance)",
+  "Retry",
   "View",
 ];
 
@@ -134,6 +136,9 @@ function TrialRow({ trial }: { trial: Trial }) {
       </TableCell>
       <TableCell>
         <ModuleBadge status={modules.moduleE.status} />
+      </TableCell>
+      <TableCell>
+        <RetryCell trial={trial} />
       </TableCell>
       <TableCell>
         <TrialLink
