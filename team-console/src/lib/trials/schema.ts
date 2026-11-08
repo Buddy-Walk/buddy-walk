@@ -36,7 +36,9 @@ export const REVIEWER_STATUSES = ["untested", "pass", "partial", "fail"] as cons
 export type ReviewerStatus = (typeof REVIEWER_STATUSES)[number];
 
 export const TURN_CORRECTNESS = ["correct", "wrong", "no_turn_given"] as const;
+export type TurnCorrectness = (typeof TURN_CORRECTNESS)[number];
 export const ENTRANCE_CORRECTNESS = ["correct", "wrong", "not_identified"] as const;
+export type EntranceCorrectness = (typeof ENTRANCE_CORRECTNESS)[number];
 
 export const PANORAMA_MODES = ["fresh", "original"] as const;
 export type PanoramaMode = (typeof PANORAMA_MODES)[number];
@@ -149,6 +151,7 @@ export const trialSchema = z.object({
   reviewerStatus: maybe(z.enum(REVIEWER_STATUSES)),
   turnCorrectness: maybe(z.enum(TURN_CORRECTNESS)),
   entranceCorrectness: maybe(z.enum(ENTRANCE_CORRECTNESS)),
+  reviewerNotes: maybe(z.string()),
 
   success: maybe(z.boolean()),
   error: maybe(z.string()),
@@ -203,3 +206,16 @@ export type TrialDetail = z.output<typeof trialDetailSchema>;
 export const trialListResponseSchema = z.object({ data: z.array(trialSchema) });
 
 export const trialDetailResponseSchema = z.object({ data: trialDetailSchema });
+
+// Saving a review answers with the whole saved document, images included and
+// without the fields mobile/server computes for a row, so only the review is read.
+const savedReviewSchema = trialSchema.pick({
+  reviewOutcome: true,
+  reviewerStatus: true,
+  turnCorrectness: true,
+  entranceCorrectness: true,
+  reviewerNotes: true,
+});
+export type SavedReview = z.output<typeof savedReviewSchema>;
+
+export const savedReviewResponseSchema = z.object({ data: savedReviewSchema });

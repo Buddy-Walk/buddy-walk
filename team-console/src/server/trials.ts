@@ -1,30 +1,27 @@
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
-import { env } from "cloudflare:workers";
 import { z } from "zod";
 
+import { viewParams } from "#/lib/trials/export";
 import { MAX_LIMIT } from "#/lib/trials/filters";
-import { trialDetailResponseSchema, trialListResponseSchema } from "#/lib/trials/schema";
+import { reviewInputSchema, reviewRequest } from "#/lib/trials/review";
+import {
+  savedReviewResponseSchema,
+  trialDetailResponseSchema,
+  trialListResponseSchema,
+} from "#/lib/trials/schema";
+import { callApi } from "#/server/api";
 
 /**
- * GETs one of mobile/server's Last Meters endpoints as the team, and checks the
- * response against its schema. A change to the fields mobile/server computes
- * fails here; saved fields from older Trials read as missing (see schema.ts).
+ * Checks a response from one of mobile/server's Last Meters endpoints against
+ * its schema. A change to the fields mobile/server computes fails here; saved
+ * fields from older Trials read as missing (see schema.ts).
  */
-async function getFromApi<T extends z.ZodType>(
+async function parseResponse<T extends z.ZodType>(
   path: string,
-  params: Record<string, string>,
+  response: Response,
   schema: T,
 ): Promise<z.output<T>> {
-  if (!env.API_BASE_URL) throw new Error("API_BASE_URL is not set for the Team console.");
-  const url = new URL(path, env.API_BASE_URL);
-  for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
-
-  const response = await fetch(url, {
-    headers: env.ADMIN_TOKEN ? { "x-admin-token": env.ADMIN_TOKEN } : {},
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
   const parsed = schema.safeParse(await response.json());
   if (!parsed.success) {
     throw new Error(
@@ -32,6 +29,14 @@ async function getFromApi<T extends z.ZodType>(
     );
   }
   return parsed.data;
+}
+
+async function getFromApi<T extends z.ZodType>(
+  path: string,
+  params: Record<string, string>,
+  schema: T,
+): Promise<z.output<T>> {
+  return parseResponse(path, await callApi(path, { params }), schema);
 }
 
 const trialsParams = z.object({
@@ -46,10 +51,7 @@ export const listTrials = createServerFn()
   .handler(async ({ data }) => {
     const { data: trials } = await getFromApi(
       "/api/last-meters-tests",
-      {
-        limit: String(data.limit),
-        ...(data.includeRetries ? { includeRetries: "true" } : {}),
-      },
+      viewParams(data),
       trialListResponseSchema,
     );
     return trials;
@@ -65,6 +67,20 @@ export const getTrial = createServerFn()
       trialDetailResponseSchema,
     );
     return trial;
+  });
+
+/** Saves a Trial's review and returns it as saved, which is what the console shows. */
+export const saveReview = createServerFn({ method: "POST" })
+  .validator(reviewInputSchema.extend({ trialId: z.string().min(1) }))
+  .handler(async ({ data: { trialId, ...review } }) => {
+    const path = `/api/last-meters-tests/${encodeURIComponent(trialId)}/review`;
+    const response = await callApi(path, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(reviewRequest(review)),
+    });
+    const { data: saved } = await parseResponse(path, response, savedReviewResponseSchema);
+    return saved;
   });
 
 // A failed load shows at once, with Refresh or Try again beside it, as the old page did.

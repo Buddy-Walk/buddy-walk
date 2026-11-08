@@ -12,6 +12,15 @@ export const SEEDED = {
   reviewedBeforeOutcomes: "6720f1c2a1b2c3d4e5f6071b",
   /** Best Buy Express, saved with values the console's schema no longer defines. */
   olderShape: "6720f1c2a1b2c3d4e5f6071c",
+  // The ones below are unscored, and only e2e/reviews.spec.ts writes to them.
+  /** Kohl's, with notes and a turn a quick score must keep. */
+  quickScored: "6720f1c2a1b2c3d4e5f6071d",
+  /** Old Navy, reviewed through the detail. */
+  detailReviewed: "6720f1c2a1b2c3d4e5f6071e",
+  /** Staples, whose saves the test makes fail. */
+  failedSave: "6720f1c2a1b2c3d4e5f6071f",
+  /** Petco, reviewed while its detail is still loading. */
+  savedWhileLoading: "6720f1c2a1b2c3d4e5f60720",
 } as const;
 
 type Doc = Record<string, unknown>;
@@ -282,6 +291,32 @@ const cases: Doc[] = [
     ],
     reviewOutcome: "got_there",
     serverTs: at("2026-10-21T15:00:00Z"),
+  },
+  {
+    _id: id(SEEDED.quickScored),
+    destination: "Kohl's",
+    testScenario: "test_a_visible",
+    reviewerNotes: "Door is on the side",
+    turnCorrectness: "wrong",
+    serverTs: at("2026-11-06T15:00:00Z"),
+  },
+  {
+    _id: id(SEEDED.detailReviewed),
+    destination: "Old Navy",
+    testScenario: "test_a_visible",
+    serverTs: at("2026-11-06T16:00:00Z"),
+  },
+  {
+    _id: id(SEEDED.failedSave),
+    destination: "Staples",
+    testScenario: "test_a_visible",
+    serverTs: at("2026-11-06T17:00:00Z"),
+  },
+  {
+    _id: id(SEEDED.savedWhileLoading),
+    destination: "Petco",
+    testScenario: "test_a_visible",
+    serverTs: at("2026-11-06T18:00:00Z"),
   },
 ];
 

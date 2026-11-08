@@ -48,7 +48,7 @@ Vitest covers plain modules in Node, so the Cloudflare plugin is left out when i
 Lint also runs the console's own rules in `lint/plugin.ts`, which have their tests beside them.
 
 `bun run e2e` starts the local stack on port 3100 and runs `e2e/` in Playwright's Chromium (`bunx playwright install chromium`).
-A test also fails on any page or console error, since React reports some crashes only to the console.
+A test also fails on any page or console error it doesn't list in `allowedErrors`, since React reports some crashes only to the console.
 
 ## Comparing with the old page
 
@@ -60,7 +60,7 @@ It counts the deliberate differences separately (values from older shapes read a
 
 | Name           | What it is                                                        |
 | -------------- | ----------------------------------------------------------------- |
-| `ADMIN_TOKEN`  | Sent to mobile/server as `x-admin-token` from server functions.   |
+| `ADMIN_TOKEN`  | Sent to mobile/server as `x-admin-token`, only from the server.   |
 | `API_BASE_URL` | mobile/server's base URL: local in dev, production when deployed. |
 
 Values live in Infisical, in the `/team-console` folder of the `buddy-walk` project, with `dev` and `prod` environments.
@@ -79,7 +79,7 @@ For an existing Preview, also run `bunx wrangler preview secret bulk --name <bra
 Locally, `infisical run` sets them as process env, and workerd reads them because `wrangler.jsonc` lists them under `secrets.required`.
 `.env.example` lists the names; real env files are gitignored.
 
-Only server functions may read secrets (`import { env } from "cloudflare:workers"`).
+Only server functions and server routes may read secrets (`import { env } from "cloudflare:workers"`).
 The browser never sees `ADMIN_TOKEN`.
 
 After changing `wrangler.jsonc`, run `bun run cf-typegen` to regenerate `worker-configuration.d.ts`.
