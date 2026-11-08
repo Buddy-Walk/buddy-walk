@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TrialsRouteImport } from './routes/trials'
 import { Route as TrialsTrialIdRouteImport } from './routes/trials.$trialId'
+import { Route as ApiTrialsExportDotcsvRouteImport } from './routes/api.trials.export[.]csv'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,34 +29,44 @@ const TrialsTrialIdRoute = TrialsTrialIdRouteImport.update({
   path: '/$trialId',
   getParentRoute: () => TrialsRoute,
 } as any)
+const ApiTrialsExportDotcsvRoute = ApiTrialsExportDotcsvRouteImport.update({
+  id: '/api/trials/export.csv',
+  path: '/api/trials/export.csv',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/trials': typeof TrialsRouteWithChildren
   '/trials/$trialId': typeof TrialsTrialIdRoute
+  '/api/trials/export.csv': typeof ApiTrialsExportDotcsvRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/trials': typeof TrialsRouteWithChildren
   '/trials/$trialId': typeof TrialsTrialIdRoute
+  '/api/trials/export.csv': typeof ApiTrialsExportDotcsvRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/trials': typeof TrialsRouteWithChildren
   '/trials/$trialId': typeof TrialsTrialIdRoute
+  '/api/trials/export.csv': typeof ApiTrialsExportDotcsvRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/trials' | '/trials/$trialId'
+  fullPaths: '/' | '/trials' | '/trials/$trialId' | '/api/trials/export.csv'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/trials' | '/trials/$trialId'
-  id: '__root__' | '/' | '/trials' | '/trials/$trialId'
+  to: '/' | '/trials' | '/trials/$trialId' | '/api/trials/export.csv'
+  id:
+    '__root__' | '/' | '/trials' | '/trials/$trialId' | '/api/trials/export.csv'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   TrialsRoute: typeof TrialsRouteWithChildren
+  ApiTrialsExportDotcsvRoute: typeof ApiTrialsExportDotcsvRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -81,6 +92,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TrialsTrialIdRouteImport
       parentRoute: typeof TrialsRoute
     }
+    '/api/trials/export.csv': {
+      id: '/api/trials/export.csv'
+      path: '/api/trials/export.csv'
+      fullPath: '/api/trials/export.csv'
+      preLoaderRoute: typeof ApiTrialsExportDotcsvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -98,6 +116,7 @@ const TrialsRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   TrialsRoute: TrialsRouteWithChildren,
+  ApiTrialsExportDotcsvRoute: ApiTrialsExportDotcsvRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

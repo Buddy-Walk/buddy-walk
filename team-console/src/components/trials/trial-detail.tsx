@@ -19,6 +19,7 @@ import { ModuleBadge } from "./badges";
 import { RETRY_HISTORY_HASH, RetryHistorySection } from "./retry-history";
 import { TrialImages } from "./trial-images";
 import { TrialLink } from "./trial-link";
+import { ReviewForm } from "./trial-review";
 
 function Block({
   title,
@@ -292,6 +293,8 @@ export function TrialDetailBody({ trial }: { trial: TrialDetail }) {
       <Block title="Final output sent to user" className="border-2 border-blue-500 bg-blue-50/50">
         <p className="leading-relaxed">{trial.finalOutput || trial.error || "-"}</p>
       </Block>
+
+      <ReviewForm key={trial._id} trial={trial} />
     </div>
   );
 }

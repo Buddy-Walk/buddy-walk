@@ -7,7 +7,8 @@ import { TrialsFilters } from "#/components/trials/trials-filters";
 import { TrialsSummaryCards } from "#/components/trials/trials-summary";
 import { TrialsTable } from "#/components/trials/trials-table";
 import { Alert, AlertDescription } from "#/components/ui/alert";
-import { Button } from "#/components/ui/button";
+import { Button, buttonVariants } from "#/components/ui/button";
+import { exportHref } from "#/lib/trials/export";
 import {
   DEFAULT_LIMIT,
   trialsSearchSchema,
@@ -56,10 +57,15 @@ function TrialsPage() {
             Review pipeline modules, confidence fusion, and evaluate visual alignment.
           </p>
         </div>
-        <Button variant="outline" onClick={() => trials.refetch()} disabled={trials.isFetching}>
-          <RefreshCwIcon className={trials.isFetching ? "animate-spin" : undefined} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => trials.refetch()} disabled={trials.isFetching}>
+            <RefreshCwIcon className={trials.isFetching ? "animate-spin" : undefined} />
+            Refresh
+          </Button>
+          <a className={buttonVariants()} href={exportHref(deps)}>
+            Export CSV
+          </a>
+        </div>
       </header>
 
       <main className="mx-auto flex max-w-[1440px] flex-col gap-5 p-6">

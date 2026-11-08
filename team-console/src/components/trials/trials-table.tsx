@@ -19,13 +19,13 @@ import {
 } from "#/lib/trials/display";
 import { distanceGate } from "#/lib/trials/filters";
 import { buildModules } from "#/lib/trials/modules";
-import { outcomeOf } from "#/lib/trials/outcome";
 import type { Trial } from "#/lib/trials/schema";
 import { cn } from "#/lib/utils";
 
-import { GateBadge, ModuleBadge, OutcomeMark } from "./badges";
+import { GateBadge, ModuleBadge } from "./badges";
 import { RETRY_HISTORY_HASH } from "./retry-history";
 import { clickOpensRow, TrialLink, useOpenTrial } from "./trial-link";
+import { QuickOutcome } from "./trial-review";
 
 const COLUMNS = [
   "Time",
@@ -121,7 +121,7 @@ function TrialRow({ trial }: { trial: Trial }) {
         )}
       </TableCell>
       <TableCell>
-        <OutcomeMark outcome={outcomeOf(trial)} />
+        <QuickOutcome trial={trial} />
       </TableCell>
       <TableCell>
         <ModuleBadge status={modules.moduleB.status} />

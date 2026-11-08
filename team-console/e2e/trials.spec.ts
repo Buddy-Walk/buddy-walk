@@ -1,25 +1,7 @@
-import { expect, test as base, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 import { SEEDED } from "../scripts/seed-trials.ts";
-
-// Every test fails on a page error or a logged one. The crash Close once had only
-// showed as a console error, with the router's error page in place of the list.
-const test = base.extend<{ noErrors: void }>({
-  noErrors: [
-    async ({ page }, use) => {
-      const errors: string[] = [];
-      page.on("pageerror", (error) => errors.push(error.message));
-      page.on("console", (message) => {
-        if (message.type() === "error") errors.push(message.text());
-      });
-      await use();
-      expect(errors).toEqual([]);
-    },
-    { auto: true },
-  ],
-});
-
-const viewLink = (trialId: string) => `a[href^="/trials/${trialId}"]:text-is("View")`;
+import { expect, rowOf, test, viewLink } from "./fixtures.ts";
 
 /** The list is back at this URL, with no Trial open over it. */
 async function expectList(page: Page, url: string) {
@@ -72,10 +54,9 @@ test("a run opened from the retry history closes back to the list", async ({ pag
 
 test("a Trial reviewed before outcome scoring counts by its status", async ({ page }) => {
   await page.goto("/trials?q=Duane");
-  const row = page
-    .getByRole("row")
-    .filter({ has: page.locator(viewLink(SEEDED.reviewedBeforeOutcomes)) });
-  await expect(row).toContainText("Would get me there");
+  await expect(
+    rowOf(page, SEEDED.reviewedBeforeOutcomes).getByRole("combobox", { name: "Outcome" }),
+  ).toHaveValue("got_there");
 });
 
 test("a Trial saved in an older shape still shows", async ({ page }) => {
