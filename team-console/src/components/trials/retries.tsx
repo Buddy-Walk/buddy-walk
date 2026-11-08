@@ -14,6 +14,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { toast } from "sonner";
 
 import {
   Dialog,
@@ -25,7 +26,6 @@ import {
   DialogTitle,
 } from "#/components/ui/dialog";
 import { Button, buttonVariants } from "#/components/ui/button";
-import { showToast, Toaster } from "#/components/ui/toast";
 import { panoramaModeText } from "#/lib/trials/display";
 import {
   forgetPendingRetry,
@@ -45,6 +45,7 @@ import type {
   RunningRetry,
   TrialDetail,
 } from "#/lib/trials/schema";
+import { cn } from "#/lib/utils";
 import { isTrialRunsQuery, retryTrial, type TrialList } from "#/server/trials";
 
 import { ModuleBadge } from "./badges";
@@ -179,28 +180,24 @@ export function RetriesProvider({
       savePendingRetry(run);
     },
     onSuccess: (answer, run) => {
-      const { trialId } = answer;
-      showToast({
-        title: "Retry finished",
-        body: (
-          <FinishedToastBody
-            run={run}
-            answer={answer}
-            originalScenario={loadedScenario(queryClient, run.originalId)}
-          />
+      const toastId: string | number = toast("Retry finished", {
+        description: (
+          <>
+            <FinishedToastBody
+              run={run}
+              answer={answer}
+              originalScenario={loadedScenario(queryClient, run.originalId)}
+            />
+            <TrialLink
+              trialId={answer.trialId}
+              hash={RETRY_HISTORY_HASH}
+              onClick={() => toast.dismiss(toastId)}
+              className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "mt-1.5")}
+            >
+              Open history
+            </TrialLink>
+          </>
         ),
-        action: trialId
-          ? (close) => (
-              <TrialLink
-                trialId={trialId}
-                hash={RETRY_HISTORY_HASH}
-                onClick={close}
-                className={buttonVariants({ variant: "secondary", size: "sm" })}
-              >
-                Open history
-              </TrialLink>
-            )
-          : undefined,
       });
     },
     onError: (error, run) => {
@@ -210,30 +207,27 @@ export function RetriesProvider({
         run.panoramaMode === "original" &&
         error instanceof RetryRefused &&
         error.code === "original_panorama_retired";
-      showToast({
-        failed: true,
-        title: "Retry did not run",
-        body: (
+      const toastId: string | number = toast.error("Retry did not run", {
+        description: (
           <>
             <b className="text-foreground">{run.name}</b>, {panoramaModeText(run.panoramaMode)}
             <div className="mt-1">{error.message}</div>
-          </>
-        ),
-        action: offerFresh
-          ? (close) => (
+            {offerFresh && (
               <Button
                 variant="secondary"
                 size="sm"
+                className="mt-1.5"
                 onClick={() => {
                   void askToRetry(run, "fresh").then((confirmed) => {
-                    if (confirmed) close();
+                    if (confirmed) toast.dismiss(toastId);
                   });
                 }}
               >
                 Retry with fresh panorama
               </Button>
-            )
-          : undefined,
+            )}
+          </>
+        ),
       });
     },
     onSettled: (_answer, _error, run) => {
@@ -316,7 +310,6 @@ export function RetriesProvider({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Toaster />
     </RetriesContext>
   );
 }

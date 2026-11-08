@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog";
+import { keepOpenForToast } from "#/components/ui/sonner";
 import { formatDate, trialName, trialTime } from "#/lib/trials/display";
 import { originalIdOf, RETRY_HISTORY_HASH, retryPollInterval } from "#/lib/trials/retry";
 import type { TrialDetail } from "#/lib/trials/schema";
@@ -85,6 +86,7 @@ function TrialDetailDialog() {
       <DialogContent
         ref={content}
         showCloseButton={false}
+        onInteractOutside={keepOpenForToast}
         className="max-h-[calc(100dvh-2rem)] gap-5 overflow-y-auto sm:max-w-[900px]"
       >
         <DialogHeader className="flex-row items-center justify-between gap-4 border-b pb-4">
