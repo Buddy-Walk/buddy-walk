@@ -18,8 +18,12 @@ function Home() {
       <p className="mt-2 text-muted-foreground">
         <Link to="/trials" className="text-primary underline">
           Trials
+        </Link>{" "}
+        and{" "}
+        <Link to="/usage" className="text-primary underline">
+          Usage
         </Link>
-        , and usage soon.
+        .
       </p>
       <h2 className="mt-8 text-lg font-medium">Secrets</h2>
       <ul className="mt-2 space-y-1">

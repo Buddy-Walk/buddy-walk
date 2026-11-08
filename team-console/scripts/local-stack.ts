@@ -1,6 +1,6 @@
 /// <reference types="node" />
 // Runs the Team console against a throwaway mobile/server with seeded Trials:
-// mongod (data in .stack/) -> scripts/seed-trials.ts -> mobile/server -> vp dev.
+// mongod (data in .stack/) -> scripts/seed-*.ts -> mobile/server -> vp dev.
 //
 //   bun scripts/local-stack.ts                 runs until Ctrl-C
 //   bun scripts/local-stack.ts -- <command>    runs the command against it, then stops
@@ -14,6 +14,7 @@ import { connect, createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 
 import { seededTrials } from "./seed-trials.ts";
+import { seededUsage } from "./seed-usage.ts";
 
 const consoleDir = fileURLToPath(new URL("..", import.meta.url));
 const mobileDir = fileURLToPath(new URL("../../mobile/", import.meta.url));
@@ -182,15 +183,20 @@ start(
 );
 await waitFor("mongod", () => accepts(mongoPort, "127.0.0.1"));
 
-const seedFile = `${stackDir}/trials.json`;
-writeFileSync(seedFile, JSON.stringify(seededTrials()));
-await run("mongoimport", "mongoimport", [
-  "--quiet",
-  `--uri=${mongoUri}`,
-  "--collection=last_mile_test_log",
-  "--jsonArray",
-  `--file=${seedFile}`,
-]);
+for (const [collection, docs] of Object.entries({
+  last_mile_test_log: seededTrials(),
+  ...seededUsage(),
+})) {
+  const seedFile = `${stackDir}/${collection}.json`;
+  writeFileSync(seedFile, JSON.stringify(docs));
+  await run("mongoimport", "mongoimport", [
+    "--quiet",
+    `--uri=${mongoUri}`,
+    `--collection=${collection}`,
+    "--jsonArray",
+    `--file=${seedFile}`,
+  ]);
+}
 
 start("mobile-server", `${mobileDir}node_modules/.bin/tsx`, ["server/index.ts"], mobileDir, {
   NODE_ENV: "development",
