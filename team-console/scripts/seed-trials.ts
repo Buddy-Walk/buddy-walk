@@ -21,6 +21,8 @@ export const SEEDED = {
   failedSave: "6720f1c2a1b2c3d4e5f6071f",
   /** Petco, reviewed while its detail is still loading. */
   savedWhileLoading: "6720f1c2a1b2c3d4e5f60720",
+  /** Target, which e2e/retries.spec.ts marks as retrying elsewhere. */
+  retriedElsewhere: "6720f1c2a1b2c3d4e5f60721",
 } as const;
 
 type Doc = Record<string, unknown>;
@@ -317,6 +319,12 @@ const cases: Doc[] = [
     destination: "Petco",
     testScenario: "test_a_visible",
     serverTs: at("2026-11-06T18:00:00Z"),
+  },
+  {
+    _id: id(SEEDED.retriedElsewhere),
+    destination: "Target",
+    testScenario: "test_a_visible",
+    serverTs: at("2026-11-06T19:00:00Z"),
   },
 ];
 

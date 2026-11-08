@@ -35,5 +35,5 @@ export function stackEnv() {
       .split("\n")
       .map((line) => line.split("=", 2) as [string, string]),
   );
-  return { apiBase: env.API_BASE_URL, token: env.ADMIN_TOKEN };
+  return { apiBase: env.API_BASE_URL, token: env.ADMIN_TOKEN, mongoUri: env.MONGO_URI };
 }

@@ -3,7 +3,7 @@ import { createFileRoute, getRouteApi, useLocation, useRouter } from "@tanstack/
 import { useEffect, useRef } from "react";
 
 import { TrialDetailBody } from "#/components/trials/trial-detail";
-import { RETRY_HISTORY_HASH } from "#/components/trials/retry-history";
+import { useRunningRetries } from "#/components/trials/retries";
 import { Alert, AlertDescription } from "#/components/ui/alert";
 import { Button } from "#/components/ui/button";
 import {
@@ -14,8 +14,9 @@ import {
   DialogTitle,
 } from "#/components/ui/dialog";
 import { formatDate, trialName, trialTime } from "#/lib/trials/display";
+import { originalIdOf, RETRY_HISTORY_HASH, retryPollInterval } from "#/lib/trials/retry";
 import type { TrialDetail } from "#/lib/trials/schema";
-import { trialQuery, trialsQuery } from "#/server/trials";
+import { trialQuery, trialRunsQuery, trialsQuery } from "#/server/trials";
 
 const trialsRoute = getRouteApi("/trials");
 
@@ -37,12 +38,27 @@ function TrialDetailDialog() {
 
   const listRow = useQuery({
     ...trialsQuery(deps),
-    select: (trials) => trials.find((trial) => trial._id === trialId),
+    select: ({ trials }) => trials.find((trial) => trial._id === trialId),
   }).data;
   const detail = useQuery(trialQuery(trialId));
-  const trial: TrialDetail | undefined =
+  const shown: TrialDetail | undefined =
     detail.data ?? (listRow && { ...listRow, placeCandidates: [] });
-  const hasHistory = Boolean(detail.data?.history);
+
+  // The history can change while the Trial is open, so it comes from its own
+  // light query, polled while one of this Trial's retries runs.
+  const runningHere = useRunningRetries();
+  const runs = useQuery({
+    ...trialRunsQuery(trialId),
+    refetchInterval: ({ state: { data } }) =>
+      retryPollInterval(
+        [data?.history?.runningRetry],
+        data !== undefined && runningHere.has(originalIdOf(data)),
+      ),
+    refetchIntervalInBackground: true,
+  }).data;
+  const trial: TrialDetail | undefined =
+    shown && runs ? { ...shown, history: runs.history, replay: runs.replay } : shown;
+  const hasHistory = Boolean(trial?.history);
 
   // Closing goes back to the list rather than adding to history. A Trial opened
   // from a shared link has no list behind it, so the list replaces it.

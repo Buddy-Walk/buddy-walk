@@ -12,11 +12,12 @@ import {
 } from "#/lib/trials/display";
 import { failureExplanation } from "#/lib/trials/failure";
 import { buildModules, type TrialModule } from "#/lib/trials/modules";
+import { RETRY_HISTORY_HASH } from "#/lib/trials/retry";
 import type { TrialDetail } from "#/lib/trials/schema";
 import { cn } from "#/lib/utils";
 
 import { ModuleBadge } from "./badges";
-import { RETRY_HISTORY_HASH, RetryHistorySection } from "./retry-history";
+import { RetryHistorySection } from "./retry-history";
 import { TrialImages } from "./trial-images";
 import { TrialLink } from "./trial-link";
 import { ReviewForm } from "./trial-review";

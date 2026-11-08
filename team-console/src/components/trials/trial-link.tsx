@@ -42,6 +42,8 @@ const trialLink = (
  */
 export function clickOpensRow(event: MouseEvent<HTMLElement>): boolean {
   const target = event.target as HTMLElement;
+  // React also bubbles clicks from portals, like the retry menu opened from a row.
+  if (!event.currentTarget.contains(target)) return false;
   if (target.closest("a, button, input, select, textarea, label, summary")) return false;
   return !String(window.getSelection());
 }
@@ -61,17 +63,24 @@ export function TrialLink({
   hash,
   className,
   title,
+  onClick,
   children,
 }: {
   trialId: string;
   hash?: string;
   className?: string;
   title?: string;
+  onClick?: () => void;
   children: ReactNode;
 }) {
   const deeper = useDeeper();
   return (
-    <Link {...trialLink(trialId, hash, deeper)} className={className} title={title}>
+    <Link
+      {...trialLink(trialId, hash, deeper)}
+      className={className}
+      title={title}
+      onClick={onClick}
+    >
       {children}
     </Link>
   );

@@ -86,6 +86,33 @@ const placeCandidateSchema = z.object({
 });
 export type PlaceCandidate = z.output<typeof placeCandidateSchema>;
 
+const runningRetrySchema = z.object({
+  panoramaMode: z.enum(PANORAMA_MODES),
+  startedAt: z.number(),
+});
+export type RunningRetry = z.output<typeof runningRetrySchema>;
+
+// mobile/server computes these for each row, so a change in their shape fails
+// here; only the panorama's id and date are copied from what the Trial saved.
+const originalPanoramaSchema = z.object({
+  available: z.boolean(),
+  panoId: maybe(z.string()),
+  panoramaDate: maybe(z.string()),
+  reason: z.string().optional(),
+});
+
+const replaySchema = z.object({
+  status: z.enum(["replayable", "replayable_with_defaults", "not_replayable"]),
+  reason: z.string().optional(),
+  defaultsApplied: z.array(z.string()),
+  originalPanorama: originalPanoramaSchema,
+});
+
+// The list reports null when nothing is running, and the detail reports it on the history.
+const reportedRunningRetrySchema = runningRetrySchema
+  .nullish()
+  .transform((running) => running ?? undefined);
+
 /** One Trial as the list sends it, without images. */
 export const trialSchema = z.object({
   _id: z.string(),
@@ -98,6 +125,8 @@ export const trialSchema = z.object({
   retryPanoramaMode: maybe(z.enum(PANORAMA_MODES)),
   retryDefaultsApplied: list(z.string()),
   retryCount: maybe(z.number()),
+  replay: replaySchema,
+  runningRetry: reportedRunningRetrySchema,
   safetyReasons: list(z.string()),
   walkingEvidence: maybe(z.object({ reason: maybe(z.string()) })),
   confidenceMethod: maybe(z.string()),
@@ -190,6 +219,7 @@ const retryHistorySchema = z.object({
   originalId: z.string(),
   original: retryHistoryEntrySchema.nullable(),
   retries: z.array(retryHistoryEntrySchema),
+  runningRetry: reportedRunningRetrySchema,
 });
 export type RetryHistory = z.output<typeof retryHistorySchema>;
 
@@ -203,7 +233,16 @@ export const trialDetailSchema = trialSchema.extend({
 });
 export type TrialDetail = z.output<typeof trialDetailSchema>;
 
-export const trialListResponseSchema = z.object({ data: z.array(trialSchema) });
+const retryAvailabilitySchema = z.object({
+  available: z.boolean(),
+  reason: z.string().optional(),
+});
+export type RetryAvailability = z.output<typeof retryAvailabilitySchema>;
+
+export const trialListResponseSchema = z.object({
+  data: z.array(trialSchema),
+  retry: retryAvailabilitySchema,
+});
 
 export const trialDetailResponseSchema = z.object({ data: trialDetailSchema });
 
@@ -219,3 +258,16 @@ const savedReviewSchema = trialSchema.pick({
 export type SavedReview = z.output<typeof savedReviewSchema>;
 
 export const savedReviewResponseSchema = z.object({ data: savedReviewSchema });
+
+// A retry answers with its new Trial as a summary, or null if that can't be read back.
+const retryResultSchema = trialSchema.pick({ testScenario: true, success: true, error: true });
+export type RetryResult = z.output<typeof retryResultSchema>;
+
+export const retryResponseSchema = z.object({
+  testLogId: z.string(),
+  data: retryResultSchema.nullable(),
+});
+
+export const retryErrorSchema = z
+  .object({ error: maybe(z.string()), code: maybe(z.string()) })
+  .catch({});

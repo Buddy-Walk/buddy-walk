@@ -10,6 +10,7 @@ const required = {
   hasUserPhoto: false,
   hasPanorama: false,
   hasDestinationPhoto: false,
+  replay: { status: "replayable", defaultsApplied: [], originalPanorama: { available: false } },
 };
 
 export const trialFrom = (fields: TrialInput = {}) => trialSchema.parse({ ...required, ...fields });

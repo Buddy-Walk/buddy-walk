@@ -31,7 +31,8 @@ Without Infisical, `vp dev --port 3000` still starts and reports both secrets as
 `bun run stack` runs the console against a throwaway mobile/server with seeded Trials, to see a change working.
 It starts mongod with its data in `.stack/`, loads `scripts/seed-trials.ts`, then starts mobile/server and `vp dev`, and stops them all on Ctrl-C.
 The seed holds one of each case the console handles, including Trials saved in older shapes; add one there when a change needs a new case.
-`.stack/` keeps each process's log, and `.stack/env` holds `API_BASE_URL` and `ADMIN_TOKEN` for tools run beside the stack.
+`.stack/` keeps each process's log, and `.stack/env` holds `API_BASE_URL`, `ADMIN_TOKEN` and `MONGO_URI` for tools run beside the stack.
+The stack blanks the Last Meters API keys so a retry can never spend money, which leaves retries off there.
 It needs `mongod` and `mongoimport` on the PATH and mobile's dependencies (`npm ci` in `mobile/`).
 
 ## Test and check
