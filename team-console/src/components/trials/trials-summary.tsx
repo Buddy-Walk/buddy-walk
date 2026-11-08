@@ -16,11 +16,11 @@ function SummaryCard({ title, children }: { title: string; children: ReactNode }
 
 function SuccessTable({ groups, keyLabel }: { groups: SuccessGroup[]; keyLabel: string }) {
   if (!groups.length) {
-    return <p className="text-xs text-muted-foreground">No scored Trials yet.</p>;
+    return <p className="text-xs text-quiet">No scored Trials yet.</p>;
   }
   return (
     <table className="w-full text-xs">
-      <thead className="text-left text-muted-foreground">
+      <thead className="bg-muted text-left text-muted-foreground">
         <tr>
           <th className="py-1 pr-2 font-semibold">{keyLabel}</th>
           <th className="py-1 pr-2 font-semibold">Scored</th>
@@ -49,7 +49,7 @@ export function TrialsSummaryCards({ summary }: { summary: TrialsSummary }) {
         <div className="text-3xl font-extrabold">
           {summary.rate === null ? "-" : `${summary.rate}%`}
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-1 text-xs text-quiet">
           {summary.scored} of {summary.trials} Trials scored. Success means the reviewer chose
           "Would get me there".
         </p>

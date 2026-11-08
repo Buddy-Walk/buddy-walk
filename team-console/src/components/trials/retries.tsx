@@ -108,7 +108,7 @@ function FinishedToastBody({
       <b className="text-foreground">{run.name}</b>, {panoramaModeText(run.panoramaMode)}
       <div className="mt-1 flex flex-wrap items-center gap-1.5">
         <ModuleBadge status={success ? "pass" : "fail"} label={success ? "Answered" : "Failed"} />
-        <span className={changed ? "text-amber-700" : undefined}>
+        <span className={changed ? "text-warn" : undefined}>
           {testScenario || "no scenario"}
           {changed && ` (was ${originalScenario})`}
         </span>
@@ -283,7 +283,8 @@ export function RetriesProvider({
       >
         <DialogContent
           showCloseButton={false}
-          className="sm:max-w-sm"
+          overlayClassName="bg-backdrop"
+          className="border-replay-line border-l-3 border-l-replay bg-popover sm:max-w-sm"
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             runButton.current?.focus();
@@ -302,9 +303,13 @@ export function RetriesProvider({
           </DialogHeader>
           <DialogFooter>
             <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
+              <Button variant="secondary">Cancel</Button>
             </DialogClose>
-            <Button ref={runButton} onClick={() => finishConfirming(true)}>
+            <Button
+              ref={runButton}
+              className="bg-replay text-replay-foreground hover:bg-replay-text"
+              onClick={() => finishConfirming(true)}
+            >
               Run retry
             </Button>
           </DialogFooter>

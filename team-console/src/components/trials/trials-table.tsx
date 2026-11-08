@@ -44,9 +44,9 @@ const COLUMNS = [
 ];
 
 const GPS_STYLES = {
-  good: "text-emerald-700",
-  ok: "text-amber-700",
-  poor: "text-red-700",
+  good: "text-pass-text",
+  ok: "text-warn",
+  poor: "text-fail-text",
 } as const;
 
 function DestinationCell({ trial }: { trial: Trial }) {
@@ -54,11 +54,11 @@ function DestinationCell({ trial }: { trial: Trial }) {
   return (
     <>
       <strong>{requested}</strong>
-      <div className={cn("mt-1 text-xs text-muted-foreground", mismatch && "text-amber-700")}>
+      <div className={cn("mt-1 text-xs text-muted-foreground", mismatch && "text-warn")}>
         {resolved ? `→ ${resolved}` : "Not resolved"}
       </div>
       {trial.retryOf ? (
-        <div className="mt-1 text-xs text-violet-700">
+        <div className="mt-1 text-xs text-replay-text">
           ↻ Retry, {panoramaModeText(trial.retryPanoramaMode)}
         </div>
       ) : trial.retryCount ? (
@@ -66,7 +66,7 @@ function DestinationCell({ trial }: { trial: Trial }) {
           trialId={trial._id}
           hash={RETRY_HISTORY_HASH}
           title="Open the retry history"
-          className="mt-1 inline-flex rounded-full border border-violet-300 bg-violet-50 px-2 py-0.5 text-xs font-bold whitespace-nowrap text-violet-800 hover:border-violet-500"
+          className="mt-1 inline-flex rounded-full border border-replay-line bg-replay-soft px-2 py-0.5 text-xs font-bold whitespace-nowrap text-replay-text hover:border-replay"
         >
           ↻ {trial.retryCount} {trial.retryCount === 1 ? "retry" : "retries"}
         </TrialLink>
@@ -89,7 +89,7 @@ function TrialRow({ trial }: { trial: Trial }) {
       onClick={open}
       className={cn(
         "cursor-pointer",
-        trial.retryOf && "[&>td:first-child]:shadow-[inset_3px_0_0_var(--color-violet-500)]",
+        trial.retryOf && "[&>td:first-child]:shadow-[inset_3px_0_0_var(--color-replay)]",
       )}
     >
       <TableCell>{formatDate(trialTime(trial))}</TableCell>
@@ -105,7 +105,7 @@ function TrialRow({ trial }: { trial: Trial }) {
       </TableCell>
       <TableCell>
         {trial.gpsAccuracyMeters == null ? (
-          <span className="text-xs text-muted-foreground">-</span>
+          <span className="text-xs text-quiet">-</span>
         ) : (
           <span className={cn("font-bold", GPS_STYLES[gpsBand(trial.gpsAccuracyMeters)])}>
             ±{formatMeters(trial.gpsAccuracyMeters)}
@@ -156,7 +156,7 @@ export function TrialsTable({ trials, message }: { trials: Trial[]; message?: st
   return (
     <div className="overflow-x-auto rounded-lg border">
       <Table>
-        <TableHeader className="bg-muted/50">
+        <TableHeader className="bg-muted">
           <TableRow>
             {COLUMNS.map((column) => (
               <TableHead key={column}>{column}</TableHead>

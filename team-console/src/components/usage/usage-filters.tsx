@@ -48,7 +48,7 @@ export function UsageFilters({
     >
       <DateField name="since" label="Since" value={range.since} />
       <DateField name="until" label="Until" value={range.until} />
-      <Button type="submit" variant="outline">
+      <Button type="submit" variant="secondary">
         Apply filters
       </Button>
     </form>

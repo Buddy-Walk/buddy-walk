@@ -40,7 +40,7 @@ export function RetryReason({
 }) {
   return (
     <div title={title} className={cn("text-xs leading-snug text-muted-foreground", className)}>
-      <b className="block text-amber-700">Can&apos;t retry</b>
+      <b className="block text-warn">Can&apos;t retry</b>
       {children}
     </div>
   );
@@ -61,7 +61,7 @@ function ModeItem({
     <DropdownMenuItem
       disabled={disabled}
       onSelect={onSelect}
-      className="flex-col items-start gap-0.5"
+      className="flex-col items-start gap-0.5 focus:bg-replay-soft focus:*:[b]:text-replay-text"
     >
       <b className="font-semibold">{label}</b>
       <span className="text-xs leading-snug text-muted-foreground">{children}</span>
@@ -85,10 +85,10 @@ export function RetryButton({
   if (running) {
     return (
       <Button
-        variant="outline"
+        variant="secondary"
         size="sm"
         disabled
-        className="border-violet-300 bg-violet-50 text-violet-800 disabled:opacity-100"
+        className="border-replay-line bg-replay-soft text-replay-text disabled:opacity-100"
       >
         <Loader2Icon aria-hidden className="animate-spin" />
         Running <Elapsed since={running.startedAt} />
@@ -97,7 +97,7 @@ export function RetryButton({
   }
   if (blocked) {
     return (
-      <Button variant="outline" size="sm" disabled title={blocked}>
+      <Button variant="secondary" size="sm" disabled title={blocked}>
         Retry
       </Button>
     );
@@ -118,12 +118,20 @@ export function RetryButton({
     // Not modal: a modal menu handing over to the confirm dialog can leave the page unclickable.
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <Button ref={trigger} variant="outline" size="sm">
+        <Button
+          ref={trigger}
+          variant="secondary"
+          size="sm"
+          className="hover:border-replay aria-expanded:border-replay"
+        >
           Retry
           <ChevronDownIcon aria-hidden />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[min(320px,calc(100vw-2rem))]">
+      <DropdownMenuContent
+        align="end"
+        className="w-[min(320px,calc(100vw-2rem))] border-replay-line"
+      >
         <DropdownMenuLabel className="font-normal text-muted-foreground">
           Re-run {name} with
         </DropdownMenuLabel>
@@ -146,11 +154,11 @@ export function RetryButton({
           )}
         </ModeItem>
         {fills.length > 0 && (
-          <p className="mt-1 border-t px-2 pt-2 pb-1 text-xs leading-snug text-amber-700">
+          <p className="mt-1 border-t px-2 pt-2 pb-1 text-xs leading-snug text-warn">
             Fills in values the original did not record: {fills.join("; ")}
           </p>
         )}
-        <p className="mt-1 border-t px-2 pt-2 pb-1 text-xs leading-snug text-muted-foreground">
+        <p className="mt-1 border-t px-2 pt-2 pb-1 text-xs leading-snug text-quiet">
           Runs the current pipeline with paid API calls, usually in about a minute. Up to 3 retries
           run at once, one per Trial. The result is saved as a new Trial.
         </p>
@@ -180,7 +188,7 @@ export function RetryCell({ trial }: { trial: Trial }) {
         </RetryReason>
       ) : (
         fills.length > 0 && (
-          <div className="mt-1.5 text-xs text-amber-700" title={fills.join("; ")}>
+          <div className="mt-1.5 text-xs text-warn" title={fills.join("; ")}>
             Fills in {fills.length} {fills.length === 1 ? "value" : "values"}
           </div>
         )
@@ -192,8 +200,8 @@ export function RetryCell({ trial }: { trial: Trial }) {
 export function RetriesOffNote({ availability }: { availability: RetryAvailability }) {
   if (availability.available) return null;
   return (
-    <div className="rounded-lg border border-l-3 border-amber-300 border-l-amber-500 bg-amber-50 px-3.5 py-2.5 text-sm">
-      <b className="text-amber-800">Retries are off.</b> {availability.reason}
+    <div className="rounded-lg border border-l-3 border-warn/35 border-l-warn bg-warn/8 px-3.5 py-2.5 text-sm">
+      <b className="text-warn">Retries are off.</b> {availability.reason}
     </div>
   );
 }

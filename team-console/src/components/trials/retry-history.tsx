@@ -41,7 +41,7 @@ function saveNewestFirst(newestFirst: boolean) {
   }
 }
 
-const changed = "text-amber-700";
+const changed = "text-warn";
 
 function PanoramaCell({
   entry,
@@ -142,22 +142,22 @@ function HistoryRow({
       data-current={current || undefined}
       className={cn(
         "border-b align-top last:border-b-0",
-        !entry.isRetry && "border-b-2",
+        !entry.isRetry && "border-b-2 border-b-border-strong",
         current
-          ? "bg-violet-50 [&>td:first-child]:shadow-[inset_3px_0_0_var(--color-violet-500)]"
-          : "cursor-pointer hover:bg-muted/50",
+          ? "bg-replay-soft [&>td:first-child]:shadow-[inset_3px_0_0_var(--color-replay)]"
+          : "cursor-pointer hover:bg-muted",
       )}
     >
       <td className="p-2.5">
         {current ? (
           <span aria-current="true" className="font-bold whitespace-nowrap">
             {label}
-            <span className="mt-1 block text-xs text-violet-700">Viewing</span>
+            <span className="mt-1 block text-xs text-replay">Viewing</span>
           </span>
         ) : (
           <TrialLink
             trialId={entry.id}
-            className="font-bold whitespace-nowrap hover:text-violet-700 hover:underline"
+            className="font-bold whitespace-nowrap hover:text-replay-text hover:underline"
           >
             {label}
           </TrialLink>
@@ -197,7 +197,7 @@ function RunningRow({ running, label }: { running: RunningRetry; label: string }
   return (
     <tr className="border-b align-top last:border-b-0">
       <td className="p-2.5">
-        <span className="inline-flex items-center gap-1.5 font-bold whitespace-nowrap text-violet-700">
+        <span className="inline-flex items-center gap-1.5 font-bold whitespace-nowrap text-replay-text">
           <Loader2Icon aria-hidden className="size-3 animate-spin" />
           {label}
         </span>
@@ -258,11 +258,11 @@ export function RetryHistorySection({
   };
 
   return (
-    <section id={id} className="scroll-mt-4 rounded-lg border border-violet-300 p-4">
+    <section id={id} className="scroll-mt-4 rounded-lg border border-replay-line p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="font-bold">Retry history</h3>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-quiet">
             {retries.length
               ? `${retries.length} ${retries.length === 1 ? "retry" : "retries"} of the original Trial.`
               : "No retries yet. A retry re-runs the stored photo and inputs through the current pipeline."}
@@ -284,7 +284,7 @@ export function RetryHistorySection({
                   type="button"
                   aria-pressed={newestFirst === newest}
                   onClick={() => chooseOrder(newest as boolean)}
-                  className="rounded-md px-2.5 py-1 text-xs font-semibold whitespace-nowrap text-muted-foreground hover:text-foreground aria-pressed:bg-violet-100 aria-pressed:text-violet-800"
+                  className="rounded-md px-2.5 py-1 text-xs font-semibold whitespace-nowrap text-muted-foreground hover:text-foreground aria-pressed:bg-replay-soft aria-pressed:text-replay-text aria-pressed:shadow-[inset_0_0_0_1px_var(--color-replay-line)]"
                 >
                   {text}
                 </button>
@@ -323,8 +323,8 @@ export function RetryHistorySection({
                 original={original}
               />
             ) : (
-              <tr className="border-b-2">
-                <td colSpan={6} className="p-2.5 text-muted-foreground">
+              <tr className="border-b-2 border-b-border-strong">
+                <td colSpan={6} className="p-2.5 text-quiet">
                   The original Trial no longer exists.
                 </td>
               </tr>
@@ -345,7 +345,7 @@ export function RetryHistorySection({
           </tbody>
         </table>
       </div>
-      <p className="mt-2.5 text-xs text-muted-foreground">
+      <p className="mt-2.5 text-xs text-quiet">
         Retries are saved as their own Trials. Score them like Trials from the app; they never count
         toward the success rate.
       </p>

@@ -60,10 +60,10 @@ function TrialsPage() {
 
   return (
     <RetriesProvider availability={availability}>
-      <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-4 border-b bg-background px-6 py-4">
+      <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-4 border-b bg-card px-6 py-4">
         <div>
           <h1 className="text-lg font-semibold">Last Meters Trials</h1>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-quiet">
             Review pipeline modules, confidence fusion, and evaluate visual alignment.
           </p>
         </div>

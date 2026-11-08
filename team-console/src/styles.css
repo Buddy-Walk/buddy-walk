@@ -39,26 +39,58 @@
   --sidebar-ring: oklch(0.871 0.006 286.286);
 }
 
+/* The old pages' exact colors: lastMetersTests.html here, usage.html in .usage-palette below. */
 .dark {
-  --background: oklch(0.141 0.005 285.823);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.141 0.005 285.823);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.141 0.005 285.823);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.21 0.006 285.885);
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.274 0.006 286.033);
-  --muted-foreground: oklch(0.705 0.015 286.067);
-  --accent: oklch(0.274 0.006 286.033);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.274 0.006 286.033);
-  --input: oklch(0.274 0.006 286.033);
-  --ring: oklch(0.442 0.017 285.786);
+  color-scheme: dark;
+  --background: #101215;
+  --foreground: #f5f7fb;
+  --card: #171a1f;
+  --card-foreground: #f5f7fb;
+  --popover: #1a1d23;
+  --popover-foreground: #f5f7fb;
+  --primary: #3b82f6;
+  --primary-foreground: #f5f7fb;
+  --secondary: #2a3039;
+  --secondary-foreground: #f5f7fb;
+  --muted: #1b1f25;
+  --muted-foreground: #a9b1be;
+  --accent: #2a3039;
+  --accent-foreground: #f5f7fb;
+  --destructive: #ef4444;
+  --destructive-foreground: #ef4444;
+  --border: #313844;
+  --border-strong: #3b4351;
+  --row: #313844;
+  --input: #313844;
+  --ring: #3b82f6;
+  --field: #20242b;
+  --well: #0b0d10;
+  --quiet: #737d8c;
+  --backdrop: rgb(5 6 9 / 0.66);
+  --error-soft: #3a1618;
+  --failure-soft: #32161a;
+  --failure-text: #fecaca;
+  --failure-line: #6b2a2e;
+  --pass: #3fb950;
+  --pass-soft: #0d3d1e;
+  --pass-text: #86efac;
+  --fail: #f85149;
+  --fail-soft: #3d1418;
+  --fail-text: #fca5a5;
+  --na: #6e7681;
+  --na-soft: #21262d;
+  --na-text: #8b949e;
+  --exact: #93c5fd;
+  --exact-soft: #0f2f57;
+  --warn: #fcd34d;
+  --warn-soft: #3a2f0d;
+  --mark-pass: #22c55e;
+  --mark-partial: #eab308;
+  --replay: #a78bfa;
+  --replay-foreground: #17112e;
+  --replay-text: #ddd6fe;
+  --replay-soft: #1f1936;
+  --replay-line: #4c3d86;
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
@@ -72,6 +104,31 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(0.274 0.006 286.033);
   --sidebar-ring: oklch(0.442 0.017 285.786);
+}
+
+.dark:has(.usage-palette) {
+  --background: #0e1116;
+  --foreground: #f6f7fb;
+  --card: #161b22;
+  --card-foreground: #f6f7fb;
+  --primary: #2563eb;
+  --primary-foreground: #fff;
+  --secondary: #2a313c;
+  --secondary-foreground: #f6f7fb;
+  /* The old usage page's rows had no hover. */
+  --muted: transparent;
+  --muted-foreground: #aab1bd;
+  --accent: #2a313c;
+  --accent-foreground: #f6f7fb;
+  --destructive: #f85149;
+  --border: #2a313c;
+  --border-strong: #2a313c;
+  --row: #21262d;
+  --input: #2a313c;
+  --ring: #2563eb;
+  --field: #161b22;
+  --quiet: #6e7681;
+  --error-soft: #3d1418;
 }
 
 @theme inline {
@@ -95,6 +152,36 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-border-strong: var(--border-strong);
+  --color-row: var(--row);
+  --color-field: var(--field);
+  --color-well: var(--well);
+  --color-quiet: var(--quiet);
+  --color-backdrop: var(--backdrop);
+  --color-error-soft: var(--error-soft);
+  --color-failure-soft: var(--failure-soft);
+  --color-failure-text: var(--failure-text);
+  --color-failure-line: var(--failure-line);
+  --color-pass: var(--pass);
+  --color-pass-soft: var(--pass-soft);
+  --color-pass-text: var(--pass-text);
+  --color-fail: var(--fail);
+  --color-fail-soft: var(--fail-soft);
+  --color-fail-text: var(--fail-text);
+  --color-na: var(--na);
+  --color-na-soft: var(--na-soft);
+  --color-na-text: var(--na-text);
+  --color-exact: var(--exact);
+  --color-exact-soft: var(--exact-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-mark-pass: var(--mark-pass);
+  --color-mark-partial: var(--mark-partial);
+  --color-replay: var(--replay);
+  --color-replay-foreground: var(--replay-foreground);
+  --color-replay-text: var(--replay-text);
+  --color-replay-soft: var(--replay-soft);
+  --color-replay-line: var(--replay-line);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
