@@ -10,7 +10,11 @@
     "build": "vp build",
     "preview": "vp preview",
     "cf-typegen": "wrangler types",
-    "deploy": "vp build && wrangler deploy"
+    "deploy": "vp build && wrangler deploy",
+    "stack": "bun scripts/local-stack.ts",
+    "e2e": "playwright test",
+    "compare": "bun scripts/local-stack.ts bun scripts/compare-with-old-page.ts",
+    "compare:prod": "infisical run --env=prod --path=/team-console --silent -- bun scripts/compare-with-old-page.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.18",
@@ -35,6 +39,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.26.0",
+    "@playwright/test": "1.64.1",
     "@tanstack/devtools-vite": "0.8.6",
     "@types/node": "^22.10.2",
     "@types/react": "^19.2.0",

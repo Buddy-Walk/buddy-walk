@@ -79,7 +79,9 @@ function LimitField({ limit, onChange }: { limit: number; onChange: (limit: numb
   const [draft, setDraft] = useState(String(limit));
   const ref = useRef<HTMLInputElement>(null);
 
-  useEffect(() => setDraft(String(limit)), [limit]);
+  useEffect(() => {
+    setDraft(String(limit));
+  }, [limit]);
 
   useEffect(() => {
     const input = ref.current;

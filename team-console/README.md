@@ -26,16 +26,35 @@ bun run dev
 The page lists whether each secret is set, never its value.
 Without Infisical, `vp dev --port 3000` still starts and reports both secrets as missing.
 
+## Local stack
+
+`bun run stack` runs the console against a throwaway mobile/server with seeded Trials, to see a change working.
+It starts mongod with its data in `.stack/`, loads `scripts/seed-trials.ts`, then starts mobile/server and `vp dev`, and stops them all on Ctrl-C.
+The seed holds one of each case the console handles, including Trials saved in older shapes; add one there when a change needs a new case.
+`.stack/` keeps each process's log, and `.stack/env` holds `API_BASE_URL` and `ADMIN_TOKEN` for tools run beside the stack.
+It needs `mongod` and `mongoimport` on the PATH and mobile's dependencies (`npm ci` in `mobile/`).
+
 ## Test and check
 
 ```bash
-vp check   # format, lint and type checks
-vp test    # Vitest
+vp check      # format, lint and type checks
+vp test       # Vitest
+bun run e2e   # Playwright, against the local stack
 ```
 
-CI runs both, plus `vp build`, on every PR that touches `team-console/` (`.github/workflows/check.yml`).
+CI runs `vp check`, `vp test` and `vp build` on every PR that touches `team-console/` (`.github/workflows/check.yml`).
 `vp check --fix` formats and applies lint fixes.
-Tests cover plain modules in Node, so the Cloudflare plugin is left out when Vitest runs.
+Vitest covers plain modules in Node, so the Cloudflare plugin is left out when it runs.
+Lint also runs the console's own rules in `lint/plugin.ts`, which have their tests beside them.
+
+`bun run e2e` starts the local stack on port 3100 and runs `e2e/` in Playwright's Chromium (`bunx playwright install chromium`).
+A test also fails on any page or console error, since React reports some crashes only to the console.
+
+## Comparing with the old page
+
+Until `lastMetersTests.html` is retired, `scripts/compare-with-old-page.ts` checks that the console's Trials logic gives the old page's results on the same Trials, using read-only GETs.
+`bun run compare` runs it against the local stack, and `bun run compare:prod` against production with the prod secrets from Infisical.
+It counts the deliberate differences separately (values from older shapes read as missing, and reviews from before outcome scoring counted by their status) and exits 1 on any other difference.
 
 ## Secrets
 
