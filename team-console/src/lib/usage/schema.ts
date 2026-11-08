@@ -16,7 +16,13 @@ export const telemetrySummarySchema = z.object({
   uniqueInstalls: z.number(),
   byEvent: z.array(countByEvent),
   byFeature: z.array(countByFeature),
-  answerMetrics: z.object({ avgLatencyMs: z.number() }),
+  answerMetrics: z.object({
+    // Averaged from latencies the app sends; null when one of them was Infinity.
+    avgLatencyMs: z
+      .number()
+      .nullable()
+      .transform((latency) => latency ?? 0),
+  }),
   aiRequests: z.object({
     totalRequests: z.number(),
     successRate: z.number(),

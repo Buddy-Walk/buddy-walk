@@ -33,6 +33,15 @@ describe("telemetrySummarySchema", () => {
     expect(telemetrySummarySchema.safeParse(withoutTotal).success).toBe(false);
   });
 
+  // Anyone can post events, and an average that reaches Infinity is sent as null.
+  it("shows an answer latency mobile/server couldn't average as 0, as the old page did", () => {
+    const parsed = telemetrySummarySchema.parse({
+      ...summary,
+      answerMetrics: { count: 1, avgLatencyMs: null },
+    });
+    expect(parsed.answerMetrics.avgLatencyMs).toBe(0);
+  });
+
   // props.feature is whatever the app sent, and mobile/server groups by it as it is.
   it("shows a feature the app sent as a non-string as its text", () => {
     const parsed = telemetrySummarySchema.parse({
