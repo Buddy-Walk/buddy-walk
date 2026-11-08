@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { list, maybe } from "#/lib/saved-fields";
+
 // Shapes of mobile/server's /api/last-meters-tests responses, following
 // mobile/server/utils/lastMetersTestRow.ts. Only the fields the console reads
 // are listed; zod drops the rest.
@@ -7,26 +9,6 @@ import { z } from "zod";
 // Every Trial ever saved must still show, so only the fields mobile/server
 // computes for each row are required. A saved field that is absent, null or in
 // an older shape reads as missing instead of failing the whole response.
-
-/** A saved field, read as missing when absent, null or in an older shape. */
-const maybe = <T extends z.ZodType>(schema: T) =>
-  schema
-    .nullish()
-    .transform((value) => value ?? undefined)
-    .optional()
-    .catch(undefined);
-
-/** A saved array, leaving out items in an older shape. Absent reads as empty. */
-const list = <T extends z.ZodType>(item: T) =>
-  z
-    .array(z.unknown())
-    .transform((values) =>
-      values.flatMap((value) => {
-        const parsed = item.safeParse(value);
-        return parsed.success ? [parsed.data] : [];
-      }),
-    )
-    .catch([]);
 
 export const REVIEW_OUTCOMES = ["got_there", "needed_retake", "would_not_get_there"] as const;
 export type ReviewOutcome = (typeof REVIEW_OUTCOMES)[number];

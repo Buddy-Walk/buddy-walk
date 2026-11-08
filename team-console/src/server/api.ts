@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { z } from "zod";
 
 interface ApiCall {
   params?: Record<string, string>;
@@ -30,4 +31,30 @@ export async function callApi(path: string, call?: ApiCall): Promise<Response> {
   const response = await fetchApi(path, call);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response;
+}
+
+/**
+ * Checks a response from mobile/server against its schema, so a change to the
+ * fields mobile/server computes fails here.
+ */
+export async function parseResponse<T extends z.ZodType>(
+  path: string,
+  response: Response,
+  schema: T,
+): Promise<z.output<T>> {
+  const parsed = schema.safeParse(await response.json());
+  if (!parsed.success) {
+    throw new Error(
+      `mobile/server's response to ${path} has an unexpected shape:\n${z.prettifyError(parsed.error)}`,
+    );
+  }
+  return parsed.data;
+}
+
+export async function getFromApi<T extends z.ZodType>(
+  path: string,
+  params: Record<string, string>,
+  schema: T,
+): Promise<z.output<T>> {
+  return parseResponse(path, await callApi(path, { params }), schema);
 }

@@ -12,34 +12,7 @@ import {
   trialDetailResponseSchema,
   trialListResponseSchema,
 } from "#/lib/trials/schema";
-import { callApi, fetchApi } from "#/server/api";
-
-/**
- * Checks a response from one of mobile/server's Last Meters endpoints against
- * its schema. A change to the fields mobile/server computes fails here; saved
- * fields from older Trials read as missing (see schema.ts).
- */
-async function parseResponse<T extends z.ZodType>(
-  path: string,
-  response: Response,
-  schema: T,
-): Promise<z.output<T>> {
-  const parsed = schema.safeParse(await response.json());
-  if (!parsed.success) {
-    throw new Error(
-      `mobile/server's response to ${path} has an unexpected shape:\n${z.prettifyError(parsed.error)}`,
-    );
-  }
-  return parsed.data;
-}
-
-async function getFromApi<T extends z.ZodType>(
-  path: string,
-  params: Record<string, string>,
-  schema: T,
-): Promise<z.output<T>> {
-  return parseResponse(path, await callApi(path, { params }), schema);
-}
+import { callApi, fetchApi, getFromApi, parseResponse } from "#/server/api";
 
 const trialsParams = z.object({
   limit: z.number().int().min(1).max(MAX_LIMIT),
