@@ -59,17 +59,17 @@ function UsagePage() {
 
   return (
     <>
-      <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-4 border-b bg-background px-6 py-4">
+      <header className="usage-palette sticky top-0 z-10 flex flex-wrap items-center justify-between gap-4 border-b bg-card px-6 py-4">
         <div>
           <h1 className="text-lg font-semibold">Usage</h1>
-          <p className="text-xs text-muted-foreground" aria-live="polite">
+          <p className="text-xs text-quiet" aria-live="polite">
             {summary.dataUpdatedAt
               ? `Updated ${new Date(summary.dataUpdatedAt).toLocaleTimeString()}`
               : "Loading..."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" onClick={refresh} disabled={fetching}>
+          <Button variant="secondary" onClick={refresh} disabled={fetching}>
             <RefreshCwIcon className={fetching ? "animate-spin" : undefined} />
             Refresh
           </Button>

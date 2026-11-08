@@ -52,12 +52,12 @@ function RetryBanner({ trial }: { trial: TrialDetail }) {
   const original = trial.history?.original;
   const number = trial.history && retryNumber(trial.history, trial._id);
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border border-l-3 border-violet-300 border-l-violet-500 bg-violet-50 px-4 py-3 text-sm">
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border border-l-3 border-replay-line border-l-replay bg-replay-soft px-4 py-3 text-sm">
       <div>
-        <b className="text-violet-800">Retry{number ? ` ${number}` : ""}</b> of the original Trial
+        <b className="text-replay-text">Retry{number ? ` ${number}` : ""}</b> of the original Trial
         from {original ? formatShortDate(original.serverTs) : "an original that no longer exists"},{" "}
         {panoramaModeText(trial.retryPanoramaMode)}.
-        <span className="block text-xs text-muted-foreground">
+        <span className="block text-xs text-quiet">
           Same stored photo and inputs as the original
           {trial.retryDefaultsApplied.length
             ? `; filled in ${trial.retryDefaultsApplied.join("; ")}`
@@ -68,7 +68,7 @@ function RetryBanner({ trial }: { trial: TrialDetail }) {
       {original && (
         <TrialLink
           trialId={original.id}
-          className="rounded-md border bg-background px-2.5 py-1 text-xs font-semibold hover:bg-accent"
+          className="rounded-md border border-border-strong bg-secondary px-2.5 py-1 text-xs font-semibold hover:bg-secondary/80"
         >
           Open original
         </TrialLink>
@@ -119,8 +119,8 @@ function FailureSummary({ trial }: { trial: TrialDetail }) {
   const failure = failureExplanation(trial);
   if (!failure) return null;
   return (
-    <section className="rounded-lg border border-destructive bg-red-50 px-4 py-3.5">
-      <h3 className="mb-2 font-bold text-red-800">{failure.heading}</h3>
+    <section className="rounded-lg border border-destructive bg-failure-soft px-4 py-3.5">
+      <h3 className="mb-2 font-bold text-failure-text">{failure.heading}</h3>
       <p className="leading-relaxed">{failure.summary}</p>
       {failure.details.length > 0 && (
         <ul className="mt-2.5 list-disc pl-5 text-sm text-muted-foreground">
@@ -158,7 +158,7 @@ function PlaceCandidates({ trial }: { trial: TrialDetail }) {
       </summary>
       <div className="mt-3 overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-left text-muted-foreground">
+          <thead className="bg-muted text-left text-muted-foreground">
             <tr>
               {["Place", "Distance", "Relevance filter", "Search", "Types"].map((column) => (
                 <th key={column} className="p-2 font-bold">
@@ -177,7 +177,7 @@ function PlaceCandidates({ trial }: { trial: TrialDetail }) {
                 <tr key={i} className="border-t align-top">
                   <td className="p-2">
                     {candidate.name} {chosen && <b>(chosen)</b>}
-                    <div className="text-xs text-muted-foreground">{candidate.address}</div>
+                    <div className="text-xs text-quiet">{candidate.address}</div>
                   </td>
                   <td className="p-2 whitespace-nowrap">
                     {candidate.distanceMeters === undefined
@@ -185,17 +185,12 @@ function PlaceCandidates({ trial }: { trial: TrialDetail }) {
                       : `${candidate.distanceMeters} m`}
                   </td>
                   <td
-                    className={cn(
-                      "p-2 font-bold",
-                      candidate.relevant ? "text-emerald-700" : "text-red-700",
-                    )}
+                    className={cn("p-2 font-bold", candidate.relevant ? "text-pass" : "text-fail")}
                   >
                     {candidate.relevant ? "kept" : "rejected"}
                   </td>
                   <td className="p-2">{candidate.source}</td>
-                  <td className="p-2 text-xs text-muted-foreground">
-                    {candidate.types.join(", ")}
-                  </td>
+                  <td className="p-2 text-xs text-quiet">{candidate.types.join(", ")}</td>
                 </tr>
               );
             })}
@@ -231,7 +226,7 @@ function ModuleBlock({ module }: { module: TrialModule }) {
           {module.raw.map((step, i) => (
             <pre
               key={i}
-              className="mt-2 rounded-md border bg-muted p-3 font-mono text-xs whitespace-pre-wrap text-muted-foreground"
+              className="mt-2 rounded-md border bg-well p-3 font-mono text-xs whitespace-pre-wrap text-muted-foreground"
             >
               <b>[{step.name}]</b> ({step.model}) - {step.success ? "SUCCESS" : "FAILED"}
               {"\n\nPROMPT:\n"}
@@ -291,7 +286,7 @@ export function TrialDetailBody({ trial }: { trial: TrialDetail }) {
       <ModuleBlock module={modules.moduleD} />
       <ModuleBlock module={modules.moduleE} />
 
-      <Block title="Final output sent to user" className="border-2 border-blue-500 bg-blue-50/50">
+      <Block title="Final output sent to user" className="border-2 border-primary bg-primary/5">
         <p className="leading-relaxed">{trial.finalOutput || trial.error || "-"}</p>
       </Block>
 

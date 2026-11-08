@@ -10,13 +10,18 @@ import { Toaster as Sonner, type ToasterProps } from "sonner";
 const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
-      theme="light"
+      theme="dark"
       position="bottom-right"
       duration={5000}
       visibleToasts={4}
       expand
       closeButton
-      richColors
+      toastOptions={{
+        classNames: {
+          toast:
+            "border-replay-line! border-l-3! border-l-replay! data-[type=error]:border-failure-line! data-[type=error]:border-l-destructive!",
+        },
+      }}
       // Modal dialogs turn off pointer events on the page, and toasts must still work over them.
       className="toaster group pointer-events-auto"
       icons={{

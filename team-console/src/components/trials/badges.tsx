@@ -4,9 +4,9 @@ import type { ModuleStatus } from "#/lib/trials/modules";
 import { cn } from "#/lib/utils";
 
 const MODULE_STYLES: Record<ModuleStatus, string> = {
-  pass: "bg-emerald-100 text-emerald-800",
-  fail: "bg-red-100 text-red-800",
-  na: "bg-zinc-100 text-zinc-500",
+  pass: "bg-pass-soft text-pass",
+  fail: "bg-fail-soft text-fail",
+  na: "bg-na-soft text-na",
 };
 
 const MODULE_TEXT: Record<ModuleStatus, string> = { pass: "PASS", fail: "FAIL", na: "N/A" };
@@ -21,10 +21,10 @@ export function ModuleBadge({ status, label }: { status: ModuleStatus; label?: s
 }
 
 const GATE_STYLES: Record<NavigationMode, string> = {
-  exact: "bg-blue-100 text-blue-800",
-  approach: "bg-amber-100 text-amber-800",
-  aligned: "bg-emerald-100 text-emerald-800",
-  none: "bg-zinc-100 text-zinc-600",
+  exact: "bg-exact-soft text-exact",
+  approach: "bg-warn-soft text-warn",
+  aligned: "bg-pass-soft text-pass-text",
+  none: "bg-na-soft text-na-text",
 };
 
 export function GateBadge({ mode, label }: { mode: NavigationMode; label: string }) {
@@ -32,9 +32,9 @@ export function GateBadge({ mode, label }: { mode: NavigationMode; label: string
 }
 
 const OUTCOME_DOTS: Record<Outcome, string> = {
-  got_there: "bg-emerald-500",
-  needed_retake: "bg-amber-500",
-  would_not_get_there: "bg-red-500",
+  got_there: "bg-mark-pass",
+  needed_retake: "bg-mark-partial",
+  would_not_get_there: "bg-destructive",
   unscored: "border-[1.5px] border-current bg-transparent",
 };
 
@@ -44,7 +44,7 @@ export function OutcomeMark({ outcome }: { outcome: Outcome }) {
     <span
       className={cn(
         "flex items-baseline gap-2 leading-snug",
-        outcome === "unscored" && "text-muted-foreground",
+        outcome === "unscored" && "text-quiet",
       )}
     >
       <span className={cn("size-2 shrink-0 -translate-y-px rounded-full", OUTCOME_DOTS[outcome])} />

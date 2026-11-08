@@ -113,7 +113,7 @@ function TrialDetailDialog() {
               {trial
                 ? `Could not load the saved images for this Trial. ${detail.error.message}`
                 : `Could not load this Trial (${detail.error.message}).`}
-              <Button size="sm" variant="outline" onClick={() => detail.refetch()}>
+              <Button size="sm" variant="secondary" onClick={() => detail.refetch()}>
                 Try again
               </Button>
             </AlertDescription>

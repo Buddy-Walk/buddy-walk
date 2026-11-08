@@ -6,7 +6,7 @@ import type { TrialDetail } from "#/lib/trials/schema";
 
 function ImageLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/50 px-3 py-2 text-xs font-bold text-muted-foreground">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-card px-3 py-2 text-xs font-bold text-muted-foreground">
       {children}
     </div>
   );
@@ -38,13 +38,18 @@ function UserPhoto({ trial }: { trial: TrialDetail }) {
       <ImageLabel>
         <span>User photo{trial.retryOf ? " (original's)" : ""}</span>
         {src && (
-          <Button size="xs" variant="secondary" onClick={rotate}>
+          <Button
+            size="xs"
+            variant="secondary"
+            className="border-border hover:bg-border-strong"
+            onClick={rotate}
+          >
             Rotate
           </Button>
         )}
       </ImageLabel>
       {src ? (
-        <div className="flex h-50 items-center justify-center overflow-hidden bg-zinc-950">
+        <div className="flex h-50 items-center justify-center overflow-hidden bg-well">
           <img
             ref={image}
             src={src}
@@ -106,7 +111,7 @@ export function TrialImages({ trial }: { trial: TrialDetail }) {
         missing={trial.hasPanorama ? "Loading saved image..." : noPanoramaReason(trial)}
       >
         {trial.panoramaHeadings.length > 0 && (
-          <p className="px-3 py-2 text-xs text-muted-foreground">
+          <p className="px-3 py-2 text-xs text-quiet">
             Tile center headings (in stored order):{" "}
             {trial.panoramaHeadings.map((heading) => `${heading}°`).join(", ")}
           </p>

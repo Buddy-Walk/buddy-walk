@@ -164,6 +164,7 @@ export function TrialsFilters({ search, onChange }: TrialsFiltersProps) {
           <span className="text-xs text-muted-foreground">Retries</span>
           <Label className="h-9 font-normal">
             <Checkbox
+              className="data-[state=checked]:border-replay data-[state=checked]:text-replay-foreground dark:data-[state=checked]:bg-replay"
               checked={search.includeRetries}
               onCheckedChange={(checked) => onChange({ includeRetries: checked === true })}
             />
@@ -173,13 +174,13 @@ export function TrialsFilters({ search, onChange }: TrialsFiltersProps) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-muted-foreground">Quick filters:</span>
+        <span className="text-xs text-quiet">Quick filters:</span>
         {(Object.keys(PRESETS) as PresetName[]).map((name) => (
           <Button
             key={name}
             size="xs"
             variant={preset === name ? "default" : "outline"}
-            className={cn("rounded-full px-3")}
+            className={cn("rounded-full px-3", preset !== name && "dark:bg-card")}
             aria-pressed={preset === name}
             onClick={() => choosePreset(name)}
           >
@@ -189,6 +190,7 @@ export function TrialsFilters({ search, onChange }: TrialsFiltersProps) {
         <Button
           size="xs"
           variant="link"
+          className="disabled:text-quiet disabled:opacity-100"
           disabled={!hasFilters(search)}
           onClick={() => onChange(NO_FILTERS)}
         >

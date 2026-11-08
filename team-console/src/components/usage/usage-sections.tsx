@@ -35,7 +35,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 function MessageRow({ columns, message }: { columns: number; message: string }) {
   return (
     <TableRow>
-      <TableCell colSpan={columns} className="text-muted-foreground">
+      <TableCell colSpan={columns} className="text-quiet">
         {message}
       </TableCell>
     </TableRow>
@@ -167,9 +167,7 @@ export function FeedbackSection({
                 <TableCell className="align-top">{entry.type}</TableCell>
                 <TableCell className="align-top">{feedbackRating(entry)}</TableCell>
                 <TableCell className="align-top whitespace-normal">{entry.message}</TableCell>
-                <TableCell className="align-top text-muted-foreground">
-                  {entry.appVersion}
-                </TableCell>
+                <TableCell className="align-top text-quiet">{entry.appVersion}</TableCell>
               </TableRow>
             ))
           ) : (

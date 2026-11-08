@@ -57,7 +57,7 @@ export function QuickOutcome({ trial }: { trial: Trial }) {
 function ReviewField({ id, label, children }: { id: string; label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <Label htmlFor={id} className="text-xs text-muted-foreground">
+      <Label htmlFor={id} className="text-xs text-quiet">
         {label}
       </Label>
       {children}
