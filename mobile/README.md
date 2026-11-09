@@ -10,7 +10,7 @@ Expo / React Native app for blind and low-vision travelers: camera + voice Q&A, 
 
 | Tool | Version | Notes |
 |------|---------|-------|
-| **Node.js** | 18+ | LTS recommended |
+| **Node.js** | 22.13+ or 24.3+ | Required by Expo SDK 58; odd-numbered releases are not supported |
 | **npm** | 9+ | Ships with Node |
 | **Expo CLI** | - | Installed automatically via `npx expo` |
 | **Expo Go** | Latest | Install on your phone from the App Store / Google Play |
