@@ -7,7 +7,7 @@ import { LastMetersTrial } from "../../server/services/lastMetersTrial";
 import { lastMetersTestLogService } from "../../server/services/lastMetersTestLog";
 import { strictLastMetersGuidancePolicy } from "../../server/utils/lastMetersGuidancePolicy";
 import type { LatLng } from "../../server/services/googleMaps";
-import type { VerifiedNearbyDestination } from "../../server/services/verifiedDestination";
+import { getVerifiedNearbyDestination, type VerifiedNearbyDestination } from "../../server/services/verifiedDestination";
 import type { LastMetersRequestInput } from "../../server/utils/lastMetersReplay";
 import { setTestEnv } from "./testEnv";
 
@@ -38,6 +38,7 @@ function place(location: LatLng, placeId = "mcdonalds", vicinity = "10 Test Stre
 /** What Google answers: Nearby Search results and the Geocoding building, if any, or an error for every request. */
 interface Google {
   places: object[];
+  textPlaces?: object[];
   building?: object;
   failure?: Error;
 }
@@ -47,13 +48,15 @@ function arrange(t: TestContext, google: Google) {
   t.mock.timers.enable({ apis: ["Date"], now: NOW });
   setTestEnv(t, { GOOGLE_MAPS_API_KEY: "test-maps" });
   const requests: string[] = [];
-  t.mock.method(axios, "get", async (url: string) => {
+  const googleRequests: { url: string; params: any }[] = [];
+  t.mock.method(axios, "get", async (url: string, options?: any) => {
     requests.push(url);
+    googleRequests.push({ url, params: options?.params });
     if (google.failure) throw google.failure;
     if (url.includes("/place/nearbysearch/")) {
       return { data: google.places.length ? { status: "OK", results: google.places } : { status: "ZERO_RESULTS", results: [] } };
     }
-    if (url.includes("/place/textsearch/")) return { data: { status: "ZERO_RESULTS", results: [] } };
+    if (url.includes("/place/textsearch/")) return { data: { status: google.textPlaces?.length ? "OK" : "ZERO_RESULTS", results: google.textPlaces || [] } };
     if (url.includes("/geocode/")) return { data: google.building ? { status: "OK", results: [google.building] } : { status: "ZERO_RESULTS" } };
     return assert.fail(`Unexpected Google request: ${url}`);
   });
@@ -73,7 +76,7 @@ function arrange(t: TestContext, google: Google) {
     await trial.answer({}, { success: true });
     return rows[0];
   };
-  return { trial, requests, rows, saved };
+  return { trial, requests, googleRequests, rows, saved };
 }
 
 test("verifyDestination returns the nearest matching place and logs the candidates it ranked", async t => {
@@ -248,4 +251,103 @@ test("findEntrance warns when Google lists the destination as closed", async t =
 
   assert.equal(closedNow.closedNotice, " Google Maps lists McDonald's as closed right now.");
   assert.equal(temporarilyClosed.closedNotice, " Google Maps lists McDonald's as temporarily closed.");
+});
+
+function business(placeId: string, name: string, meters: number, address = "255 Greenwich St", extra: object = {}) {
+  return place({ lat: REQUEST.lat + meters / 6_371_000 * 180 / Math.PI, lng: REQUEST.lng }, placeId, address, { name, ...extra });
+}
+
+test("Last Meters selects Target over nearer same-building counters and preserves every Place ID", async t => {
+  const { trial, requests } = arrange(t, { places: [business("mobile", "Target Mobile", 15), business("grocery", "Target Grocery", 18), business("main", "Target", 25)] });
+  const result = await verifyDestination(trial, REQUEST, "Target");
+  const destination = result.kind === "ok" ? result.value : assert.fail();
+  assert.equal(destination.placeId, "main");
+  assert.equal(destination.placeName, "Target");
+  assert.deepEqual(destination.placeCandidates.map(candidate => candidate.placeId).sort(), ["grocery", "main", "mobile"]);
+  assert.equal(requests.length, 1, "the original near-result rule still skips Text Search");
+});
+
+test("Last Meters exact subsidiary query selects Target Mobile rather than a nearer parent", async t => {
+  const { trial } = arrange(t, { places: [business("main", "Target", 10), business("mobile", "Target Mobile", 30)] });
+  const result = await verifyDestination(trial, REQUEST, "Target Mobile");
+  assert.equal(result.kind === "ok" && result.value.placeId, "mobile");
+});
+
+test("Last Meters weaker names at other addresses do not create a false branch warning", async t => {
+  const { trial } = arrange(t, { places: [business("mobile", "Target Mobile", 15, "600 Broadway"), business("main", "Target", 25)] });
+  const result = await verifyDestination(trial, REQUEST, "Target");
+  assert.equal(result.kind === "ok" && result.value.placeId, "main");
+});
+
+for (const [accuracy, expected] of [[5, "ok"], [40, "exit"]] as const) test(`Last Meters different-address branches with GPS accuracy ${accuracy} retain ${expected} behavior`, async t => {
+  const { trial, rows } = arrange(t, { places: [business("a", "Target", 50, "1 A St"), business("b", "Target", 80, "2 B St")] });
+  const result = await resolveLastMetersStep(await verifyDestination(trial, { ...REQUEST, gpsAccuracyMeters: accuracy }, "Target"));
+  assert.equal(result.kind, expected);
+  if (expected === "exit") assert.deepEqual(rows[0].safetyReasons, ["destination_branch_ambiguous"]);
+});
+
+test("Last Meters explicit business address selects the requested branch, not the nearest branch", async t => {
+  const { trial } = arrange(t, { places: [business("wrong", "Target", 10, "600 Broadway"), business("unrelated", "Other Store", 5), business("right", "Target", 60)] });
+  const result = await verifyDestination(trial, REQUEST, "Target, 255 Greenwich Street");
+  assert.equal(result.kind === "ok" && result.value.placeId, "right");
+});
+
+test("Last Meters does not verify a place outside 500 m, while the shared lookup retains its old radius", async t => {
+  const { trial, rows, googleRequests } = arrange(t, { places: [business("far", "Target", 600)] });
+  const shared = await getVerifiedNearbyDestination(REQUEST.lat, REQUEST.lng, "Target");
+  assert.equal(shared.placeId, "far");
+  const result = await resolveLastMetersStep(await verifyDestination(trial, REQUEST, "Target"));
+  assert.equal(result.kind, "exit");
+  assert.equal(rows[0].error, "destination_not_verified");
+  assert.match(rows[0].steps[0].error, /within 500 meters/);
+  for (const request of googleRequests.filter(request => request.url.includes("/textsearch/"))) assert.equal(request.params.radius, 5000);
+});
+
+test("Last Meters skips closed, invalid and missing-ID candidates before selecting a valid business", async t => {
+  const { trial } = arrange(t, { places: [
+    business("closed", "Target", 5, undefined, { business_status: "CLOSED_PERMANENTLY" }),
+    business("invalid", "Target", 1, undefined, { geometry: { location: { lat: 200, lng: -74 } } }),
+    business("nonfinite", "Target", 1, undefined, { geometry: { location: { lat: NaN, lng: -74 } } }),
+    business("missing", "Target", 2, undefined, { place_id: undefined }), business("valid", "Target", 60),
+  ] });
+  const result = await verifyDestination(trial, REQUEST, "Target");
+  assert.equal(result.kind === "ok" && result.value.placeId, "valid");
+  const logs = result.kind === "ok" ? result.value.placeCandidates : assert.fail();
+  assert.ok(logs.every(candidate => Number.isFinite(candidate.distanceMeters)));
+  assert.ok(!logs.some(candidate => ["invalid", "nonfinite"].includes(candidate.placeId || "")));
+});
+
+test("Last Meters ambiguity examines eligible candidates beyond the first eight diagnostic rows", async t => {
+  const { trial, rows } = arrange(t, { places: [
+    ...Array.from({ length: 8 }, (_, index) => business(`unrelated-${index}`, "Other Store", index + 1, `${index} Other St`)),
+    business("main", "Target", 60), business("branch", "Target", 65, "600 Broadway"),
+  ] });
+  const result = await resolveLastMetersStep(await verifyDestination(trial, REQUEST, "Target"));
+  assert.equal(result.kind, "exit");
+  assert.deepEqual(rows[0].safetyReasons, ["destination_branch_ambiguous"]);
+  assert.equal(rows[0].placeCandidates.length, 10);
+});
+
+test("Last Meters Hybrid reuses the original Legacy fallback requests without adding calls or changing parameters", async t => {
+  const { trial, googleRequests } = arrange(t, { places: [business("mobile", "Target Mobile", 300)], textPlaces: [business("main", "Target", 280)] });
+  const result = await verifyDestination(trial, REQUEST, "Target");
+  assert.equal(result.kind === "ok" && result.value.placeId, "main");
+  assert.deepEqual(googleRequests.map(request => request.url), [
+    "https://maps.googleapis.com/maps/api/place/nearbysearch/json", "https://maps.googleapis.com/maps/api/place/textsearch/json",
+  ]);
+  assert.deepEqual(googleRequests[0].params, { location: "40.7,-74", rankby: "distance", keyword: "Target", key: "test-maps" });
+  assert.deepEqual(googleRequests[1].params, { query: "Target", location: "40.7,-74", radius: 5000, key: "test-maps" });
+});
+
+test("Hybrid does not change fallback coverage when a near subsidiary hides an unreturned exact name", async t => {
+  const { trial, requests } = arrange(t, { places: [business("mobile", "Target Mobile", 15)], textPlaces: [business("main", "Target", 25)] });
+  const result = await verifyDestination(trial, REQUEST, "Target");
+  assert.equal(result.kind === "ok" && result.value.placeId, "mobile");
+  assert.equal(requests.length, 1, "ranking cannot recover an exact business from a Text Search that never ran");
+});
+
+test("shared callers retain distance-first selection when they do not opt into Hybrid", async t => {
+  arrange(t, { places: [business("mobile", "Target Mobile", 15), business("main", "Target", 25)] });
+  const destination = await getVerifiedNearbyDestination(REQUEST.lat, REQUEST.lng, "Target");
+  assert.equal(destination.placeId, "mobile");
 });

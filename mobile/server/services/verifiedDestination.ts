@@ -15,6 +15,7 @@ import type {
   PlaceCandidateLog,
 } from "../utils/nearbyPlaces";
 import { getGoogleMapsApiKey, type LatLng } from "./googleMaps";
+import { hasValidLastMetersPlaceCoordinates, LAST_METERS_DESTINATION_RADIUS_METERS, rankLastMetersDestinationCandidates } from "../utils/lastMetersDestinationRanking";
 
 export interface VerifiedNearbyDestination {
   placeId: string;
@@ -58,6 +59,7 @@ export async function getVerifiedNearbyDestination(
   lng: number,
   destination: string,
   maxDistanceMeters = MAX_LOCAL_PLACE_DISTANCE_METERS,
+  options?: { ranking: "last-meters-hybrid" },
 ): Promise<VerifiedNearbyDestination> {
   const nearbyQuery = normalizeNearbyPlaceQuery(destination);
   if (!nearbyQuery) {
@@ -136,11 +138,25 @@ export async function getVerifiedNearbyDestination(
     ranked = rankRelevant();
     nearbyPlace = ranked[0];
   }
+  // Leave the existing fallback trigger and all Google request parameters above intact.
+  // Only Last Meters opts into the new selection; shared walking/Question callers do not.
+  const hybrid = options?.ranking === "last-meters-hybrid";
+  if (hybrid) {
+    ranked = rankLastMetersDestinationCandidates(candidates, { lat, lng }, nearbyQuery);
+    nearbyPlace = ranked[0];
+  }
   const placeCandidates = summarizePlaceCandidates(
-    candidates,
+    hybrid ? candidates.filter(hasValidLastMetersPlaceCoordinates) : candidates,
     { lat, lng },
     nearbyQuery,
+    hybrid ? candidates.length : 8,
   );
+  if (hybrid) {
+    const eligibleIds = new Set(ranked.map(candidate => candidate.place_id));
+    // Full, existing-shaped logs feed the ambiguity check, not an eight-row display sample.
+    // Rejected rows remain visible but cannot become ambiguity contenders.
+    for (const candidate of placeCandidates) candidate.relevant = eligibleIds.has(candidate.placeId);
+  }
   const placeLocation = nearbyPlace?.geometry?.location;
   if (
     !nearbyPlace?.place_id ||
@@ -148,7 +164,8 @@ export async function getVerifiedNearbyDestination(
     typeof placeLocation.lng !== "number"
   ) {
     throw new DestinationNotVerifiedError(
-      `No verified ${nearbyQuery} was found within ${Math.round(maxDistanceMeters / 1_000)} kilometers.`,
+      hybrid ? `No verified ${nearbyQuery} was found within ${LAST_METERS_DESTINATION_RADIUS_METERS} meters.`
+        : `No verified ${nearbyQuery} was found within ${Math.round(maxDistanceMeters / 1_000)} kilometers.`,
       placeCandidates,
       searchesUsed,
     );

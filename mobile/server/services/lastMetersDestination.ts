@@ -12,7 +12,7 @@ import {
   usesBuildingEntrances,
   type BuildingGeometry,
 } from "../utils/buildingEntrances";
-import { candidatesAtOtherAddresses } from "../utils/nearbyPlaces";
+import { ambiguousLastMetersBranches } from "../utils/lastMetersDestinationRanking";
 import { getGoogleMapsApiKey } from "./googleMaps";
 import {
   DestinationNotVerifiedError,
@@ -42,12 +42,12 @@ export async function verifyDestination(
   const { lat, lng, gpsAccuracyMeters } = request;
   let verifiedDestination: VerifiedNearbyDestination;
   try {
-    verifiedDestination = await getVerifiedNearbyDestination(lat, lng, destinationQuery);
+    verifiedDestination = await getVerifiedNearbyDestination(lat, lng, destinationQuery, undefined, { ranking: "last-meters-hybrid" });
     trial.source("google_places");
     trial.note({ verifiedDestination });
     trial.step({
       name: "destination_candidates",
-      prompt: "Rank relevant Google Places candidates by distance from the user.",
+      prompt: "Rank Google Places candidates within 500 meters by business-name match, explicit address consistency and distance; retain equally plausible branches under GPS uncertainty.",
       response: verifiedDestination.candidateSummary,
       model: "google-places",
       success: true,
@@ -84,9 +84,7 @@ export async function verifyDestination(
     };
   }
 
-  const ambiguity = candidatesAtOtherAddresses(verifiedDestination.placeCandidates || [], verifiedDestination.placeAddress).filter(candidate => candidate.relevant &&
-    candidate.placeId !== verifiedDestination.placeId && candidate.businessStatus !== "CLOSED_PERMANENTLY" &&
-    candidate.distanceMeters <= verifiedDestination.distanceMeters + Math.max(20, gpsAccuracyMeters ?? 20));
+  const ambiguity = ambiguousLastMetersBranches(verifiedDestination.placeCandidates || [], verifiedDestination, destinationQuery, gpsAccuracyMeters);
   if (ambiguity.length) {
     return {
       kind: "exit",
