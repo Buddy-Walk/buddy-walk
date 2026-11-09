@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ambiguousLastMetersBranches, lastMetersNameMatch, rankLastMetersDestinationCandidates,
+  splitLastMetersDestinationQuery,
+} from "../../server/utils/lastMetersDestinationRanking";
+import {
   candidatesAtOtherAddresses,
   describeNearbyPlaceCandidates,
   editDistance,
@@ -299,4 +303,82 @@ test("candidatesAtOtherAddresses drops listings at the same street address, igno
   assert.deepEqual(candidatesAtOtherAddresses(candidates, "255 Greenwich St, New York").map((c) => c.placeId), ["soho"]);
   // Without an address to compare, every candidate may be another branch.
   assert.deepEqual(candidatesAtOtherAddresses(candidates, "").map((c) => c.placeId), ["grocery", "soho"]);
+});
+
+const hybridOrigin = { lat: 40.7, lng: -74 };
+function hybridPlace(place_id: string, name: string, meters: number, vicinity = "255 Greenwich St", extra: object = {}) {
+  return { place_id, name, vicinity, types: ["store"], geometry: { location: { lat: hybridOrigin.lat + meters / 6_371_000 * 180 / Math.PI, lng: hybridOrigin.lng } }, ...extra };
+}
+
+test("Last Meters name grades distinguish exact, strong, subsidiary and irrelevant evidence", () => {
+  for (const [query, name, category] of [
+    ["Target", "Target", "exact"], ["Natura Bissé", "Natura Bisse", "exact"],
+    ["Sweet Green", "Sweetgreen", "strong"], ["Target", "Target Inc.", "strong"],
+    ["BMCC", "Borough of Manhattan Community College", "strong"],
+    ["Target", "Target Mobile", "partial"], ["Fitter man hall", "BMCC Fiterman Hall", "partial"],
+  ] as const) assert.deepEqual(lastMetersNameMatch({ name }, query), { category, relevant: true });
+  for (const [query, name] of [["Citi", "Citizens Bank"], ["CVS", "UPS"], ["Target", "Other Store"]]) {
+    assert.deepEqual(lastMetersNameMatch({ name }, query), { category: "weak", relevant: false });
+  }
+  assert.deepEqual(lastMetersNameMatch({ name: "CVS", types: ["pharmacy"] }, "pharmacy"), { category: "weak", relevant: true });
+});
+
+test("Last Meters exact business wins over nearer subsidiaries without merging their IDs", () => {
+  const ranked = rankLastMetersDestinationCandidates([
+    hybridPlace("mobile", "Target Mobile", 15), hybridPlace("grocery", "Target Grocery", 18), hybridPlace("main", "Target", 25),
+  ], hybridOrigin, "Target");
+  assert.deepEqual(ranked.map(candidate => candidate.place_id), ["main", "mobile", "grocery"]);
+  assert.equal(rankLastMetersDestinationCandidates(ranked, hybridOrigin, "Target Mobile")[0].place_id, "mobile");
+});
+
+test("Last Meters orders comparable names by distance and keeps separate same-address identities", () => {
+  const ranked = rankLastMetersDestinationCandidates([hybridPlace("far", "Target", 50), hybridPlace("near", "Target", 25)], hybridOrigin, "Target");
+  assert.deepEqual(ranked.map(candidate => candidate.place_id), ["near", "far"]);
+});
+
+test("Last Meters parses business addresses and preserves numeric business names", () => {
+  assert.deepEqual(splitLastMetersDestinationQuery("Target at 255 Greenwich St"), { name: "Target", address: "255 Greenwich St" });
+  assert.deepEqual(splitLastMetersDestinationQuery("Target, 255 Greenwich St"), { name: "Target", address: "255 Greenwich St" });
+  assert.deepEqual(splitLastMetersDestinationQuery("38 Warren St"), { name: "", address: "38 Warren St" });
+  assert.deepEqual(splitLastMetersDestinationQuery("7-Eleven"), { name: "7-Eleven", address: "" });
+  assert.deepEqual(splitLastMetersDestinationQuery("Studio 54"), { name: "Studio 54", address: "" });
+});
+
+test("Last Meters explicit address rejects a nearer wrong branch and an unrelated business at the right address", () => {
+  const ranked = rankLastMetersDestinationCandidates([
+    hybridPlace("wrong", "Target", 10, "600 Broadway"), hybridPlace("unrelated", "Other Store", 5),
+    hybridPlace("right", "Target", 60),
+  ], hybridOrigin, "Target, 255 Greenwich Street");
+  assert.deepEqual(ranked.map(candidate => candidate.place_id), ["right"]);
+});
+
+test("Last Meters does not discard an explicit unit number", () => {
+  const ranked = rankLastMetersDestinationCandidates([
+    hybridPlace("unit1", "Target", 10, "255 Greenwich St Suite 1"),
+    hybridPlace("unit2", "Target", 60, "255 Greenwich St #2"),
+  ], hybridOrigin, "Target, 255 Greenwich Street Unit 2");
+  assert.deepEqual(ranked.map(candidate => candidate.place_id), ["unit2"]);
+});
+
+test("Last Meters keeps the 500 m filter local and rejects closed, invalid and missing-ID candidates", () => {
+  const outside = hybridPlace("outside", "Target", 501);
+  const candidates = [outside, hybridPlace("closed", "Target", 5, undefined, { business_status: "CLOSED_PERMANENTLY" }),
+    hybridPlace("invalid", "Target", 1, undefined, { geometry: { location: { lat: 120, lng: -74 } } }),
+    hybridPlace("missing", "Target", 2, undefined, { place_id: undefined }),
+    hybridPlace("inside", "Target", 499.9)];
+  assert.deepEqual(rankLastMetersDestinationCandidates(candidates, hybridOrigin, "Target").map(candidate => candidate.place_id), ["inside"]);
+  assert.equal(rankLastMetersDestinationCandidates([outside], hybridOrigin, "Target").length, 0);
+  assert.equal(selectNearbyPlaceCandidates([outside], hybridOrigin)[0].place_id, "outside", "public distance selection retains 5 km behavior");
+  assert.equal(MAX_LOCAL_PLACE_DISTANCE_METERS, 5000);
+});
+
+test("Last Meters ambiguity uses comparable names, explicit address and the existing GPS band", () => {
+  const selected = { placeId: "main", placeName: "Target", placeAddress: "255 Greenwich St", distanceMeters: 50, types: ["store"] };
+  const log = (placeId: string, name: string, address: string, distanceMeters: number) => ({ placeId, name, address, distanceMeters, types: ["store"], relevant: true, source: "nearby" });
+  const candidates = [log("same", "Target", "255 Greenwich Street", 51), log("mobile", "Target Mobile", "600 Broadway", 15), log("other", "Target", "600 Broadway", 80)];
+  assert.deepEqual(ambiguousLastMetersBranches(candidates, selected, "Target", 5), []);
+  assert.deepEqual(ambiguousLastMetersBranches(candidates, selected, "Target", 40).map(candidate => candidate.placeId), ["other"]);
+  assert.deepEqual(ambiguousLastMetersBranches(candidates, selected, "Target, 255 Greenwich St", 40), []);
+  assert.deepEqual(ambiguousLastMetersBranches([log("unknown-address", "Target", "", 51)], selected, "Target").map(candidate => candidate.placeId), ["unknown-address"]);
+  assert.deepEqual(ambiguousLastMetersBranches([log("outside", "Target", "800 Broadway", 501)], selected, "Target", 1000), []);
 });
