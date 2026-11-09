@@ -101,3 +101,8 @@ test("a Trial that doesn't exist says so", async ({ page }) => {
   await page.goto("/trials/000000000000000000000000");
   await expect(page.getByRole("dialog")).toContainText("Could not load this Trial (HTTP 404).");
 });
+
+test("the bare URL opens the Trials list", async ({ page }) => {
+  await page.goto("/");
+  await expectList(page, "/trials");
+});
