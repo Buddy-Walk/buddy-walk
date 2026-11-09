@@ -25,7 +25,7 @@ Buddy-Walk/buddy-walk
 │   └── companion-viewer.html
 ├── mobile/             What we ship
 │   ├── src/            Expo 57 / React Native 0.86 / React 19 app
-│   ├── server/         Express API (Questions, Last Meters, dashboard)
+│   ├── server/         Express API (Questions, Last Meters, admin endpoints)
 │   ├── Dockerfile      What Render builds
 │   └── docs/           Last Meters notes used while reviewing Trials
 ├── src/                Legacy Vite + React + MUI PWA (not deployed)
@@ -47,8 +47,8 @@ Do not push to `main`. Do not treat someone else's PR as a request surface.
 | API | https://buddy-walk-api.onrender.com |
 | Health | `GET /api/health` |
 | Deploy check | `GET /api/last-meters/review-status` |
-| Trials dashboard | `/last-meters-tests?token=...` (not `/last-mile-tests`) |
-| Usage dashboard | `/usage?token=...` |
+| Trials | https://buddy-walk-team-console.buddywalk.workers.dev/trials |
+| Usage | https://buddy-walk-team-console.buddywalk.workers.dev/usage |
 | Product site | GitHub Pages from `docs/` |
 
 As of 2 November 2026 the Render service builds from this org repo's `main`. A merge to `main` that touches `mobile/` deploys through GitHub Actions. Confirm `deployedCommit` on `/api/last-meters/review-status`.

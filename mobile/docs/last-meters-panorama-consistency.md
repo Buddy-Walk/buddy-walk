@@ -62,7 +62,7 @@ Until an owner does, deploy each merge with **Manual Deploy → Deploy latest co
 App builds already in testers' hands keep working: `POST /api/last-mile` stays as an alias of `POST /api/last-meters` (ADR 0001), and no other route the app calls changed.
 The dashboard-only paths were renamed outright (ADR 0001):
 
-- Trials dashboard: `/last-meters-tests?token=...`, formerly `/last-mile-tests`.
+- Trials: now the Team console's `/trials`, formerly `/last-meters-tests` and `/last-mile-tests` on the API.
 - Deploy check: `/api/last-meters/review-status`, formerly `/api/last-mile/review-status`.
 
 ## Checking the fixes after a deploy

@@ -4,9 +4,9 @@
 # Public URL: https://buddy-walk-api.onrender.com
 #
 # OpenAI and Google Maps keys are read from the service environment.
-# Render auto-generates ADMIN_TOKEN.
-# After deploy, open:
-#   https://buddy-walk-api.onrender.com/usage?token=YOUR_ADMIN_TOKEN
+# Render auto-generates ADMIN_TOKEN. The Team console reads the admin endpoints
+# with it:
+#   https://buddy-walk-team-console.buddywalk.workers.dev
 #
 # Each capability is decided independently on its own credentials: AI needs
 # OPENAI_API_KEY, speech needs AZURE_SUBSCRIPTION_KEY plus AZURE_REGION, and

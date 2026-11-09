@@ -1,20 +1,12 @@
 import { text } from "node:stream/consumers";
 
-import type { Browser, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 import { SEEDED } from "../scripts/seed-trials.ts";
 import { expect, rowOf, stackEnv, test, viewLink } from "./fixtures.ts";
 
 const quickSelect = (page: Page, trialId: string) =>
   rowOf(page, trialId).getByRole("combobox", { name: "Outcome" });
-
-/** The old page, in its own tab since its errors aren't the console's. */
-async function openOldPage(browser: Browser, destination: string) {
-  const { apiBase, token } = stackEnv();
-  const page = await browser.newPage();
-  await page.goto(`${apiBase}/last-meters-tests?token=${token}`);
-  return { page, row: page.locator(".trial-row", { hasText: destination }) };
-}
 
 /** A Trial as mobile/server has it saved. */
 async function savedTrial(trialId: string) {
@@ -25,10 +17,7 @@ async function savedTrial(trialId: string) {
   return ((await response.json()) as { data: Record<string, unknown> }).data;
 }
 
-test("a quick score saves, moves the summary, and shows in the old page", async ({
-  page,
-  browser,
-}) => {
+test("a quick score saves and moves the summary", async ({ page }) => {
   await page.goto("/trials?q=Kohl");
   await expect(page.getByText("0 of 1 Trials scored.")).toBeVisible();
 
@@ -45,16 +34,9 @@ test("a quick score saves, moves the summary, and shows in the old page", async 
     reviewerNotes: "Door is on the side",
     turnCorrectness: "wrong",
   });
-
-  const old = await openOldPage(browser, "Kohl's");
-  await expect(old.row.locator(".quick-outcome")).toHaveValue("needed_retake");
-  await old.page.close();
 });
 
-test("a review saved in the detail shows on reload and in the old page", async ({
-  page,
-  browser,
-}) => {
+test("a review saved in the detail shows on reload", async ({ page }) => {
   await page.goto(`/trials/${SEEDED.detailReviewed}`);
   const review = page.getByRole("form", { name: "Review" });
   await expect(review.getByLabel("Outcome (required)")).toHaveValue("");
@@ -71,12 +53,6 @@ test("a review saved in the detail shows on reload and in the old page", async (
   await expect(review.getByLabel("Turn")).toHaveValue("correct");
   await expect(review.getByLabel("Entrance")).toHaveValue("not_identified");
   await expect(review.getByLabel("Tester Notes")).toHaveValue("Found it from the corner");
-
-  const old = await openOldPage(browser, "Old Navy");
-  await expect(old.row.locator(".quick-outcome")).toHaveValue("got_there");
-  await old.row.locator(".view-btn").click();
-  await expect(old.page.locator(".review-notes")).toHaveValue("Found it from the corner");
-  await old.page.close();
 });
 
 test("a detail still loading when a review saves doesn't undo it", async ({ page }) => {
@@ -150,12 +126,12 @@ test.describe("when a save fails", () => {
 });
 
 // Both views stop short of the seeded older-shape Trial: mobile/server's export
-// answers 500 on its placesSearches, and the old page's export fails the same way.
+// answers 500 on its placesSearches.
 for (const [name, search, params] of [
   ["a view", "?limit=40", "limit=40"],
   ["a view with retries", "?limit=5&includeRetries=true", "limit=5&includeRetries=true"],
 ] as const) {
-  test(`the CSV matches the old export for ${name}`, async ({ page }) => {
+  test(`the CSV matches mobile/server's export for ${name}`, async ({ page }) => {
     const { apiBase, token } = stackEnv();
     await page.goto(`/trials${search}`);
 
@@ -166,9 +142,10 @@ for (const [name, search, params] of [
     expect(download.suggestedFilename()).toBe("last_meters_tests.csv");
     expect(download.url()).not.toContain(token);
 
-    // The URL the old page's own link points at.
-    const old = await fetch(`${apiBase}/api/last-meters-tests/export.csv?token=${token}&${params}`);
-    expect(await text(await download.createReadStream())).toBe(await old.text());
+    const fromApi = await fetch(
+      `${apiBase}/api/last-meters-tests/export.csv?token=${token}&${params}`,
+    );
+    expect(await text(await download.createReadStream())).toBe(await fromApi.text());
   });
 }
 

@@ -11,15 +11,21 @@ async function listen(t: TestContext, app: express.Application): Promise<string>
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
 
-test("GET /last-mile-tests redirects to the Trials dashboard and keeps the token", async (t) => {
-  const app = express();
-  mountLastMetersDashboardAliases(app);
-  const root = await listen(t, app);
+for (const [oldPath, consolePath] of [
+  ["/last-mile-tests", "/trials"],
+  ["/last-meters-tests", "/trials"],
+  ["/usage", "/usage"],
+]) {
+  test(`GET ${oldPath} redirects to the Team console's ${consolePath} and drops the token`, async (t) => {
+    const app = express();
+    mountLastMetersDashboardAliases(app);
+    const root = await listen(t, app);
 
-  const res = await fetch(`${root}/last-mile-tests?token=abc%2B1`, { redirect: "manual" });
-  assert.equal(res.status, 302);
-  assert.equal(res.headers.get("location"), "/last-meters-tests?token=abc%2B1");
-});
+    const res = await fetch(`${root}${oldPath}?token=abc%2B1`, { redirect: "manual" });
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get("location"), `https://buddy-walk-team-console.buddywalk.workers.dev${consolePath}`);
+  });
+}
 
 test("GET /api/last-mile/review-status redirects to the Last Meters deploy check", async (t) => {
   const app = express();

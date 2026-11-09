@@ -53,14 +53,14 @@ These are not called by the app, so they were renamed outright (ADR 0001):
 
 | What | Path |
 | --- | --- |
-| Trials dashboard | `/last-meters-tests` |
+| Trials | Team console, `/trials` |
 | Review / deploy check | `/api/last-meters/review-status` |
 | Retry a Trial | under the Last Meters test-log routes |
-| Usage | `/usage` |
+| Usage | Team console, `/usage` |
 
-Old `/last-mile-tests` and `/api/last-mile/review-status` are gone. Bookmark the new URLs.
+`/last-meters-tests`, `/last-mile-tests` and `/usage` on the API redirect to the Team console, without the token. Bookmark the new URLs.
 
-All of those require `ADMIN_TOKEN`. Do not print it, commit it, or paste it into a ticket.
+The API paths require `ADMIN_TOKEN`. Do not print it, commit it, or paste it into a ticket. The Team console signs in through Cloudflare Access.
 
 ## Stored names that stay old
 

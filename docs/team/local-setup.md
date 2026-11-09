@@ -17,7 +17,7 @@ copy .env.example .env
 ```
 
 Fill at least `OPENAI_API_KEY` and `GOOGLE_MAPS_API_KEY` (or `GOOGLE_API_KEY`) to run Last Meters locally.
-`ADMIN_TOKEN` if you want `/usage` and `/last-meters-tests`.
+`ADMIN_TOKEN` if you want the admin endpoints, such as `/api/last-meters-tests`.
 
 ```
 npm run serve
