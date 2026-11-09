@@ -67,6 +67,36 @@ test("a Trial saved in an older shape still shows", async ({ page }) => {
   await expect(dialog.getByRole("alert")).toBeHidden();
 });
 
+test("a Trial's saved Street View images show, with their headings and downloads", async ({
+  page,
+}) => {
+  await page.goto(`/trials/${SEEDED.original}`);
+  const dialog = page.getByRole("dialog");
+  for (const [title, file] of [
+    ["Saved panorama", "panoramaPhoto.jpg"],
+    ["Destination Street View reference", "destinationPhoto.jpg"],
+  ]) {
+    await expect(dialog.getByRole("img", { name: title })).toHaveAttribute("src", /^data:image\//);
+    await expect(dialog.locator(`a[download="${file}"]`)).toHaveAttribute("href", /^data:image\//);
+  }
+  await expect(dialog).toContainText("Tile center headings (in stored order): 0°, 22.5°, 90°");
+});
+
+test("a Trial with no saved panorama says why", async ({ page }) => {
+  await page.goto("/trials?q=Macy");
+  await page
+    .getByRole("row")
+    .filter({ hasText: "151 W 34th St" })
+    .locator('a:text-is("View")')
+    .click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText(
+    "No usable outdoor panorama was obtained (no_validated_outdoor_panorama).",
+  );
+  await expect(dialog).toContainText("No separate destination reference saved.");
+  await expect(dialog.getByRole("img", { name: "Saved panorama" })).toHaveCount(0);
+});
+
 test("a Trial that doesn't exist says so", async ({ page }) => {
   await page.goto("/trials/000000000000000000000000");
   await expect(page.getByRole("dialog")).toContainText("Could not load this Trial (HTTP 404).");
