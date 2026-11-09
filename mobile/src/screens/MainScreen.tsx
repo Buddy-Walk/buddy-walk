@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { LastMetersSensors, validPoint, RECAPTURE_MESSAGE } from "../utils/lastMetersSafety";
 import { mobileResponseSensorReasons } from "../utils/mobileLastMetersGuidance";
+import { getSafetyGateVoicePrompt } from "../utils/safetyGateVoicePrompt";
 import {
   View,
   ScrollView,
@@ -499,9 +500,17 @@ export default function MainScreen({ navigation }: Props) {
     [],
   );
 
+  const lastMetersVoiceResponseRef = useRef<{
+    output: string;
+    speechText: string;
+  } | null>(null);
+
   /** Answers go through app TTS so pause/replay actually control them. */
   const speakAnswer = useCallback((text: string) => {
-    speakContent(text, { preferDevice: true });
+    const lastMeters = lastMetersVoiceResponseRef.current;
+    speakContent(lastMeters?.output === text ? lastMeters.speechText : text, {
+      preferDevice: true,
+    });
   }, []);
 
   const toggleResponseSpeech = useCallback(async () => {
@@ -548,6 +557,7 @@ export default function MainScreen({ navigation }: Props) {
   useEffect(() => {
     if (!aiResponse) {
       lastAutoSpokenRef.current = "";
+      lastMetersVoiceResponseRef.current = null;
       return;
     }
     if (lastAutoSpokenRef.current !== aiResponse) {
@@ -910,6 +920,7 @@ export default function MainScreen({ navigation }: Props) {
       setCurrentMessageId("");
       chatLogEligibleRef.current = false;
       lastAutoSpokenRef.current = "";
+      lastMetersVoiceResponseRef.current = null;
       cameraReadyRef.current = false;
       if (options?.announceReset) {
         AccessibilityInfo.announceForAccessibility(
@@ -1398,6 +1409,19 @@ export default function MainScreen({ navigation }: Props) {
 
     const controller = new AbortController();
     lastMetersAbortRef.current = controller;
+    // Owned by this request, so identical replies to separate requests still speak.
+    let responsePresented = false;
+    const presentResponse = (output: string, speechText = output) => {
+      if (responsePresented) return;
+      responsePresented = true;
+      lastMetersVoiceResponseRef.current = { output, speechText };
+      // Match the existing direct-response pattern: the aiResponse effect must not
+      // speak the full backend text again or interrupt the selected prompt.
+      lastAutoSpokenRef.current = output;
+      voicePreambleRef.current = "";
+      setAiResponse(output);
+      speakAnswer(output);
+    };
     setLoading(true);
     setLastMetersLoading(true);
     void stopSpeaking();
@@ -1431,8 +1455,7 @@ export default function MainScreen({ navigation }: Props) {
       const sensors = makeSensors();
       const requestedAt = Date.now();
       if (!loc || !validPoint(position)) {
-        setAiResponse(RECAPTURE_MESSAGE);
-        speak(RECAPTURE_MESSAGE, { preferDevice: true });
+        presentResponse(RECAPTURE_MESSAGE);
         return;
       }
 
@@ -1453,13 +1476,14 @@ export default function MainScreen({ navigation }: Props) {
 
       if (controller.signal.aborted || lastMetersAbortRef.current !== controller) return;
       if (mobileResponseSensorReasons(data, makeSensors(), position, captureHeading, loc.coords.accuracy ?? undefined, requestedAt).length) {
-        setAiResponse(RECAPTURE_MESSAGE);
-        speak(RECAPTURE_MESSAGE, { preferDevice: true });
+        presentResponse(RECAPTURE_MESSAGE);
         return;
       }
       if (data.output) {
-        setAiResponse(data.output);
-        speak(data.output, { preferDevice: true });
+        presentResponse(
+          data.output,
+          getSafetyGateVoicePrompt(data.safetyReasons, data.warning) ?? data.output,
+        );
 
         setUserInput("");
         setCapturedImage(null);
@@ -1481,8 +1505,7 @@ export default function MainScreen({ navigation }: Props) {
         : detail
           ? `Last Meters error: ${detail}`
           : "Error calculating last meters navigation. Please try again.";
-      setAiResponse(errMsg);
-      speak(errMsg, { preferDevice: true });
+      presentResponse(errMsg);
     } finally {
       // A cancelled request settles after the user may have started a new one;
       // only the latest request may clear the loading state.
@@ -1510,6 +1533,7 @@ export default function MainScreen({ navigation }: Props) {
       return;
     }
     const question = raw;
+    lastMetersVoiceResponseRef.current = null;
     setUserInput(question);
     setDisplayQuestion(question);
     submittedInputRef.current = question;
