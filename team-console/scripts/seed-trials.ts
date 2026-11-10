@@ -101,7 +101,7 @@ const cases: Doc[] = [
     panoramaAgeYears: 2.4,
     panoramaCopyright: "(c) Google",
     panoramaSource: "pipeline",
-    panoramaHeadings: [0, 45, 90, 135, 180, 225, 270, 315],
+    panoramaHeadings: [0, 22.5, 90, 135, 180, 225, 270, 315],
     panoramaValidation: [
       { panoId: "panoZ", status: "rejected", reason: "indoor", distanceMeters: 12 },
       { panoId: "panoA", status: "accepted", reason: "outdoor street", distanceMeters: 9 },

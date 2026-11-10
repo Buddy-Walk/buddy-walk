@@ -208,68 +208,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     sendCompanionViewer(res, req.params.token ?? '');
   });
 
-  // Internal usage dashboard. The page is a shell; the data it loads is gated by
-  // ADMIN_TOKEN, so pass the token through ?token=... in the URL.
-  const usageCandidates = [
-    path.join(__dirname, 'views', 'usage.html'),
-    path.join(__dirname, '..', 'views', 'usage.html'),
-    path.join(__dirname, '..', 'server', 'views', 'usage.html'),
-  ];
-  let usageViewerTemplate = '';
-  for (const candidate of usageCandidates) {
-    if (fs.existsSync(candidate)) {
-      usageViewerTemplate = fs.readFileSync(candidate, 'utf8');
-      break;
-    }
-  }
-
-  app.get('/usage', (req, res) => {
-    if (!usageViewerTemplate) {
-      res.status(500).send('Usage dashboard is not available right now.');
-      return;
-    }
-    // Allow base64 tokens (Render's generated ADMIN_TOKEN includes + / =).
-    // JSON.stringify makes the value safe to embed in the page's script tag.
-    const token = String(req.query.token || '').replace(/[^a-zA-Z0-9_\-.+/=]/g, '');
-    const html = usageViewerTemplate.replace("'__ADMIN_TOKEN__'", JSON.stringify(token));
-    res.set('Cache-Control', 'no-store');
-    res.type('html').send(html);
-  });
-
-  const lastMetersTestsCandidates = [
-    path.join(__dirname, 'views', 'lastMetersTests.html'),
-    path.join(__dirname, '..', 'views', 'lastMetersTests.html'),
-    path.join(__dirname, '..', 'server', 'views', 'lastMetersTests.html'),
-  ];
-  let lastMetersTestsTemplate = '';
-  for (const candidate of lastMetersTestsCandidates) {
-    if (fs.existsSync(candidate)) {
-      lastMetersTestsTemplate = fs.readFileSync(candidate, 'utf8');
-      break;
-    }
-  }
-
-  app.get('/last-meters-tests', (req, res) => {
-    if (!lastMetersTestsTemplate) {
-      res.status(500).send('Last Meters test dashboard is not available right now.');
-      return;
-    }
-    const token = String(req.query.token || '').replace(/[^a-zA-Z0-9_\-.+/=]/g, '');
-    const html = lastMetersTestsTemplate.replace("'__ADMIN_TOKEN__'", JSON.stringify(token));
-    res.set('Cache-Control', 'no-store');
-    res.type('html').send(html);
-  });
-
   mountLastMetersDashboardAliases(app);
-
-  // The dashboard has no bundler; it loads uuid's browser build from here to
-  // make UUIDv7 idempotency keys for retries.
-  app.use(
-    '/vendor/uuid',
-    express.static(path.join(path.dirname(require.resolve('uuid/package.json')), 'dist', 'esm-browser'), {
-      maxAge: '1d',
-    })
-  );
 
   const rootDir = __dirname.includes('dist') 
   ? path.join(__dirname, '..')       // Production: go up 1 level to /dist

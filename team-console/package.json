@@ -12,9 +12,7 @@
     "cf-typegen": "wrangler types",
     "deploy": "vp build && wrangler deploy",
     "stack": "bun scripts/local-stack.ts",
-    "e2e": "playwright test",
-    "compare": "bun scripts/local-stack.ts bun scripts/compare-with-old-page.ts",
-    "compare:prod": "infisical run --env=prod --path=/team-console --silent -- bun scripts/compare-with-old-page.ts"
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.18",

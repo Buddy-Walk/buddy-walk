@@ -51,12 +51,6 @@ Lint also runs the console's own rules in `lint/plugin.ts`, which have their tes
 `bun run e2e` starts the local stack on port 3100 and runs `e2e/` in Playwright's Chromium (`bunx playwright install chromium`).
 A test also fails on any page or console error it doesn't list in `allowedErrors`, since React reports some crashes only to the console.
 
-## Comparing with the old page
-
-Until `lastMetersTests.html` is retired, `scripts/compare-with-old-page.ts` checks that the console's Trials logic gives the old page's results on the same Trials, using read-only GETs.
-`bun run compare` runs it against the local stack, and `bun run compare:prod` against production with the prod secrets from Infisical.
-It counts the deliberate differences separately (values from older shapes read as missing, and reviews from before outcome scoring counted by their status) and exits 1 on any other difference.
-
 ## Secrets
 
 | Name           | What it is                                                        |

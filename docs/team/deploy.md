@@ -41,11 +41,11 @@ Set in the dashboard, not in git:
 
 | Page | Path |
 | --- | --- |
-| Trials | `/last-meters-tests?token=...` |
-| Usage | `/usage?token=...` |
+| Trials | https://buddy-walk-team-console.buddywalk.workers.dev/trials |
+| Usage | https://buddy-walk-team-console.buddywalk.workers.dev/usage |
 | Companion viewer | `docs/companion-viewer.html` (polls this API) |
 
-The old Trials URL was `/last-mile-tests`. Update bookmarks.
+The old URLs on the API (`/last-meters-tests`, `/last-mile-tests`, `/usage`) redirect to the Team console, without the token. Update bookmarks.
 
 ## App builds
 
