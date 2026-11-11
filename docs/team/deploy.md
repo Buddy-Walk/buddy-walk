@@ -34,8 +34,25 @@ Set in the dashboard, not in git:
 - `ADMIN_TOKEN` (Render can generate this)
 - Mongo URI (`MONGODB_URI` / `DATABASE_URL` / `WEB_LINK`)
 - `ALLOWED_ORIGINS`
+- `SENTRY_DSN` (API project `buddy-walk-api`; optional — code has a default DSN)
+- `SENTRY_ENVIRONMENT` (use `production` on Render)
+- `SENTRY_RELEASE` (optional; falls back to `RENDER_GIT_COMMIT`)
 
 `render.yaml` documents the Blueprint. Secrets use `sync: false`.
+
+## Observability (Sentry)
+
+Org: [buddy-walk-cuny](https://buddy-walk-cuny.sentry.io/) (US region).
+
+| Surface | Project | SDK |
+| --- | --- | --- |
+| Expo app | `buddy-walk-mobile` | `@sentry/react-native` |
+| Express API (`mobile/server`) | `buddy-walk-api` | `@sentry/node` |
+| Team console (Cloudflare) | `buddy-walk-web` | Project created; SDK wiring follows in a bun-lockfile PR |
+
+Uptime: [Buddy Walk API health](https://buddy-walk-cuny.sentry.io/monitors/10925083/) hits `GET /api/health` every 5 minutes.
+
+For TestFlight / EAS, set `EXPO_PUBLIC_SENTRY_DSN` (or rely on the baked default) and optionally `EXPO_PUBLIC_SENTRY_ENVIRONMENT=production`. Do not enable `SENTRY_DEBUG_ROUTE` in production except briefly to verify ingest.
 
 ## Dashboards
 

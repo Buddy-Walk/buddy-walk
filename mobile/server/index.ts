@@ -1,3 +1,5 @@
+import "./instrument";
+import * as Sentry from "@sentry/node";
 import express, { Application, Request, Response } from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
@@ -58,6 +60,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     );
   } catch (error) {
     console.warn("MongoDB unavailable — using in-memory store for metrics, chat logs, and companion:", error);
+    Sentry.captureException(error, { tags: { subsystem: "mongodb", phase: "connect" } });
     setCompanionMemoryStore(true);
   }
 
@@ -149,6 +152,15 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   app.use("/api/last-meters-tests", lastMetersTestLogRoute)
   app.use("/api/last-mile-tests", lastMetersTestLogRoute)
 
+  // Gated verification route — enable with SENTRY_DEBUG_ROUTE=1 on Render when testing ingest.
+  if (process.env.SENTRY_DEBUG_ROUTE === '1') {
+    app.get('/api/debug-sentry', (_req, res) => {
+      const message = `Sentry test error ${Date.now()}`;
+      Sentry.captureException(new Error(message));
+      res.status(500).json({ ok: false, message });
+    });
+  }
+
   app.get('/api/health', async (_req, res) => {
     const mode = describeServerMode();
     const upstreamText =
@@ -226,6 +238,9 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
       res.status(200).json({ ok: true, service: 'buddy-walk-api' });
     });
   }
+
+  // Must be after all routes so Express errors reach Sentry.
+  Sentry.setupExpressErrorHandler(app);
   
   app.listen(Number(port), '0.0.0.0', () => {
       console.log(`Server is live at http://localhost:${port}`);

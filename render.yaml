@@ -51,3 +51,8 @@ services:
         sync: false
       - key: GOOGLE_MAPS_API_KEY
         sync: false
+      # Observability — optional override; code defaults to buddy-walk-api DSN.
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_ENVIRONMENT
+        value: production
