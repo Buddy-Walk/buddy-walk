@@ -2,7 +2,7 @@
 
 ## What you need
 
-- Node 18+
+- Node 22.13+ or 24.3+
 - npm 9+
 - This clone: `https://github.com/Buddy-Walk/buddy-walk`
 - Optional: MongoDB on `127.0.0.1` (without it, the API starts with an in-memory store)
