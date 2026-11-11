@@ -12,8 +12,7 @@ See ADR 0004 (`docs/adr/0004-team-console-on-cloudflare-workers-behind-access.md
   The app never runs on the bun runtime: dev and production both run on workerd through `@cloudflare/vite-plugin`.
 - Tailwind v4 and shadcn/ui for styling (`bunx shadcn@latest add <component>` adds components).
 - TanStack Query owns server data.
-  Route loaders call `context.queryClient.ensureQueryData(...)` and components read the same query with `useSuspenseQuery`.
-  A page that must stay usable when its data fails to load, like `/trials`, prefetches with `prefetchQuery` instead and reads with `useQuery`, so the error shows inline beside its controls.
+  Route loaders call `context.queryClient.prefetchQuery(...)` and components read the same query with `useQuery`, so a failed load shows inline beside the page's controls.
 
 ## Run
 
@@ -23,8 +22,7 @@ bun run dev
 ```
 
 `bun run dev` runs `vp dev` under `infisical run --env=dev --path=/team-console`, so the dev secrets reach workerd.
-The page lists whether each secret is set, never its value.
-Without Infisical, `vp dev --port 3000` still starts and reports both secrets as missing.
+Without Infisical, `vp dev --port 3000` still starts, but loading data fails because `API_BASE_URL` is not set.
 
 ## Local stack
 
