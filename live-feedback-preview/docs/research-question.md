@@ -8,6 +8,7 @@ Once a pedestrian's map app has brought them to the right block, can live on-dev
 2. **Effectiveness:** is the share of Field tests Guided to the door higher than the current app's at the same destinations? (#121, #123)
 3. **Safety:** does the share of Field tests that end Misled stay at zero?
 4. **Usability:** do blind and low-vision users find the guidance intuitive? (User tests, after the safety rules in #124 are approved)
+5. **Scene descriptions:** does a Scene description make "can't tell" more useful without misleading users? (#138)
 
 ## What counts as an answer
 

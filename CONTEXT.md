@@ -59,6 +59,11 @@ Walking the user along the same sidewalk toward a direction established by a Mat
 Without a Match there is no Bounded walk.
 _Avoid_: Probe walk, search walk
 
+**Scene description**:
+A short spoken account of what is around the user, made by an AI model from the camera frames when the user asks for one.
+It describes and never directs: a possible sighting of the destination only starts a Guided turn and a Scan to check it.
+_Avoid_: AI description, scene summary, image caption
+
 ## Trials and testing
 
 **Trial**:

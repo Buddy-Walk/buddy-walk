@@ -142,6 +142,7 @@ The fallbacks are an order of preference over the Matches, not separate modes.
 - Then it says honestly that it cannot tell, for example: "The shop is within about 50 ft on this side of the street, but I can't tell which door. Ask someone nearby or use your primary navigation."
 - It never tells the user to keep walking the way they were going, and never replaces an unknown with a confident guess.
 - Leading a user further from the destination is worse than an honest "can't tell".
+- With the "can't tell", the app offers a Scene description of what is around the user (see 3.7).
 
 **Bounded walk:**
 - A Bounded walk closes the gap one door at a time: "This is 34, the shop is at 40, about three doors to your right." Then "38". Then "40, the entrance is on your right."
@@ -178,6 +179,42 @@ The fallbacks are an order of preference over the Matches, not separate modes.
 
 The rules are drafted by the team, approved by the team, and ideally reviewed by an orientation and mobility specialist before User tests begin.
 
+### 3.7 Scene description
+
+A Scene description is a short spoken account of what is around the user, made by an AI vision model from the camera frames.
+It lets the app act as the user's eyes even when it cannot guide them: it turns an honest "can't tell" into something they can act on, adds awareness on top of Match-based guidance, and explains why guidance failed.
+It describes and never directs.
+
+**When it is given:**
+- The user can ask for one at any time ("what's around me?").
+- At "can't tell", the app offers one.
+- A setting turns on automatic descriptions for users who always want them.
+- It stays something the user asks for by default, because blind pedestrians rely on hearing traffic and their surroundings, and an app that keeps talking competes with that.
+
+**Example:** the app reads 48 and the destination is 40.
+The direction ("the shop is a few doors back") comes from the numbers and the Destination brief, backed by a Match.
+The Scene description adds what is around: "you're outside a laundromat, with a bus stop just ahead."
+
+**How it is made:**
+- A vision-capable model on the server, called only when a description is requested, where a few seconds' wait is acceptable.
+  The live part of a run still never waits on the network (ADR 0005); with no signal, the app gives the plain "can't tell".
+- The phone sends several of the sharpest frames from across the Scans, dropping blurry ones, with the Readings and the Destination brief.
+- The model says what it cannot make out ("too dark to read the signs") rather than filling gaps.
+- The answer comes back in fixed fields, not free text: what is in view, why guidance failed, what to ask someone for, and any possible sighting of the destination.
+
+**A possible sighting of the destination:**
+- It is a hint, never a confirmation: only a Match from the on-device text recognition confirms "found".
+- Each frame records the compass heading it was taken at, so the app knows which way the sighting is.
+- The app says so honestly ("There may be a sign for Joe's Pizza nearby. I'll turn you toward it to check.") and starts a Guided turn toward that heading, never a spoken direction such as "point the phone to your right".
+- A Scan there either confirms it with a Match or it does not.
+
+**Two audiences:**
+- The user hears the short version: what is around them and what to ask for.
+- The Trial keeps the full analysis, including why guidance failed, for the team to review.
+
+**Privacy:** frames sent to an outside provider can include bystanders' faces and license plates.
+The provider, blurring, retention and disclosure are worked out in #139 before Scene descriptions ship.
+
 ## 4. Architecture
 
 Live Feedback Preview is fully separate from the current app and `mobile/server`, so it cannot disrupt them.
@@ -197,19 +234,20 @@ Both use bun as their package manager, each with its own lockfile, as `team-cons
 - If ML Kit reads angled or stylised signs poorly, the fallback is a small Swift VisionCamera plugin calling Apple Vision. Flutter is not used.
 - Sign-in: Sign in with Apple only, checked against a list of approved tester accounts on the server. This needs a closer look before it is built.
 - Trials are saved on the phone as the run goes, uploaded at the end or on the next launch, and abandoned runs are uploaded and marked as abandoned. The details are left to the issue.
-- A Trial keeps the frame behind each Match and a few frames from Scans that produced no Readings. No video. The details are left to the issue.
+- A Trial keeps the frame behind each Match and a few frames from Scans that produced no Readings, each with the compass heading it was taken at. No video. The details are left to the issue.
 
 ### 4.2 Runs happen on the phone
 
 - The server sends one Destination brief when a run starts, and the phone does everything after that (ADR 0005).
-- Matching Readings against the brief is plain text and number comparison on the phone, with no AI model during the run. This may be revisited later, for example to use a model when building name variants for the brief.
+- Matching Readings against the brief is plain text and number comparison on the phone, with no AI model in the live loop. This may be revisited later, for example to use a model when building name variants for the brief.
+- The one exception is a Scene description, which the user requests and which calls a vision model on the server (3.7).
 
 ### 4.3 Server
 
 - A new server, rebuilt from only the parts that matter, hosted on Railway separately from the current Render API.
 - TypeScript on Bun.
 - The web framework is still open: Hono, Express or another option needs research.
-- It signs testers in, builds the Destination brief, and stores Trials.
+- It signs testers in, builds the Destination brief, makes Scene descriptions with an outside vision model, and stores Trials.
 - **The Destination brief's sources:**
   - street layout from OpenStreetMap
   - side of street, parity and the direction numbers rise from Google Geocoding of the destination's address and a few nearby numbers on the same street
@@ -291,6 +329,12 @@ The console shows, for each build, how many Trials got through each step.
 - Each test session runs both apps at the same set of destinations, alternating which app goes first.
 - For now, testers are sighted.
 
+### 5.5 Scene descriptions
+
+- On the Team console, a reviewer grades each Scene description against its frames: accurate, partly accurate, or wrong.
+- At the end of the run, the tester says whether the description was useful.
+- A description that sent the user the wrong way makes the Outcome Misled.
+
 ## 6. Experiments and measurements
 
 ### 6.1 First experiment: can the camera read numbers and signs live?
@@ -331,6 +375,7 @@ The console shows, for each build, how many Trials got through each step.
 - **Sign-in:** a closer look at Sign in with Apple with a tester list.
 - **Safety rules:** the Bounded walk's distance cap, wording and stop rules.
 - **Guided turn cues:** the exact haptic and sound design.
+- **Scene descriptions:** the vision model and provider, and the privacy design for frames (#139).
 
 ## 8. Issues
 
@@ -359,5 +404,7 @@ Each issue lists the issues that block it.
 - #124 Write the sidewalk safety rules and get them approved (3.6).
 - #125 Bounded walk behind a setting that is off by default (3.4).
 - #126 Door detection experiment (6.2).
+- #138 Scene description: describe what is around the user on request (3.7).
+- #139 Privacy design for camera frames, in Trials and Scene descriptions (3.7, 4.1).
 
 **Separate from Live Feedback Preview, for the current app:** fix the issue #67 bypass so a precise turn is never given when GPS accuracy is at least the distance, and log the computed bearing uncertainty, the threshold and whether the bypass fired.
