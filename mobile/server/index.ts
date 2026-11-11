@@ -30,6 +30,7 @@ import { TranscribeController } from "./controllers/transcribe";
 import lastMetersTestLogModel from "./database/models/lastMetersTestLog";
 import { lastMetersRetryRunService } from "./services/lastMetersRetryRuns";
 import { startRenderKeepAlive } from "./utils/keepAlive";
+import { mountSentryDebugRoute } from "./utils/sentryDebugRoute";
 
 dotenv.config();
 
@@ -152,14 +153,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   app.use("/api/last-meters-tests", lastMetersTestLogRoute)
   app.use("/api/last-mile-tests", lastMetersTestLogRoute)
 
-  // Gated verification route — enable with SENTRY_DEBUG_ROUTE=1 on Render when testing ingest.
-  if (process.env.SENTRY_DEBUG_ROUTE === '1') {
-    app.get('/api/debug-sentry', (_req, res) => {
-      const message = `Sentry test error ${Date.now()}`;
-      Sentry.captureException(new Error(message));
-      res.status(500).json({ ok: false, message });
-    });
-  }
+  mountSentryDebugRoute(app);
 
   app.get('/api/health', async (_req, res) => {
     const mode = describeServerMode();

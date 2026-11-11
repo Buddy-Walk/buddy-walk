@@ -63,9 +63,6 @@ module.exports = ({ config }) =>
         },
         buddyWalkApiUrl: resolvedApiRoot,
         bypassAuth,
-        sentryDsn:
-          process.env.EXPO_PUBLIC_SENTRY_DSN ||
-          'https://6cb8e4097bca755cefaefed772dc4aeb@o4512409661145088.ingest.us.sentry.io/4512409761021952',
         firebase: {
           apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
           authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,

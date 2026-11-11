@@ -52,7 +52,39 @@ Org: [buddy-walk-cuny](https://buddy-walk-cuny.sentry.io/) (US region).
 
 Uptime: [Buddy Walk API health](https://buddy-walk-cuny.sentry.io/monitors/10925083/) hits `GET /api/health` every 5 minutes.
 
-For TestFlight / EAS, set `EXPO_PUBLIC_SENTRY_DSN` (or rely on the baked default) and optionally `EXPO_PUBLIC_SENTRY_ENVIRONMENT=production`. Do not enable `SENTRY_DEBUG_ROUTE` in production except briefly to verify ingest.
+### What Sentry receives
+
+Testers are blind and walk with the camera and GPS on, so both SDKs send errors and timings only.
+
+| Sent | Not sent |
+| --- | --- |
+| Exceptions with stack traces, our `subsystem` / `feature` tags | Request or response bodies (Questions, camera frames, GPS) |
+| Release, environment, device / OS / runtime context | User identity, IP address, cookies |
+| Sampled timings (20% of requests in production) | Header values other than `content-type` / `content-length` |
+| URL paths | Query string values |
+| | OpenAI prompts and answers, Mongo query data, stack-frame variables |
+| | Console output, screenshots, view hierarchy |
+
+Only Render and release app builds send. Local runs, including the Team console stack, send nothing unless `SENTRY_DSN` (API) or `EXPO_PUBLIC_SENTRY_DSN` (app) is set.
+
+The API sets this with `dataCollection` in `mobile/server/instrument.ts`: SDK v11 collects everything unless told otherwise.
+The app sets `sendDefaultPii: false` in `mobile/src/sentry.ts`.
+Session replay is off. An internal build can set `EXPO_PUBLIC_SENTRY_REPLAY=1` for masked replays on errors; never set it for TestFlight.
+
+### Checking ingest after a deploy
+
+With `SENTRY_DEBUG_ROUTE=1` and `ADMIN_TOKEN` set, the API sends one test error per call, at most one a minute:
+
+```bash
+curl -X POST -H "x-admin-token: $ADMIN_TOKEN" https://buddy-walk-api.onrender.com/api/debug-sentry
+```
+
+The route does not exist without both variables. Unset `SENTRY_DEBUG_ROUTE` again afterwards.
+
+### Source maps
+
+EAS builds upload source maps to Sentry when the `SENTRY_AUTH_TOKEN` EAS secret is set.
+Until then `SENTRY_ALLOW_FAILURE=true` in `mobile/eas.json` lets the build finish without them, and app stack traces stay minified.
 
 ## Dashboards
 
