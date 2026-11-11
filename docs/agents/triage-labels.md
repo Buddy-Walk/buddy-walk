@@ -17,3 +17,12 @@ Only `wontfix` exists in the GitHub repo today.
 Create the other four on first use (`gh label create <name>`) rather than substituting a similar existing label such as `question`.
 
 Edit the right-hand column to match whatever vocabulary you actually use.
+
+## Scope labels
+
+A scope label marks which part of the product an issue belongs to, so the team can filter by it.
+An issue carries its scope label alongside its triage label.
+
+| Label                   | Apply to                                                                                             |
+| ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| `live-feedback-preview` | Every issue for Live Feedback Preview, the testing-ground Last Meters app in `live-feedback-preview/` |
