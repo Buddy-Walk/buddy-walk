@@ -9,7 +9,3 @@ It finds the destination's door from live camera feedback: an iOS Expo app in `a
   When something from `mobile/` is useful, copy it here, so the current app's build and server stay untouched.
 - Preview Trials live in the Preview's Postgres, separate from the current app's Mongo Trials.
 - `app/` and `server/` each use bun with their own lockfile.
-
-## Issues
-
-Preview issues carry the `live-feedback-preview` scope label (see `docs/agents/triage-labels.md`).
