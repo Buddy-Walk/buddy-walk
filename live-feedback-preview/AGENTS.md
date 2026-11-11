@@ -4,6 +4,8 @@ Live Feedback Preview is a testing-ground app for Last Meters, built beside the 
 It gives Last Meters guidance from live camera feedback instead of a single photo.
 It is an iOS Expo app in `app/` with a Bun server in `server/`.
 
+Before designing or changing how the Preview behaves, read `docs/plan.md`: the design, the safety rules, how success is measured, and the reasons behind each choice.
+
 ## Boundaries
 
 - Keep Preview code inside this directory.
