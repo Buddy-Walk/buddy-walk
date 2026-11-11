@@ -7,6 +7,7 @@ It is a working draft for triaging issues, not a final spec.
 Issues for it carry the `live-feedback-preview` label and hang off the tracking issue #104.
 
 Related documents:
+- `research-question.md` next to this plan: what the Preview is trying to find out, and what counts as an answer
 - `CONTEXT.md` at the repo root: the glossary, including the Live Feedback Preview terms used here
 - `docs/adr/0005-last-meters-runs-on-the-phone-from-one-destination-brief.md`
 - `text-recognition-research.md` next to this plan: on-device text recognition options, checked 2026-11-10
