@@ -6,7 +6,7 @@ Live feedback has to arrive while the user is still panning, and street signal i
 
 The server still exists: it signs testers in, builds the Destination brief from Google and OpenStreetMap data, and stores Trials.
 
-The one exception is a Scene description, which the user asks for (or turns on in a setting).
+The one exception is a Scene description, given automatically at "can't tell" and on request while the app has directions to give.
 It sends a few frames to a vision model on the server, at moments where a few seconds' wait is acceptable, and it never sits in the live loop: with no signal, the app still finishes the run and gives a plain "can't tell".
 
 ## Considered Options

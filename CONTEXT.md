@@ -60,7 +60,7 @@ Without a Match there is no Bounded walk.
 _Avoid_: Probe walk, search walk
 
 **Scene description**:
-A short spoken account of what is around the user, made by an AI model from the camera frames when the user asks for one.
+A short spoken account of what is around the user, made by an AI model from the camera frames: automatically when the app can't tell where the destination is, and on request while it has directions to give.
 It describes and never directs: a possible sighting of the destination only starts a Guided turn and a Scan to check it.
 _Avoid_: AI description, scene summary, image caption
 

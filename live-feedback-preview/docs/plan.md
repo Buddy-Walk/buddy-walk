@@ -142,7 +142,7 @@ The fallbacks are an order of preference over the Matches, not separate modes.
 - Then it says honestly that it cannot tell, for example: "The shop is within about 50 ft on this side of the street, but I can't tell which door. Ask someone nearby or use your primary navigation."
 - It never tells the user to keep walking the way they were going, and never replaces an unknown with a confident guess.
 - Leading a user further from the destination is worse than an honest "can't tell".
-- With the "can't tell", the app offers a Scene description of what is around the user (see 3.7).
+- With the "can't tell", the app automatically gives a Scene description of what is around the user (see 3.7).
 
 **Bounded walk:**
 - A Bounded walk closes the gap one door at a time: "This is 34, the shop is at 40, about three doors to your right." Then "38". Then "40, the entrance is on your right."
@@ -186,17 +186,16 @@ It lets the app act as the user's eyes even when it cannot guide them: it turns 
 It describes and never directs.
 
 **When it is given:**
-- The user can ask for one at any time ("what's around me?").
-- At "can't tell", the app offers one.
-- A setting turns on automatic descriptions for users who always want them.
-- It stays something the user asks for by default, because blind pedestrians rely on hearing traffic and their surroundings, and an app that keeps talking competes with that.
+- At "can't tell", the app gives one automatically: with no guidance to give, a description is the most useful thing it has.
+- While the app has directions to give, a description is on request ("what's around me?"), because blind pedestrians rely on hearing traffic and their surroundings, and an app that keeps talking competes with that.
+- A setting turns on automatic descriptions alongside directions for users who always want them.
 
 **Example:** the app reads 48 and the destination is 40.
 The direction ("the shop is a few doors back") comes from the numbers and the Destination brief, backed by a Match.
 The Scene description adds what is around: "you're outside a laundromat, with a bus stop just ahead."
 
 **How it is made:**
-- A vision-capable model on the server, called only when a description is requested, where a few seconds' wait is acceptable.
+- A vision-capable model on the server, called only when a description is due (at "can't tell", on request, or by the setting), where a few seconds' wait is acceptable.
   The live part of a run still never waits on the network (ADR 0005); with no signal, the app gives the plain "can't tell".
 - The phone sends several of the sharpest frames from across the Scans, dropping blurry ones, with the Readings and the Destination brief.
 - The model says what it cannot make out ("too dark to read the signs") rather than filling gaps.
@@ -404,7 +403,7 @@ Each issue lists the issues that block it.
 - #124 Write the sidewalk safety rules and get them approved (3.6).
 - #125 Bounded walk behind a setting that is off by default (3.4).
 - #126 Door detection experiment (6.2).
-- #138 Scene description: describe what is around the user on request (3.7).
+- #138 Scene description: describe what is around the user (3.7).
 - #139 Privacy design for camera frames, in Trials and Scene descriptions (3.7, 4.1).
 
 **Separate from Live Feedback Preview, for the current app:** fix the issue #67 bypass so a precise turn is never given when GPS accuracy is at least the distance, and log the computed bearing uncertainty, the threshold and whether the bypass fired.
