@@ -1,5 +1,6 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Text, Pressable } from 'react-native';
+import * as Sentry from '@sentry/react-native';
 
 interface Props {
   children: React.ReactNode;
@@ -23,6 +24,7 @@ export default class AppErrorBoundary extends React.Component<Props, State> {
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('AppErrorBoundary caught:', error, info.componentStack);
+    Sentry.captureException(error, { extra: { componentStack: info.componentStack } });
   }
 
   render() {
