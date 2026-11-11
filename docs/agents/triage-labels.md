@@ -23,6 +23,6 @@ Edit the right-hand column to match whatever vocabulary you actually use.
 A scope label marks which part of the product an issue belongs to, so the team can filter by it.
 An issue carries its scope label alongside its triage label.
 
-| Label                   | Apply to                                                                                             |
-| ----------------------- | ---------------------------------------------------------------------------------------------------- |
-| `live-feedback-preview` | Every issue for Live Feedback Preview, the testing-ground Last Meters app in `live-feedback-preview/` |
+| Label                   | Apply to                                                                  |
+| ----------------------- | ------------------------------------------------------------------------- |
+| `live-feedback-preview` | Every issue for Live Feedback Preview, the testing-ground Last Meters app |

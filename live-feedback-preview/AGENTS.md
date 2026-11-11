@@ -1,7 +1,8 @@
 # Live Feedback Preview agent instructions
 
 Live Feedback Preview is a testing-ground app for Last Meters, built beside the current app (`mobile/` and `mobile/server`) without changing it.
-It finds the destination's door from live camera feedback: an iOS Expo app in `app/` and a Bun server in `server/`.
+It gives Last Meters guidance from live camera feedback instead of a single photo.
+It is an iOS Expo app in `app/` with a Bun server in `server/`.
 
 ## Boundaries
 
