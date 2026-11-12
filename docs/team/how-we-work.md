@@ -2,16 +2,7 @@
 
 ## Vocabulary
 
-From [`CONTEXT.md`](../../CONTEXT.md):
-
-| Say | Do not say |
-| --- | --- |
-| Question | assistant, chat, text request |
-| Verified destination | destination lookup result, place match |
-| Last Meters | last mile |
-| Trial | test log record, last mile test |
-| Field test (a Trial run on a real street, not a retry) | street test, live test |
-
+Use the terms defined in [`CONTEXT.md`](../../CONTEXT.md), not the words listed under each one's _Avoid_.
 Issue titles, PR titles, comments, and test names use those words.
 
 ## Issue, then branch, then PR
@@ -23,9 +14,7 @@ Issue titles, PR titles, comments, and test names use those words.
 
 Issues live in this repo. Use `gh issue create`, `gh issue view`, `gh pr create`.
 External PRs are not a triage surface (`docs/agents/issue-tracker.md`).
-
-Labels the skills expect: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
-Only `wontfix` existed when this was written; create the others on first use rather than substituting `question`.
+Labels are listed in [`docs/agents/triage-labels.md`](../agents/triage-labels.md).
 
 ## Commits
 
