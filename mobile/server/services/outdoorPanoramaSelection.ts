@@ -11,7 +11,15 @@ export interface PanoramaAttempt {
 }
 export type SceneClassifier = (images: string[], timeoutMs: number) => Promise<SceneVerdict>;
 export type PanoramaAudit = (attempt: PanoramaAttempt) => void;
-export interface PanoramaSearchBudget { seen: Set<string>; deadline: number }
+export interface PanoramaSearchBudget {
+  seen: Set<string>; deadline: number;
+  /** Count started requests, including failures, without logging URLs or keys. */
+  apiRequests?: number;
+  enforceDeadline?: boolean;
+}
+export function countPanoramaRequest(budget?: PanoramaSearchBudget): void {
+  if (budget) budget.apiRequests = (budget.apiRequests ?? 0) + 1;
+}
 export interface SelectedPanorama extends OutdoorPanoramaMetadata { date?: string }
 
 /** A search looks at no more than this many distinct panoramas. */
@@ -61,6 +69,7 @@ export async function selectOutdoorPanorama(
     if (panoramaSearchSpent(search)) break;
     let panoId: string | undefined;
     try {
+      countPanoramaRequest(search);
       const { data: metadata } = await axios.get<SelectedPanorama>(
         "https://maps.googleapis.com/maps/api/streetview/metadata",
         { params: { location: `${probeLat},${probeLng}`, radius: 40, source: "outdoor", key: apiKey }, timeout: remaining() },
@@ -79,6 +88,7 @@ export async function selectOutdoorPanorama(
       }
       // Four 90-degree views cover the full horizon, unlike narrow matching tiles.
       const images = await Promise.all([0, 90, 180, 270].map(async heading => {
+        countPanoramaRequest(search);
         const response = await axios.get("https://maps.googleapis.com/maps/api/streetview", {
           params: { size: "640x640", pano: panoId, heading, fov: 90, pitch: 0, source: "outdoor", return_error_code: true, key: apiKey },
           responseType: "arraybuffer", timeout: remaining(),
@@ -89,6 +99,7 @@ export async function selectOutdoorPanorama(
         return `data:image/jpeg;base64,${bytes.toString("base64")}`;
       }));
       if (Date.now() >= deadline) break;
+      countPanoramaRequest(search);
       const verdict = await classify(images, remaining());
       if (Date.now() >= deadline) break;
       const accepted = verdict === "outdoor";

@@ -40,6 +40,8 @@ type Vision = "scene" | "currentView" | "destination" | "reference" | "signText"
 
 /** The app request and what Google and OpenAI answer during one run. */
 interface World {
+  /** Opt-in response for the experimental doorway assessment; legacy snapshots omit it. */
+  entranceAssessment?: string;
   request: LastMetersRequestInput;
   /** Nearby Search results; the first is the destination. */
   places: object[];
@@ -138,6 +140,9 @@ async function runExit(t: TestContext, policy: Policy, world: World, checkTiming
     return assert.fail(`Unexpected Google request: ${url}`);
   });
   t.mock.method(OpenAI.Chat.Completions.prototype, "create", async (request: any) => {
+    if (request.messages[0].content.startsWith("Assess the entrance")) {
+      return { choices: [{ message: { content: world.entranceAssessment ?? "{}" } }] };
+    }
     const vision = visionFor(request.messages[0].content);
     if (vision === "landmarks") world.duringGuidance?.(t);
     const answer = world.vision[vision];
@@ -368,3 +373,33 @@ test("pre-check errors after classification still save a failed Trial with compl
   assert.equal(result.answer.status, 502);
   assert.ok(recorded);
 });
+
+for (const policy of ["mobile", "strict"] as const) {
+  test(`${policy} runLastMeters opt-in verifies the actual door before composing guidance`, async t => {
+    setTestEnv(t, { LAST_METERS_OCCLUSION_AWARE: "true" });
+    const world = verifiedTurnWorld();
+    world.entranceAssessment = JSON.stringify({ storefrontMatches: true, panoramaEntrance: "VISIBLE", photoEntrance: "VISIBLE",
+      sameEntrance: true, appearanceChanged: false, entranceHeading: 0, obstruction: "none" });
+    let guidanceCalls = 0;
+    world.duringGuidance = () => { guidanceCalls++; };
+    const run = await runExit(t, policy, world) as any;
+    assert.equal(guidanceCalls, 1);
+    assert.equal(run.answer.body.warning, undefined);
+    const evidence = run.trials[0].steps.find((s: any) => s.name === "entrance_assessment");
+    assert.equal(JSON.parse(evidence.response).entranceVerified, true);
+  });
+
+  test(`${policy} runLastMeters cannot compose a turn from an obstructed storefront`, async t => {
+    setTestEnv(t, { LAST_METERS_OCCLUSION_AWARE: "true" });
+    const world = verifiedTurnWorld();
+    world.entranceAssessment = JSON.stringify({ storefrontMatches: true, panoramaEntrance: "OCCLUDED", photoEntrance: "VISIBLE",
+      sameEntrance: false, appearanceChanged: false, entranceHeading: null, obstruction: "scaffolding" });
+    world.duringGuidance = () => assert.fail("Unverified entrances must never reach guidance");
+    const run = await runExit(t, policy, world) as any;
+    assert.equal(run.answer.body.warning, "turn_withheld");
+    assert.equal(run.answer.body.targetHeading, null);
+    assert.deepEqual(run.answer.body.safetyReasons, ["entrance_not_visually_confirmed"]);
+    const evidence = JSON.parse(run.trials[0].steps.find((s: any) => s.name === "entrance_assessment").response);
+    assert.equal(evidence.historicalStatus, "provider_unavailable");
+  });
+}
