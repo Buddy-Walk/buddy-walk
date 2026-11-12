@@ -9,7 +9,8 @@ From [`CONTEXT.md`](../../CONTEXT.md):
 | Question | assistant, chat, text request |
 | Verified destination | destination lookup result, place match |
 | Last Meters | last mile |
-| Trial | test log record, field test, last mile test |
+| Trial | test log record, last mile test |
+| Field test (a Trial run on a real street, not a retry) | street test, live test |
 
 Issue titles, PR titles, comments, and test names use those words.
 
