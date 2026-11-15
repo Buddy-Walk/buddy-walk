@@ -43,11 +43,15 @@ Google ML Kit has no Apple Silicon simulator build, so `bun run ios` can fail on
 - `src/experiment/` is the first experiment's screen (#106): live Readings, experiment sessions, Marks and export.
   It goes away after the experiment.
 
-`patches/` holds a patch to `react-native-vision-camera-ocr-plus`, applied by `bun install`.
-As released, ocr-plus returns the result of an earlier frame for each frame it is given.
-The patch makes it read each frame before returning, so every Reading has its own frame's timestamp and recognition time.
-VisionCamera drops the frames that arrive while a frame is being read.
-ocr-plus is pinned to the exact version the patch is for.
+`patches/` holds two patches, applied by `bun install`:
+
+- `react-native-vision-camera-ocr-plus`: as released, ocr-plus returns the result of an earlier frame for each frame it is given.
+  The patch makes it read each frame before returning, so every Reading has its own frame's timestamp and recognition time.
+  VisionCamera drops the frames that arrive while a frame is being read.
+- `react-native-vision-camera`: as released, turning a frame into an image rotates it the wrong way, so a phone held upright saves Mark frames upside down.
+  The patch rotates them the right way.
+
+Both packages are pinned to the exact versions the patches are for.
 
 ## The experiment screen
 
