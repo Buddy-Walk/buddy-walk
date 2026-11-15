@@ -14,6 +14,7 @@ import { strictLastMetersGuidancePolicy } from "../../server/utils/lastMetersGui
 import type { VerifiedNearbyDestination } from "../../server/services/verifiedDestination";
 import type { LastMetersRequestInput } from "../../server/utils/lastMetersReplay";
 import { setTestEnv } from "./testEnv";
+import type { EntranceAssessment, OcclusionOptions } from "../../server/services/lastMetersEntranceAssessment";
 
 const NOW = Date.parse("2026-10-27T12:00:00Z");
 const USER = { lat: 40.7, lng: -74 };
@@ -57,6 +58,8 @@ const photoJpeg = (() => {
 
 /** What Google and OpenAI answer while panoramas are matched, panorama by panorama. */
 interface World {
+  occlusion?: OcclusionOptions;
+  entranceAnswers?: string[];
   /** Capture dates of the panoramas at the user's position; the first is already downloaded. */
   panoramaDates: (string | undefined)[];
   /** One answer per panorama; the last repeats. */
@@ -109,7 +112,13 @@ async function match(t: TestContext, given: World) {
     return assert.fail(`Unexpected Google request: ${url}`);
   });
   const prompts: Vision[] = [];
+  let entranceCalls = 0;
   t.mock.method(OpenAI.Chat.Completions.prototype, "create", async (request: any) => {
+    if (request.messages[0].content.startsWith("Assess the entrance")) {
+      const answers = given.entranceAnswers ?? [];
+      const content = answers[Math.min(entranceCalls++, answers.length - 1)] ?? "{}";
+      return { choices: [{ message: { content } }] };
+    }
     const vision = visionFor(request.messages[0].content);
     prompts.push(vision);
     const panoramaIndex = prompts.filter(prompt => prompt === vision).length - 1;
@@ -139,6 +148,7 @@ async function match(t: TestContext, given: World) {
   first.catch(() => undefined);
   const entrance = given.entrance ?? { location: NEAR, distanceMeters: 50 };
   const input: PanoramaMatchingInput = {
+    occlusion: given.occlusion,
     request,
     image: "data:image/jpeg;base64,AAAA",
     destinationQuery: "McDonald's",
@@ -147,7 +157,7 @@ async function match(t: TestContext, given: World) {
     closedNotice: "",
     search: {
       first,
-      budget: { seen: new Set(given.seen ?? ["pano-1"]), deadline: NOW + 45_000 },
+      budget: { seen: new Set(given.seen ?? ["pano-1"]), deadline: NOW + 45_000, enforceDeadline: !!given.occlusion },
       classify: async () => "outdoor",
       audit: attempt => { audits.push(attempt); },
       pinned: given.pinned ?? false,
@@ -162,7 +172,7 @@ async function match(t: TestContext, given: World) {
     if (result.kind === "ok") await trial.answer({}, { success: true });
     return rows[0];
   };
-  return { result, prompts, audits, saved };
+  return { result, prompts, audits, saved, entranceCalls };
 }
 
 const stepsOf = (row: Record<string, any>) => row.steps.map((step: any) => [step.name, step.panoId, step.response, step.success]);
@@ -562,4 +572,54 @@ test("matching keeps the distant unmatched view when the next panorama also miss
   assert.equal(result.value.panorama.metadata.pano_id, "pano-1");
   const row = await saved();
   assert.equal(row.panoId, "pano-1");
+});
+
+const entranceReply = (changes: Partial<EntranceAssessment> = {}) => JSON.stringify({
+  storefrontMatches: true, panoramaEntrance: "VISIBLE", photoEntrance: "VISIBLE", sameEntrance: true,
+  appearanceChanged: false, entranceHeading: 0, obstruction: "none", ...changes,
+});
+const blockedEntrance = entranceReply({ panoramaEntrance: "OCCLUDED", sameEntrance: false, obstruction: "scaffolding" });
+const entranceReport = (row: Record<string, any>) => JSON.parse(row.steps.find((s: any) => s.name === "entrance_assessment").response);
+
+test("experimental entrance visible at the first camera uses no fallback", async t => {
+  const { result, saved, prompts, audits, entranceCalls } = await match(t, world({
+    occlusion: {}, panoramaDates: ["2025-01", "2025-02"], entranceAnswers: [entranceReply()],
+  }));
+  assert.equal(result.kind, "ok");
+  assert.equal(result.kind === "ok" && result.value.entranceVerified, true);
+  assert.equal(entranceCalls, 1); assert.deepEqual(prompts.sort(), ["currentView", "destination"]);
+  assert.equal(audits.length, 0); assert.equal(entranceReport(await saved()).additionalApiRequests, 1);
+});
+
+test("a store sign without a visible door cannot authorize an experimental entrance turn", async t => {
+  const { result, saved } = await match(t, world({ occlusion: {}, pinned: true,
+    entranceAnswers: [entranceReply({ panoramaEntrance: "UNCERTAIN", sameEntrance: false })] }));
+  assert.equal(result.kind, "exit");
+  assert.equal(entranceReport(await saved()).entranceVerified, false);
+});
+
+test("the experimental branch still exits on a missing compass before entrance assessment", async t => {
+  const { result, entranceCalls, saved } = await match(t, world({ occlusion: {}, deviceHeading: undefined, entranceAnswers: [entranceReply()] }));
+  assert.equal(result.kind, "exit");
+  assert.equal(entranceCalls, 0);
+  const row = await saved();
+  assert.equal(result.kind === "exit" && result.result.kind === "response" && result.result.body.warning, "compass_heading_unavailable");
+  assert.equal(entranceReport(row).entranceVerified, false);
+});
+
+test("experimental matching exhaustion returns a withheld result without starting historical work", async t => {
+  const { result, saved } = await match(t, world({ occlusion: {}, entranceAnswers: [blockedEntrance],
+    beforeVisionResponse: async () => { t.mock.timers.setTime(NOW + 45_000); } }));
+  assert.equal(result.kind, "exit");
+  const report = entranceReport(await saved());
+  assert.equal(report.historicalObservations.length, 0);
+  assert.equal(report.entranceVerified, false);
+});
+
+test("experimental matching errors are recorded without leaking provider credentials", async t => {
+  const { result, saved } = await match(t, world({ occlusion: {}, beforeVisionResponse: async () => { throw new Error("private-api-key"); } }));
+  assert.equal(result.kind, "exit");
+  const row = await saved();
+  assert.equal(JSON.stringify(row).includes("private-api-key"), false);
+  assert.equal(entranceReport(row).failureReason, "panorama_matching_failed_or_timed_out");
 });

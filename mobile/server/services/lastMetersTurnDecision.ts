@@ -69,6 +69,11 @@ export async function decideTurn(trial: LastMetersTrial, input: TurnDecisionInpu
     entranceListed: entrance.source === "geocoding_entrance",
     visualTargetMatched: visualMatch || signTextMatched || destinationReferenceUsed,
     walking: walkingEvidence, sensorReasons: input.sensorReasons() });
+  // A sign or historical door cannot satisfy the experimental current-door check,
+  // even if a caller's policy relaxes other turn prerequisites.
+  if (headings.entranceVerified === false && !reasons.includes("entrance_not_visually_confirmed")) {
+    reasons.push("entrance_not_visually_confirmed");
+  }
   if (reasons.length) return { kind: "withhold", reasons };
   // Visual bearings remain camera-origin evidence. Guidance uses phone-origin geometry.
   const turnHeading = input.guidanceHeading ?? headings.currentHeading;

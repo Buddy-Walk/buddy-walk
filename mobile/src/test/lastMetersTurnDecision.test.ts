@@ -137,3 +137,22 @@ test("decideTurn judges the sensors after the walking route lookup and withholds
   assert.equal(routeLookupsBeforeSensors, 1);
   assert.deepEqual(decision, { kind: "withhold", reasons: ["turned_since_capture"] });
 });
+
+test("an unverified experimental door blocks a turn even if sign confidence and the policy allow it", async t => {
+  const { decision } = await decide(t, {
+    headings: { ...HEADINGS, entranceVerified: false, signTextMatched: true },
+    turnReasons: () => [],
+  });
+  assert.deepEqual(decision, { kind: "withhold", reasons: ["entrance_not_visually_confirmed"] });
+});
+
+test("a verified experimental entrance still obeys GPS, orientation and movement gates", async t => {
+  const { decision } = await decide(t, {
+    headings: { ...HEADINGS, entranceVerified: true },
+    sensorReasons: () => ["gps_uncertain", "moved_since_capture", "turned_since_capture"],
+  });
+  assert.equal(decision.kind, "withhold");
+  if (decision.kind === "withhold") {
+    for (const reason of ["gps_uncertain", "moved_since_capture", "turned_since_capture"]) assert.ok(decision.reasons.includes(reason));
+  }
+});
