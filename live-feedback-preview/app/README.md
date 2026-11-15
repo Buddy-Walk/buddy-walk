@@ -68,7 +68,7 @@ Nothing is read until you tap **Start**.
 3. Tap **Mark** at a target.
    The app saves the frame at the tap with its Readings, then asks for the target kind, side of the street, whether you can read it yourself, its style, and the distance in feet.
    **Cancel** throws the frame away.
-   The camera keeps running behind the form, but nothing is logged until you save or cancel it, because you are standing at the target and would only log the same Readings again.
+   Nothing is read or logged while the form is open, so no boxes move behind it, and reading starts again when you save or cancel it.
 4. Tap **Stop** to end the session.
 
 The session is saved on the phone every 2 seconds while it runs, so closing or killing the app loses at most the last 2 seconds.

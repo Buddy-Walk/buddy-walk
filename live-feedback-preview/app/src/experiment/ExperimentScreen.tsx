@@ -50,8 +50,7 @@ export function ExperimentScreen() {
 
   // Logging pauses while the camera is stopped in the background, which keeps that time out of the
   // frame rate and saves what is buffered in case iOS ends the app. It also pauses while a Mark's
-  // form is open: the camera keeps running, but the tester is standing at the target and would only
-  // log the same Readings again.
+  // form is open, which keeps the time spent filling it in out of the frame rate.
   const logging = appActive && openMark === null;
   const loggingRef = useRef(logging);
   loggingRef.current = logging;
@@ -70,6 +69,13 @@ export function ExperimentScreen() {
       deactivateKeepAwake(KEEP_AWAKE_TAG);
     };
   }, [recording]);
+
+  // Text is read only while recording, so nothing is read while the tester gets ready, and not while
+  // a Mark's form is open, where boxes moving behind the form are a distraction.
+  const readingText = recording && openMark === null;
+  useEffect(() => {
+    if (!readingText) setCurrentReadings([]);
+  }, [readingText]);
 
   function onFrameReadings(frame: FrameReadings) {
     setCurrentReadings(frame.readings);
@@ -90,7 +96,6 @@ export function ExperimentScreen() {
   function stopSession() {
     recorder?.stop();
     setRecorder(null);
-    setCurrentReadings([]);
   }
 
   async function mark() {
@@ -127,8 +132,7 @@ export function ExperimentScreen() {
         ref={camera}
         style={styles.camera}
         isActive={appActive && !showingSessions}
-        // Text is read only while recording, so nothing is read while the tester gets ready.
-        isReading={recording}
+        isReading={readingText}
         onFrameReadings={onFrameReadings}
       >
         {currentReadings.map((reading, index) => (
