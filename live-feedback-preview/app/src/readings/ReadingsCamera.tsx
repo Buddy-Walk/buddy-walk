@@ -68,6 +68,7 @@ export function ReadingsCamera({ isActive, onFrameReadings, children, style, ref
   }, []);
 
   const snapshotRequested = useMemo(() => createSynchronizable(false), []);
+  const frameFailed = useMemo(() => createSynchronizable(false), []);
   const pendingSnapshot = useRef<{ resolve: (snapshot: Snapshot) => void; promise: Promise<Snapshot> } | null>(null);
   const deliverSnapshot = useCallback((image: Image, frame: FrameReadings) => {
     pendingSnapshot.current?.resolve({ image, frame });
@@ -123,13 +124,18 @@ export function ReadingsCamera({ isActive, onFrameReadings, children, style, ref
           scheduleOnRN(deliverSnapshot, HybridFrameConverter.convertFrameToImage(frame), frameReadings);
         }
         scheduleOnRN(deliver, frameReadings);
-      } catch {
-        // ML Kit failed on this frame. The frame is skipped, as if it had been dropped.
+      } catch (error) {
+        // The frame is skipped, as if it had been dropped. Only the first failure is reported:
+        // a bug in this code fails every frame, which would otherwise be reported 30 times a second.
+        if (!frameFailed.getDirty()) {
+          frameFailed.setBlocking(true);
+          scheduleOnRN(reportFrameFailure, error instanceof Error ? (error.stack ?? error.message) : String(error));
+        }
       } finally {
         frame.dispose();
       }
     },
-    [recognizer, snapshotRequested, deliver, deliverSnapshot],
+    [recognizer, snapshotRequested, frameFailed, deliver, deliverSnapshot],
   );
 
   const frameOutput = useFrameOutput({
@@ -183,6 +189,10 @@ export function ReadingsCamera({ isActive, onFrameReadings, children, style, ref
 }
 
 function ignoreDroppedFrame() {}
+
+function reportFrameFailure(error: string) {
+  console.warn(`Reading a camera frame failed, so it was skipped. Later failures are not reported.\n${error}`);
+}
 
 /** The largest size with the frame's aspect ratio that fits in the container. */
 function containedSize(frame: Size, container: Size): Size {
