@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -6,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { FrameReadings, Reading } from '../readings/Reading';
 import { ReadingsCamera, type ReadingsCameraRef } from '../readings/ReadingsCamera';
 import { fileSystemSessionsRoot } from './fileSystemSessionsRoot';
+import { withLaptopCopy } from './laptopCopy';
 import type { MarkFields } from './markForm';
 import { MarkFormSheet } from './MarkFormSheet';
 import { PastSessions } from './PastSessions';
@@ -26,7 +28,7 @@ type OpenMark = Omit<Mark, keyof MarkFields>;
  * It is for a sighted tester and goes away after the experiment.
  */
 export function ExperimentScreen() {
-  const store = useMemo(() => createSessionStore(fileSystemSessionsRoot()), []);
+  const store = useMemo(() => createSessionStore(sessionsRoot()), []);
   const camera = useRef<ReadingsCameraRef>(null);
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   const [recorder, setRecorder] = useState<SessionRecorder | null>(null);
@@ -194,6 +196,16 @@ export function ExperimentScreen() {
       {showingSessions && <PastSessions store={store} onClose={() => setShowingSessions(false)} />}
     </SafeAreaView>
   );
+}
+
+/**
+ * The sessions on the phone. A Debug build loaded from Metro also copies them to the laptop
+ * running Metro; a Release build has no Metro, so it keeps them only on the phone.
+ */
+function sessionsRoot() {
+  const phone = fileSystemSessionsRoot();
+  const devServer = __DEV__ ? Constants.expoConfig?.hostUri : undefined;
+  return devServer ? withLaptopCopy(phone, `http://${devServer}`) : phone;
 }
 
 const styles = StyleSheet.create({

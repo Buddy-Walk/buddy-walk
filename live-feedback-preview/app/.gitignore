@@ -40,3 +40,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# experiment sessions copied from the phone; frames can show people (#139)
+/experiment-sessions/

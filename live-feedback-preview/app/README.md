@@ -81,6 +81,18 @@ The zip holds a folder named after the session, with `session.json` and one JPEG
 
 Frames from public streets can show people, so exported sessions stay out of git (#139).
 
+### Sessions on the laptop
+
+A Debug build running against Metro also copies each session to the laptop as it records, into `experiment-sessions/<session>/` in this directory.
+The copy has the same `log.jsonl` and Mark frames as the phone and is at most a couple of seconds behind it, so there is nothing to export.
+`experiment-sessions/` is ignored by git, for the same reason as exports.
+
+- The phone's files are the real ones: recording carries on when the laptop is out of reach, and the next thing the phone sends brings the copy up to date.
+- Deleting a session on the phone keeps the laptop's copy.
+- A Release build, or a session recorded away from the laptop, is not copied, so export it instead.
+
+Metro receives the sessions through `metro.config.js`, so restart Metro after changing that file or `devServer/`.
+
 ### Session files
 
 On the phone, each session is a folder in the app's documents, named after its start time, such as `2026-11-15T14-00-00Z`.
