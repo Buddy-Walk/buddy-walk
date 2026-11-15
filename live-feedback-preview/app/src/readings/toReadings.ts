@@ -8,11 +8,11 @@ export type RecognizedText = {
   blocks: { lines: { lineText: string; lineFrame: LineFrame }[] }[];
 };
 
-/** The parts of a VisionCamera frame that Readings need. */
+/** The parts of a frame that Readings need. */
 export type FrameInfo = Size & {
   /** How the buffer is rotated relative to upright. */
   orientation: 'up' | 'right' | 'down' | 'left';
-  /** In seconds, on the camera's clock. */
+  /** Unix time in milliseconds, as in `Reading.frameTimestamp`. */
   timestamp: number;
 };
 
@@ -62,7 +62,7 @@ export function toReadings(recognized: RecognizedText, frame: FrameInfo, recogni
       readings.push({
         text,
         box: toBox(line.lineFrame, size),
-        frameTimestamp: frame.timestamp * 1000,
+        frameTimestamp: frame.timestamp,
         recognitionMs,
       });
     }

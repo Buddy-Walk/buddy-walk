@@ -124,21 +124,21 @@ The export turns the log into `session.json`.
     {
       "text": "34",
       "box": { "x": 0.4, "y": 0.475, "width": 0.2, "height": 0.05 },
-      "frameTimestamp": 81234567.8,
+      "frameTimestamp": 1794751205123,
       "recognitionMs": 42,
       "heading": { "trueDegrees": 92.5, "magneticDegrees": 80.1, "accuracy": 3 }
     }
   ],
   "marks": [
     {
-      "markedAt": "2026-11-15T14:03:12.000Z",
+      "markedAt": "2026-11-15T14:03:12.034Z",
       "frameFile": "mark-001.jpg",
       "heading": { "trueDegrees": 92.5, "magneticDegrees": 80.1, "accuracy": 3 },
       "readings": [
         {
           "text": "34",
           "box": { "x": 0.4, "y": 0.475, "width": 0.2, "height": 0.05 },
-          "frameTimestamp": 81234890.1,
+          "frameTimestamp": 1794751392034,
           "recognitionMs": 40
         }
       ],
@@ -158,15 +158,17 @@ The export turns the log into `session.json`.
   `framesProcessed` leaves out the same frames.
 - A Reading is one line of text ML Kit recognised.
 - `box` is where the Reading sits in the upright frame, as fractions (0 to 1) of the frame's width and height from its top-left corner.
-- `frameTimestamp` is when the camera captured the frame, in milliseconds on the camera's own clock.
-  It is not wall-clock time: use it to compare frames within a session.
+- `frameTimestamp` is when the frame reached the text reader, shortly after the camera captured it, as Unix time in milliseconds.
+  It is on the same clock as `startedAt`, `endedAt` and `markedAt`, so Readings line up with the session and its Marks.
+  The camera's own timestamps are not used, because they are on a clock the app can't read.
 - `recognitionMs` is how long the frame took to read: turning the camera buffer into an upright image, then ML Kit recognising the text.
 - `heading` is the phone's latest compass heading when the frame's Readings were logged, a few milliseconds after the frame was read.
   It is `null` before the first compass reading or without location permission.
   `trueDegrees` is `null` when iOS can't give true north, and `accuracy` runs from 0 (over 50° uncertainty) to 3 (under 20°).
 - `targetKind` is `street-number` or `sign`, `side` is `same-sidewalk` or `across-street`, and `signStyle` is `plain`, `stylised` or `angled`.
 - `visibleToTester` is whether the tester could read the target themselves.
-- A Mark's `readings` are the Readings of its frame, `frameFile`.
+- A Mark's frame, `frameFile`, is the first frame read after the tap, a frame or two after it.
+  Its `readings` are that frame's Readings, and `markedAt` and `heading` are that frame's too, so `markedAt` matches its Readings' `frameTimestamp`.
 
 ## Running on your own iPhone
 

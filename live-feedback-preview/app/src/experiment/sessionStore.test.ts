@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { strFromU8, unzipSync } from 'fflate';
 
-import type { Reading } from '../readings/Reading';
+import type { FrameReadings, Reading } from '../readings/Reading';
 import { createSessionStore } from './sessionStore';
 import { diskSessionsRoot } from './testing/diskSessionsRoot';
 
@@ -16,7 +16,10 @@ function reading(text: string, frameTimestamp: number): Reading {
   return { text, box: { x: 0.1, y: 0.2, width: 0.3, height: 0.05 }, frameTimestamp, recognitionMs: 40 };
 }
 
-const frameSize = { width: 720, height: 1280 };
+/** A processed frame holding these Readings, at their `frameTimestamp`. */
+function frame(...readings: Reading[]): FrameReadings {
+  return { readings, frameTimestamp: readings[0]?.frameTimestamp ?? 0, frameSize: { width: 720, height: 1280 } };
+}
 
 /** A clock the test moves by hand. */
 function manualClock(start: string) {
@@ -36,13 +39,13 @@ describe('session store', () => {
 
     const recorder = store.start(info);
     clock.advance(500);
-    recorder.addFrame({ readings: [reading('34', 1000)], frameSize }, heading);
+    recorder.addFrame(frame(reading('34', 1000)), heading);
     clock.advance(500);
-    recorder.addFrame({ readings: [], frameSize }, heading);
+    recorder.addFrame(frame(), heading);
     clock.advance(500);
-    recorder.addFrame({ readings: [reading('OPEN', 2000), reading('34', 2000)], frameSize }, null);
+    recorder.addFrame(frame(reading('OPEN', 2000), reading('34', 2000)), null);
     clock.advance(500);
-    recorder.addFrame({ readings: [], frameSize }, heading);
+    recorder.addFrame(frame(), heading);
     recorder.stop();
 
     expect(store.load(recorder.id)).toEqual({
@@ -69,12 +72,12 @@ describe('session store', () => {
 
     const recorder = store.start(info);
     clock.advance(1000);
-    recorder.addFrame({ readings: [], frameSize }, heading);
+    recorder.addFrame(frame(), heading);
     recorder.pause();
     clock.advance(60_000);
     recorder.resume();
     clock.advance(1000);
-    recorder.addFrame({ readings: [], frameSize }, heading);
+    recorder.addFrame(frame(), heading);
     recorder.stop();
 
     expect(store.load(recorder.id).framesPerSecond).toBe(1);
@@ -86,14 +89,14 @@ describe('session store', () => {
 
     const recorder = store.start(info);
     clock.advance(1000);
-    recorder.addFrame({ readings: [reading('34', 1000)], frameSize }, heading);
+    recorder.addFrame(frame(reading('34', 1000)), heading);
     recorder.pause();
     clock.advance(10_000);
-    recorder.addFrame({ readings: [reading('34', 2000)], frameSize }, heading);
-    recorder.addFrame({ readings: [], frameSize }, heading);
+    recorder.addFrame(frame(reading('34', 2000)), heading);
+    recorder.addFrame(frame(), heading);
     recorder.resume();
     clock.advance(1000);
-    recorder.addFrame({ readings: [reading('36', 3000)], frameSize }, heading);
+    recorder.addFrame(frame(reading('36', 3000)), heading);
     recorder.stop();
 
     const session = store.load(recorder.id);
@@ -119,11 +122,11 @@ describe('session store', () => {
 
     const recorder = store.start(info);
     clock.advance(1000);
-    recorder.addFrame({ readings: [reading('12', 1000)], frameSize }, heading);
+    recorder.addFrame(frame(reading('12', 1000)), heading);
     clock.advance(1000);
-    recorder.addFrame({ readings: [reading('14', 2000)], frameSize }, heading);
+    recorder.addFrame(frame(reading('14', 2000)), heading);
     clock.advance(1000);
-    recorder.addFrame({ readings: [reading('16', 3000)], frameSize }, heading);
+    recorder.addFrame(frame(reading('16', 3000)), heading);
     // The app is killed partway through writing a line, and before the next save.
     root.folder(recorder.id).appendText('log.jsonl', '{"kind":"frame","heading":{"trueDeg');
 
@@ -189,7 +192,7 @@ describe('session store', () => {
 
     const first = store.start(info);
     clock.advance(3000);
-    first.addFrame({ readings: [reading('34', 1000), reading('OPEN', 1000)], frameSize }, heading);
+    first.addFrame(frame(reading('34', 1000), reading('OPEN', 1000)), heading);
     first.stop();
     clock.advance(60_000);
     const second = store.start(info);
@@ -234,7 +237,7 @@ describe('session store', () => {
     const clock = manualClock('2026-11-15T14:00:00.000Z');
     const store = createSessionStore(diskSessionsRoot(), clock);
     const recorder = store.start(info);
-    recorder.addFrame({ readings: [reading('34', 1000)], frameSize }, heading);
+    recorder.addFrame(frame(reading('34', 1000)), heading);
     const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
     const frameFile = recorder.saveMarkFrame(jpeg);
     recorder.addMark({
@@ -264,11 +267,11 @@ describe('session store', () => {
     const clock = manualClock('2026-11-15T14:00:00.000Z');
     const store = createSessionStore(diskSessionsRoot(), clock);
     const first = store.start(info);
-    first.addFrame({ readings: [reading('34', 1000)], frameSize }, heading);
+    first.addFrame(frame(reading('34', 1000)), heading);
     first.stop();
     clock.advance(60_000);
     const second = store.start(info);
-    second.addFrame({ readings: [reading('36', 2000)], frameSize }, heading);
+    second.addFrame(frame(reading('36', 2000)), heading);
     second.stop();
 
     const files = unzipSync(store.exportArchive([first.id, second.id]));

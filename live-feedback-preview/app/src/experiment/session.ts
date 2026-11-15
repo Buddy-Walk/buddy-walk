@@ -37,9 +37,9 @@ export type Heading = {
 
 export type LoggedReading = Reading & { heading: Heading | null };
 
-/** A target the tester marked: the frame at the tap, its Readings, and what the tester filled in. */
+/** A target the tester marked: the first frame read after the tap, its Readings, and what the tester filled in. */
 export type Mark = MarkFields & {
-  /** ISO 8601 time of the tap. */
+  /** ISO 8601 time of the frame, the same moment as its Readings' `frameTimestamp`. */
   markedAt: string;
   /** The frame's JPEG, next to `session.json`. */
   frameFile: string;

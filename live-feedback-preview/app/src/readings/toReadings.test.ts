@@ -25,13 +25,18 @@ describe.each([
   test('gives one Reading per line, with its box as fractions of the upright frame', () => {
     const readings = toReadings(
       recognized(line('34', 360, 640, 144, 64), line("Joe's Pizza", 360, 320, 360, 128)),
-      { width: 1280, height: 720, orientation: 'right', timestamp: 12.5 },
+      { width: 1280, height: 720, orientation: 'right', timestamp: 1794751200500 },
       42,
     );
 
     expect(readings).toEqual([
-      { text: '34', box: { x: 0.4, y: 0.475, width: 0.2, height: 0.05 }, frameTimestamp: 12500, recognitionMs: 42 },
-      { text: "Joe's Pizza", box: { x: 0.25, y: 0.2, width: 0.5, height: 0.1 }, frameTimestamp: 12500, recognitionMs: 42 },
+      { text: '34', box: { x: 0.4, y: 0.475, width: 0.2, height: 0.05 }, frameTimestamp: 1794751200500, recognitionMs: 42 },
+      {
+        text: "Joe's Pizza",
+        box: { x: 0.25, y: 0.2, width: 0.5, height: 0.1 },
+        frameTimestamp: 1794751200500,
+        recognitionMs: 42,
+      },
     ]);
   });
 

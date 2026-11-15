@@ -19,7 +19,7 @@ import { toReadings, uprightSize } from './toReadings';
 export type Snapshot = { image: Image; frame: FrameReadings };
 
 export type ReadingsCameraRef = {
-  /** Captures the next processed frame and its Readings. Only works while `isReading`. */
+  /** Captures the first frame read after the call, with its Readings. Only works while `isReading`. */
   takeSnapshot(): Promise<Snapshot>;
 };
 
@@ -116,7 +116,10 @@ export function ReadingsCamera({ isActive, isReading, onFrameReadings, children,
       'worklet';
       try {
         if (!reading.getDirty()) return;
-        const started = Date.now();
+        // The frame's own timestamp is on the camera's clock, which JS can't read, so nothing else
+        // could be lined up with it. The frame is timed when it arrives here instead.
+        // (`performance.now()` is a different clock: it keeps counting while the phone sleeps.)
+        const arrivedAt = Date.now();
         const buffer = frame.getNativeBuffer();
         let recognized;
         try {
@@ -124,13 +127,14 @@ export function ReadingsCamera({ isActive, isReading, onFrameReadings, children,
         } finally {
           buffer.release();
         }
-        const recognitionMs = Date.now() - started;
+        const recognitionMs = Date.now() - arrivedAt;
         // Undefined means ocr-plus could not read this frame at all, which is not the same as reading no text.
         if (recognized === undefined) return;
 
-        const info = { width: frame.width, height: frame.height, orientation: frame.orientation, timestamp: frame.timestamp };
+        const info = { width: frame.width, height: frame.height, orientation: frame.orientation, timestamp: arrivedAt };
         const frameReadings: FrameReadings = {
           readings: toReadings(recognized, info, recognitionMs),
+          frameTimestamp: arrivedAt,
           frameSize: uprightSize(info),
         };
         if (snapshotRequested.getDirty()) {

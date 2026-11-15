@@ -100,14 +100,16 @@ export function ExperimentScreen() {
 
   async function mark() {
     if (!recorder || !camera.current) return;
-    const markedAt = new Date().toISOString();
-    const headingAtTap = heading.current;
     setCapturing(true);
     try {
       const snapshot = await camera.current.takeSnapshot();
+      // The Mark's time and heading are its frame's, taken the same way as a logged Reading's,
+      // so the Mark lines up with the Readings around it.
+      const markedAt = new Date(snapshot.frame.frameTimestamp).toISOString();
+      const headingAtFrame = heading.current;
       const jpeg = await snapshot.image.toEncodedImageDataAsync('jpg', 90);
       const frameFile = recorder.saveMarkFrame(new Uint8Array(jpeg.buffer));
-      setOpenMark({ markedAt, frameFile, heading: headingAtTap, readings: snapshot.frame.readings });
+      setOpenMark({ markedAt, frameFile, heading: headingAtFrame, readings: snapshot.frame.readings });
     } catch (error) {
       Alert.alert('Could not capture the frame', String(error));
     } finally {
