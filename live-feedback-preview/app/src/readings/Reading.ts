@@ -15,13 +15,15 @@ export type Reading = {
   box: Box;
   /** When the camera captured the frame, in milliseconds on the camera's clock (not wall-clock time). */
   frameTimestamp: number;
-  /** How long text recognition took for the frame, in milliseconds. */
+  /** How long the frame took to read, in milliseconds: turning it upright for ML Kit, then recognising its text. */
   recognitionMs: number;
 };
+
+export type Size = { width: number; height: number };
 
 /** The Readings of one processed frame, which may be none. */
 export type FrameReadings = {
   readings: Reading[];
   /** The upright frame's size in pixels, so a view can match its aspect ratio. */
-  frameSize: { width: number; height: number };
+  frameSize: Size;
 };

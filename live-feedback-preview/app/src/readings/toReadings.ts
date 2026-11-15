@@ -1,19 +1,15 @@
-import type { Box, Reading } from './Reading';
+import type { Box, Reading, Size } from './Reading';
+
+/** Where ocr-plus found a line, in pixels of the upright frame. */
+type LineFrame = { boundingCenterX: number; boundingCenterY: number; width: number; height: number };
 
 /** The parts of an ocr-plus result that Readings are built from. */
 export type RecognizedText = {
-  blocks: {
-    lines: {
-      lineText: string;
-      lineFrame: { boundingCenterX: number; boundingCenterY: number; width: number; height: number };
-    }[];
-  }[];
+  blocks: { lines: { lineText: string; lineFrame: LineFrame }[] }[];
 };
 
 /** The parts of a VisionCamera frame that Readings need. */
-export type FrameInfo = {
-  width: number;
-  height: number;
+export type FrameInfo = Size & {
   /** How the buffer is rotated relative to upright. */
   orientation: 'up' | 'right' | 'down' | 'left';
   /** In seconds, on the camera's clock. */
@@ -24,7 +20,7 @@ export type FrameInfo = {
  * The size of the frame once ocr-plus has turned it upright, which is the space its boxes are in.
  * A frame rotated a quarter turn has its width and height swapped.
  */
-export function uprightSize(frame: Pick<FrameInfo, 'width' | 'height' | 'orientation'>) {
+export function uprightSize(frame: Pick<FrameInfo, 'width' | 'height' | 'orientation'>): Size {
   'worklet';
   const quarterTurn = frame.orientation === 'left' || frame.orientation === 'right';
   return quarterTurn ? { width: frame.height, height: frame.width } : { width: frame.width, height: frame.height };
@@ -51,10 +47,7 @@ export function toReadings(recognized: RecognizedText, frame: FrameInfo, recogni
 }
 
 // ocr-plus 2.1.2 computes the frame's x and y wrongly, so the box is built from its center and size.
-function toBox(
-  lineFrame: RecognizedText['blocks'][number]['lines'][number]['lineFrame'],
-  size: { width: number; height: number },
-): Box {
+function toBox(lineFrame: LineFrame, size: Size): Box {
   'worklet';
   const left = clamp(lineFrame.boundingCenterX - lineFrame.width / 2, size.width);
   const right = clamp(lineFrame.boundingCenterX + lineFrame.width / 2, size.width);

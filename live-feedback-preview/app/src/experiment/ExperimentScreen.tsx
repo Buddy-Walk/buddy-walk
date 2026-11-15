@@ -1,3 +1,4 @@
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,6 +16,8 @@ import { useHeading } from './useHeading';
 
 const RECENT_READINGS = 8;
 
+const KEEP_AWAKE_TAG = 'experiment-session';
+
 /** A Mark whose frame is saved and whose form is still open. */
 type OpenMark = Omit<Mark, keyof MarkFields>;
 
@@ -28,7 +31,7 @@ export function ExperimentScreen() {
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   const [recorder, setRecorder] = useState<SessionRecorder | null>(null);
   const [loggedCount, setLoggedCount] = useState(0);
-  const [current, setCurrent] = useState<Reading[]>([]);
+  const [currentReadings, setCurrentReadings] = useState<Reading[]>([]);
   const [recent, setRecent] = useState<Reading[]>([]);
   const [capturing, setCapturing] = useState(false);
   const [openMark, setOpenMark] = useState<OpenMark | null>(null);
@@ -41,14 +44,26 @@ export function ExperimentScreen() {
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
       setAppActive(state === 'active');
-      // Frames stop in the background, so save what is buffered in case iOS ends the app.
-      if (state !== 'active') recorderRef.current?.flush();
+      // The camera stops in the background. Pausing keeps that time out of the frame rate,
+      // and saves what is buffered in case iOS ends the app.
+      if (state === 'active') recorderRef.current?.resume();
+      else recorderRef.current?.pause();
     });
     return () => subscription.remove();
   }, []);
 
+  // An auto-locked phone stops the camera partway through a walk, so the screen stays on while recording.
+  const recording = recorder !== null;
+  useEffect(() => {
+    if (!recording) return;
+    activateKeepAwakeAsync(KEEP_AWAKE_TAG);
+    return () => {
+      deactivateKeepAwake(KEEP_AWAKE_TAG);
+    };
+  }, [recording]);
+
   function onFrameReadings(frame: FrameReadings) {
-    setCurrent(frame.readings);
+    setCurrentReadings(frame.readings);
     if (frame.readings.length > 0) setRecent((previous) => [...frame.readings, ...previous].slice(0, RECENT_READINGS));
     const active = recorderRef.current;
     if (active) {
@@ -103,7 +118,7 @@ export function ExperimentScreen() {
         isActive={appActive && !showingSessions}
         onFrameReadings={onFrameReadings}
       >
-        {current.map((reading, index) => (
+        {currentReadings.map((reading, index) => (
           <View
             key={index}
             style={[
@@ -125,7 +140,9 @@ export function ExperimentScreen() {
 
       <View style={styles.panel}>
         <Text style={styles.status} accessibilityLiveRegion="polite">
-          {recorder ? `Recording: ${loggedCount} Readings logged` : 'Not recording'}
+          {recorder
+            ? `Recording: ${loggedCount} Readings logged${heading.current === null ? ', no compass heading' : ''}`
+            : 'Not recording'}
         </Text>
         <View style={styles.recent} accessibilityLabel="Most recent Readings">
           {recent.length === 0 ? (
@@ -172,7 +189,7 @@ export function ExperimentScreen() {
       </View>
 
       {openMark && (
-        <MarkFormSheet readTexts={openMark.readings.map((reading) => reading.text)} onSave={saveMark} onCancel={cancelMark} />
+        <MarkFormSheet readingTexts={openMark.readings.map((reading) => reading.text)} onSave={saveMark} onCancel={cancelMark} />
       )}
       {showingSessions && <PastSessions store={store} onClose={() => setShowingSessions(false)} />}
     </SafeAreaView>

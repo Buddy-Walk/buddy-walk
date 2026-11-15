@@ -5,7 +5,7 @@ import { emptyMarkDraft, validateMarkForm, type MarkDraft, type MarkFields, type
 
 type Props = {
   /** The Readings in the marked frame, shown so the tester can see what the app read. */
-  readTexts: string[];
+  readingTexts: string[];
   onSave: (fields: MarkFields) => void;
   onCancel: () => void;
 };
@@ -47,7 +47,7 @@ const choices: { [Field in ChoiceField]: { label: string; options: { value: NonN
 const choiceFields = Object.keys(choices) as ChoiceField[];
 
 /** The form for one Mark. The camera keeps running behind it. */
-export function MarkFormSheet({ readTexts, onSave, onCancel }: Props) {
+export function MarkFormSheet({ readingTexts, onSave, onCancel }: Props) {
   const [draft, setDraft] = useState<MarkDraft>(emptyMarkDraft);
   const [result, setResult] = useState<MarkFormResult | null>(null);
   const errors = result && !result.ok ? result.errors : {};
@@ -66,8 +66,8 @@ export function MarkFormSheet({ readTexts, onSave, onCancel }: Props) {
             <Text style={styles.title} accessibilityRole="header">
               Mark
             </Text>
-            <Text style={styles.readTexts}>
-              {readTexts.length > 0 ? `Read: ${readTexts.join(' · ')}` : 'Nothing read in this frame.'}
+            <Text style={styles.readingTexts}>
+              {readingTexts.length > 0 ? `Read: ${readingTexts.join(' · ')}` : 'Nothing read in this frame.'}
             </Text>
 
             {choiceFields.map((field) => (
@@ -141,7 +141,7 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '700',
   },
-  readTexts: {
+  readingTexts: {
     color: '#ccc',
     fontSize: 15,
     marginTop: 4,

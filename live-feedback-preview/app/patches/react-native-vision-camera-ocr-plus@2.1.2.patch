@@ -1,5 +1,5 @@
 diff --git a/ios/HybridTextRecognizer.swift b/ios/HybridTextRecognizer.swift
-index 5df716e62cdf2393592112c62845940f05857091..e234bc49a532b1125a0afdd9e1ef2917dd0c5889 100644
+index 5df716e62cdf2393592112c62845940f05857091..b354c6d35ea5743d3d46caaa0bd6cdc0c7f9fa12 100644
 --- a/ios/HybridTextRecognizer.swift
 +++ b/ios/HybridTextRecognizer.swift
 @@ -83,23 +83,20 @@ class HybridTextRecognizer: HybridTextRecognizerSpec {
@@ -68,7 +68,7 @@ index 5df716e62cdf2393592112c62845940f05857091..e234bc49a532b1125a0afdd9e1ef2917
 -
 -    // Return the last completed result immediately — the frame thread is never blocked.
 -    return try getLastResult()
-+    // capturedImage is already normalised to .up — no orientation hint needed.
++    // capturedImage is already normalised to .up, so no orientation hint is needed.
 +    let visionImage = VisionImage(image: capturedImage)
 +    visionImage.orientation = .up
 +    let result = try textRecognizer.results(in: visionImage)

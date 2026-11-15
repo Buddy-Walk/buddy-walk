@@ -59,33 +59,39 @@ export function PastSessions({ store, onClose }: Props) {
           data={sessions}
           keyExtractor={(session) => session.id}
           ListEmptyComponent={<Text style={styles.empty}>No sessions yet.</Text>}
-          renderItem={({ item }) => (
-            <View style={styles.row}>
-              <Text style={styles.rowTitle}>{new Date(item.startedAt).toLocaleString()}</Text>
-              <Text style={styles.rowDetail}>
-                {item.readingCount} Readings, {item.markCount} Marks
-                {item.endedAt === null ? ', cut off' : ''}
-              </Text>
-              <View style={styles.rowActions}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Export session from ${new Date(item.startedAt).toLocaleString()}`}
-                  onPress={() => share(item.id)}
-                  style={[styles.rowAction, styles.shareAction]}
-                >
-                  <Text style={styles.shareText}>Export</Text>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Delete session from ${new Date(item.startedAt).toLocaleString()}`}
-                  onPress={() => confirmDelete(item.id)}
-                  style={[styles.rowAction, styles.deleteAction]}
-                >
-                  <Text style={styles.deleteText}>Delete</Text>
-                </Pressable>
+          renderItem={({ item }) => {
+            const name = item.readable ? new Date(item.startedAt).toLocaleString() : item.id;
+            return (
+              <View style={styles.row}>
+                <Text style={styles.rowTitle}>{name}</Text>
+                <Text style={styles.rowDetail}>
+                  {item.readable
+                    ? `${item.readingCount} Readings, ${item.markCount} Marks${item.endedAt === null ? ', cut off' : ''}`
+                    : 'This session cannot be read.'}
+                </Text>
+                <View style={styles.rowActions}>
+                  {item.readable && (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Export session from ${name}`}
+                      onPress={() => share(item.id)}
+                      style={[styles.rowAction, styles.shareAction]}
+                    >
+                      <Text style={styles.shareText}>Export</Text>
+                    </Pressable>
+                  )}
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Delete session from ${name}`}
+                    onPress={() => confirmDelete(item.id)}
+                    style={[styles.rowAction, styles.deleteAction]}
+                  >
+                    <Text style={styles.deleteText}>Delete</Text>
+                  </Pressable>
+                </View>
               </View>
-            </View>
-          )}
+            );
+          }}
         />
       </SafeAreaView>
     </Modal>

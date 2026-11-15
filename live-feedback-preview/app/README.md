@@ -53,6 +53,8 @@ The app opens on the camera, with a box over each Reading and a list of the most
    iOS asks for location permission the first time, because it only gives a compass heading with it.
 2. Walk the street.
    Every Reading is logged with the compass heading.
+   The status line says "no compass heading" while there is none, for example when location permission is denied.
+   The screen stays on while recording, because a locked phone stops the camera.
 3. Tap **Mark** at a target.
    The app saves the frame at the tap with its Readings, then asks for the target kind, side of the street, whether you can read it yourself, its style, and the distance in feet.
    **Cancel** throws the frame away.
@@ -60,6 +62,7 @@ The app opens on the camera, with a box over each Reading and a list of the most
 
 The session is saved on the phone every 2 seconds while it runs, so closing or killing the app loses at most the last 2 seconds.
 A session that was never stopped still appears under **Sessions**, marked "cut off".
+A session whose log can't be read appears too, so it can be deleted.
 
 ### Exporting a session
 
@@ -73,7 +76,9 @@ Frames from public streets can show people, so exported sessions stay out of git
 ### Session files
 
 On the phone, each session is a folder in the app's documents, named after its start time, such as `2026-11-15T14-00-00Z`.
-It holds `log.jsonl`, which is only ever appended to, and the Mark frames.
+A second session started within the same second gets `-2` added.
+It holds the Mark frames and `log.jsonl`, with one JSON object per line.
+The log is only ever appended to, so a session cut off partway loses at most its last, half-written line, where a single JSON file could be left unreadable.
 The export turns the log into `session.json`.
 
 `session.json` looks like this:
@@ -122,13 +127,14 @@ The export turns the log into `session.json`.
 
 - `version` goes up whenever the shape changes.
 - `endedAt` is `null` for a session that was cut off; `framesProcessed` and `framesPerSecond` then run to its last save.
-- `framesPerSecond` is frames read per second over the whole session, or `null` if no time passed.
+- `framesPerSecond` is frames read per second while the camera was running, which leaves out time with the app in the background, or `null` if the camera never ran.
 - A Reading is one line of text ML Kit recognised.
 - `box` is where the Reading sits in the upright frame, as fractions (0 to 1) of the frame's width and height from its top-left corner.
 - `frameTimestamp` is when the camera captured the frame, in milliseconds on the camera's own clock.
   It is not wall-clock time: use it to compare frames within a session.
-- `recognitionMs` is how long ML Kit took to read the frame.
-- `heading` is the phone's compass heading when the frame was read, or `null` before the first compass reading or without location permission.
+- `recognitionMs` is how long the frame took to read: turning the camera buffer into an upright image, then ML Kit recognising the text.
+- `heading` is the phone's latest compass heading when the frame's Readings were logged, a few milliseconds after the frame was read.
+  It is `null` before the first compass reading or without location permission.
   `trueDegrees` is `null` when iOS can't give true north, and `accuracy` runs from 0 (over 50° uncertainty) to 3 (under 20°).
 - `targetKind` is `street-number` or `sign`, `side` is `same-sidewalk` or `across-street`, and `signStyle` is `plain`, `stylised` or `angled`.
 - `visibleToTester` is whether the tester could read the target themselves.

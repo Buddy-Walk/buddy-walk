@@ -12,7 +12,7 @@ import {
 import { useTextRecognition, type TextRecognitionOptions } from 'react-native-vision-camera-ocr-plus';
 import { createSynchronizable, scheduleOnRN } from 'react-native-worklets';
 
-import type { FrameReadings } from './Reading';
+import type { FrameReadings, Size } from './Reading';
 import { toReadings, uprightSize } from './toReadings';
 
 /** A frame as an image, with the Readings of that same frame. */
@@ -51,7 +51,7 @@ export function ReadingsCamera({ isActive, onFrameReadings, children, style, ref
   const device = useCameraDevice('back');
   const { recognizer } = useTextRecognition(recognitionOptions);
   const [frameSize, setFrameSize] = useState(defaultFrameSize);
-  const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
+  const [containerSize, setContainerSize] = useState<Size | null>(null);
 
   const { canRequestPermission, requestPermission } = permission;
   useEffect(() => {
@@ -123,6 +123,8 @@ export function ReadingsCamera({ isActive, onFrameReadings, children, style, ref
           scheduleOnRN(deliverSnapshot, HybridFrameConverter.convertFrameToImage(frame), frameReadings);
         }
         scheduleOnRN(deliver, frameReadings);
+      } catch {
+        // ML Kit failed on this frame. The frame is skipped, as if it had been dropped.
       } finally {
         frame.dispose();
       }
@@ -183,7 +185,7 @@ export function ReadingsCamera({ isActive, onFrameReadings, children, style, ref
 function ignoreDroppedFrame() {}
 
 /** The largest size with the frame's aspect ratio that fits in the container. */
-function containedSize(frame: { width: number; height: number }, container: { width: number; height: number }) {
+function containedSize(frame: Size, container: Size): Size {
   const scale = Math.min(container.width / frame.width, container.height / frame.height);
   return { width: frame.width * scale, height: frame.height * scale };
 }

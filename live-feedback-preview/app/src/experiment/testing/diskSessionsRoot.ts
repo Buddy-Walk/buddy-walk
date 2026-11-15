@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { SessionFolder, SessionsRoot } from '../sessionStore';
 
 /** A `SessionsRoot` on the laptop's disk, in a fresh temporary directory, for tests. */
-export function diskSessionsRoot(): SessionsRoot & { path: string } {
+export function diskSessionsRoot(): SessionsRoot {
   const path = mkdtempSync(join(tmpdir(), 'experiment-sessions-'));
 
   function folder(name: string): SessionFolder {
@@ -28,7 +28,6 @@ export function diskSessionsRoot(): SessionsRoot & { path: string } {
   }
 
   return {
-    path,
     folderNames: () => readdirSync(path),
     folder,
     remove: (name) => rmSync(join(path, name), { recursive: true }),

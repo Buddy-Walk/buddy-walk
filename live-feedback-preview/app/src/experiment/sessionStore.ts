@@ -44,8 +44,11 @@ type LogEntry =
   | ({ kind: 'started'; version: typeof SESSION_VERSION; id: string; startedAt: string } & SessionInfo)
   | { kind: 'frame'; heading: Heading | null; readings: FrameReadings['readings'] }
   | ({ kind: 'mark' } & Mark)
-  | { kind: 'progress'; at: string; framesProcessed: number }
-  | { kind: 'ended'; endedAt: string; framesProcessed: number };
+  | ({ kind: 'progress'; at: string } & Counts)
+  | ({ kind: 'ended'; endedAt: string } & Counts);
+
+/** `activeMs` is how long the camera has been running, which leaves out time paused in the background. */
+type Counts = { framesProcessed: number; activeMs: number };
 
 export type SessionRecorder = {
   id: string;
@@ -59,13 +62,16 @@ export type SessionRecorder = {
   addMark(mark: Mark): void;
   /** Writes everything buffered so far. */
   flush(): void;
+  /** The camera stopped, for example because the app went to the background. Also writes what is buffered. */
+  pause(): void;
+  resume(): void;
   stop(): void;
 };
 
 export function createSessionStore(root: SessionsRoot, clock: Clock = { now: () => new Date() }) {
   function start(info: SessionInfo): SessionRecorder {
     const startedAt = clock.now();
-    const id = sessionId(startedAt);
+    const id = unusedSessionId(startedAt);
     const folder = root.folder(id);
     const write = (entries: LogEntry[]) => folder.appendText(LOG_FILE, entries.map((entry) => `${JSON.stringify(entry)}\n`).join(''));
 
@@ -75,10 +81,16 @@ export function createSessionStore(root: SessionsRoot, clock: Clock = { now: () 
     let framesProcessed = 0;
     let lastFlush = startedAt.getTime();
     let markFrames = 0;
+    let activeMs = 0;
+    let activeSince: number | null = startedAt.getTime();
+
+    function counts(at: Date): Counts {
+      return { framesProcessed, activeMs: activeMs + (activeSince === null ? 0 : at.getTime() - activeSince) };
+    }
 
     function flush() {
       const at = clock.now();
-      write([...buffered, { kind: 'progress', at: at.toISOString(), framesProcessed }]);
+      write([...buffered, { kind: 'progress', at: at.toISOString(), ...counts(at) }]);
       buffered = [];
       lastFlush = at.getTime();
     }
@@ -104,11 +116,31 @@ export function createSessionStore(root: SessionsRoot, clock: Clock = { now: () 
         flush();
       },
       flush,
+      pause() {
+        if (activeSince === null) return;
+        const at = clock.now();
+        activeMs += at.getTime() - activeSince;
+        activeSince = null;
+        flush();
+      },
+      resume() {
+        if (activeSince === null) activeSince = clock.now().getTime();
+      },
       stop() {
-        write([...buffered, { kind: 'ended', endedAt: clock.now().toISOString(), framesProcessed }]);
+        const at = clock.now();
+        write([...buffered, { kind: 'ended', endedAt: at.toISOString(), ...counts(at) }]);
         buffered = [];
       },
     };
+  }
+
+  /** The session's id, with a number added if a session already started in the same second. */
+  function unusedSessionId(startedAt: Date) {
+    const base = sessionId(startedAt);
+    const taken = new Set(root.folderNames());
+    let id = base;
+    for (let suffix = 2; taken.has(id); suffix += 1) id = `${base}-${suffix}`;
+    return id;
   }
 
   function load(id: string): ExperimentSession {
@@ -117,15 +149,21 @@ export function createSessionStore(root: SessionsRoot, clock: Clock = { now: () 
     return fromLog(parseLog(text));
   }
 
-  /** Past sessions, newest first. */
+  /** Past sessions, newest first. A session that cannot be read is still listed, so it can be deleted. */
   function list(): SessionSummary[] {
     return root
       .folderNames()
       .sort()
       .reverse()
-      .map((id) => {
-        const session = load(id);
+      .map((id): SessionSummary => {
+        let session: ExperimentSession;
+        try {
+          session = load(id);
+        } catch {
+          return { readable: false, id };
+        }
         return {
+          readable: true,
           id,
           startedAt: session.startedAt,
           endedAt: session.endedAt,
@@ -159,10 +197,9 @@ export function createSessionStore(root: SessionsRoot, clock: Clock = { now: () 
 
 export type SessionStore = ReturnType<typeof createSessionStore>;
 
-export type SessionSummary = Pick<ExperimentSession, 'id' | 'startedAt' | 'endedAt'> & {
-  readingCount: number;
-  markCount: number;
-};
+export type SessionSummary =
+  | ({ readable: true; readingCount: number; markCount: number } & Pick<ExperimentSession, 'id' | 'startedAt' | 'endedAt'>)
+  | { readable: false; id: string };
 
 /** Folder-safe and sortable, for example `2026-11-15T14-00-00Z`. */
 function sessionId(startedAt: Date) {
@@ -186,8 +223,7 @@ function fromLog(entries: LogEntry[]): ExperimentSession {
   const readings: LoggedReading[] = [];
   const marks: Mark[] = [];
   let endedAt: string | null = null;
-  let lastAt = started.startedAt;
-  let framesProcessed = 0;
+  let counts: Counts = { framesProcessed: 0, activeMs: 0 };
 
   for (const entry of entries) {
     switch (entry.kind) {
@@ -200,18 +236,17 @@ function fromLog(entries: LogEntry[]): ExperimentSession {
         break;
       }
       case 'progress':
-        lastAt = entry.at;
-        framesProcessed = entry.framesProcessed;
+        counts = { framesProcessed: entry.framesProcessed, activeMs: entry.activeMs };
         break;
       case 'ended':
         endedAt = entry.endedAt;
-        lastAt = entry.endedAt;
-        framesProcessed = entry.framesProcessed;
+        counts = { framesProcessed: entry.framesProcessed, activeMs: entry.activeMs };
         break;
     }
   }
 
-  const seconds = (Date.parse(lastAt) - Date.parse(started.startedAt)) / 1000;
+  const { framesProcessed, activeMs } = counts;
+  const seconds = activeMs / 1000;
   return {
     version: started.version,
     id: started.id,

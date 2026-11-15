@@ -63,6 +63,33 @@ describe('session store', () => {
     });
   });
 
+  test('leaves time with the camera paused, such as in the background, out of the frame rate', () => {
+    const clock = manualClock('2026-11-15T14:00:00.000Z');
+    const store = createSessionStore(diskSessionsRoot(), clock);
+
+    const recorder = store.start(info);
+    clock.advance(1000);
+    recorder.addFrame({ readings: [], frameSize }, heading);
+    recorder.pause();
+    clock.advance(60_000);
+    recorder.resume();
+    clock.advance(1000);
+    recorder.addFrame({ readings: [], frameSize }, heading);
+    recorder.stop();
+
+    expect(store.load(recorder.id).framesPerSecond).toBe(1);
+  });
+
+  test('two sessions started within the same second are kept apart', () => {
+    const store = createSessionStore(diskSessionsRoot(), manualClock('2026-11-15T14:00:00.000Z'));
+
+    const first = store.start(info);
+    first.stop();
+    const second = store.start(info);
+
+    expect(second.id).not.toBe(first.id);
+  });
+
   test('reloads a session cut off partway, up to its last save', () => {
     const clock = manualClock('2026-11-15T14:00:00.000Z');
     const root = diskSessionsRoot();
@@ -147,13 +174,38 @@ describe('session store', () => {
     // Cut off: never stopped.
 
     expect(store.list()).toEqual([
-      { id: second.id, startedAt: '2026-11-15T14:01:03.000Z', endedAt: null, readingCount: 0, markCount: 0 },
-      { id: first.id, startedAt: '2026-11-15T14:00:00.000Z', endedAt: '2026-11-15T14:00:03.000Z', readingCount: 2, markCount: 0 },
+      { readable: true, id: second.id, startedAt: '2026-11-15T14:01:03.000Z', endedAt: null, readingCount: 0, markCount: 0 },
+      {
+        readable: true,
+        id: first.id,
+        startedAt: '2026-11-15T14:00:00.000Z',
+        endedAt: '2026-11-15T14:00:03.000Z',
+        readingCount: 2,
+        markCount: 0,
+      },
     ]);
 
     store.remove(first.id);
 
     expect(store.list().map((summary) => summary.id)).toEqual([second.id]);
+  });
+
+  test('lists a session that cannot be read, so it can still be deleted', () => {
+    const root = diskSessionsRoot();
+    const store = createSessionStore(root, manualClock('2026-11-15T14:00:00.000Z'));
+    const good = store.start(info);
+    good.stop();
+    // Killed while writing its very first line.
+    root.folder('2026-11-15T13-00-00Z').appendText('log.jsonl', '{"kind":"sta');
+
+    expect(store.list().map((summary) => [summary.id, summary.readable])).toEqual([
+      [good.id, true],
+      ['2026-11-15T13-00-00Z', false],
+    ]);
+
+    store.remove('2026-11-15T13-00-00Z');
+
+    expect(store.list().map((summary) => summary.id)).toEqual([good.id]);
   });
 
   test('exports a session as one archive holding session.json and its Mark frames', () => {
