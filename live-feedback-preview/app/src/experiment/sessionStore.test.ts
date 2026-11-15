@@ -253,10 +253,28 @@ describe('session store', () => {
     clock.advance(1000);
     recorder.stop();
 
-    const files = unzipSync(store.exportArchive(recorder.id));
+    const files = unzipSync(store.exportArchive([recorder.id]));
 
     expect(Object.keys(files).sort()).toEqual([`${recorder.id}/mark-001.jpg`, `${recorder.id}/session.json`]);
     expect(files[`${recorder.id}/mark-001.jpg`]).toEqual(jpeg);
     expect(JSON.parse(strFromU8(files[`${recorder.id}/session.json`]))).toEqual(store.load(recorder.id));
+  });
+
+  test('exports several sessions as one archive, each in its own folder', () => {
+    const clock = manualClock('2026-11-15T14:00:00.000Z');
+    const store = createSessionStore(diskSessionsRoot(), clock);
+    const first = store.start(info);
+    first.addFrame({ readings: [reading('34', 1000)], frameSize }, heading);
+    first.stop();
+    clock.advance(60_000);
+    const second = store.start(info);
+    second.addFrame({ readings: [reading('36', 2000)], frameSize }, heading);
+    second.stop();
+
+    const files = unzipSync(store.exportArchive([first.id, second.id]));
+
+    expect(Object.keys(files).sort()).toEqual([`${first.id}/session.json`, `${second.id}/session.json`]);
+    expect(JSON.parse(strFromU8(files[`${first.id}/session.json`]))).toEqual(store.load(first.id));
+    expect(JSON.parse(strFromU8(files[`${second.id}/session.json`]))).toEqual(store.load(second.id));
   });
 });

@@ -182,16 +182,20 @@ export function createSessionStore(root: SessionsRoot, clock: Clock = { now: () 
   }
 
   /**
-   * A zip of the session, for the share sheet: `<id>/session.json` and the frames of its Marks.
+   * One zip of the sessions, for the share sheet, with a folder per session:
+   * `<id>/session.json` and the frames of its Marks.
    * Frames of Marks whose form was never saved are left out.
    */
-  function exportArchive(id: string): Uint8Array {
-    const session = load(id);
-    const folder = root.folder(id);
-    const files: Zippable = { [`${id}/session.json`]: strToU8(JSON.stringify(session, null, 2)) };
-    for (const mark of session.marks) {
-      // JPEGs are already compressed, so they are stored as they are.
-      files[`${id}/${mark.frameFile}`] = [folder.readBytes(mark.frameFile), { level: 0 }];
+  function exportArchive(ids: string[]): Uint8Array {
+    const files: Zippable = {};
+    for (const id of ids) {
+      const session = load(id);
+      const folder = root.folder(id);
+      files[`${id}/session.json`] = strToU8(JSON.stringify(session, null, 2));
+      for (const mark of session.marks) {
+        // JPEGs are already compressed, so they are stored as they are.
+        files[`${id}/${mark.frameFile}`] = [folder.readBytes(mark.frameFile), { level: 0 }];
+      }
     }
     return zipSync(files);
   }

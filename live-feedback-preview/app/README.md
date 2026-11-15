@@ -78,7 +78,11 @@ A session whose log can't be read appears too, so it can be deleted.
 Tap **Sessions**, then **Export** on a session.
 The share sheet opens with one zip file, which AirDrop sends to a Mac.
 The zip holds a folder named after the session, with `session.json` and one JPEG per Mark.
-**Delete** removes a session from the phone.
+**Delete** removes a session from the phone, after asking to confirm.
+
+To export or delete several sessions at once, tap **Select**, then tap the sessions, or **Select All**.
+**Export** puts them all in one zip, with a folder per session.
+A session that can't be read can be deleted but not exported, so it is left out of the export.
 
 Frames from public streets can show people, so exported sessions stay out of git (#139).
 
