@@ -44,15 +44,22 @@ export function ExperimentScreen() {
   recorderRef.current = recorder;
 
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', (state) => {
-      setAppActive(state === 'active');
-      // The camera stops in the background. Pausing keeps that time out of the frame rate,
-      // and saves what is buffered in case iOS ends the app.
-      if (state === 'active') recorderRef.current?.resume();
-      else recorderRef.current?.pause();
-    });
+    const subscription = AppState.addEventListener('change', (state) => setAppActive(state === 'active'));
     return () => subscription.remove();
   }, []);
+
+  // Logging pauses while the camera is stopped in the background, which keeps that time out of the
+  // frame rate and saves what is buffered in case iOS ends the app. It also pauses while a Mark's
+  // form is open: the camera keeps running, but the tester is standing at the target and would only
+  // log the same Readings again.
+  const logging = appActive && openMark === null;
+  const loggingRef = useRef(logging);
+  loggingRef.current = logging;
+  useEffect(() => {
+    if (!recorder) return;
+    if (logging) recorder.resume();
+    else recorder.pause();
+  }, [recorder, logging]);
 
   // An auto-locked phone stops the camera partway through a walk, so the screen stays on while recording.
   const recording = recorder !== null;
@@ -68,7 +75,7 @@ export function ExperimentScreen() {
     setCurrentReadings(frame.readings);
     if (frame.readings.length > 0) setRecent((previous) => [...frame.readings, ...previous].slice(0, RECENT_READINGS));
     const active = recorderRef.current;
-    if (active) {
+    if (active && loggingRef.current) {
       active.addFrame(frame, heading.current);
       if (frame.readings.length > 0) setLoggedCount((count) => count + frame.readings.length);
     }

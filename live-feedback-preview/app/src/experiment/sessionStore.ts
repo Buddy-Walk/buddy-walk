@@ -47,12 +47,12 @@ type LogEntry =
   | ({ kind: 'progress'; at: string } & Counts)
   | ({ kind: 'ended'; endedAt: string } & Counts);
 
-/** `activeMs` is how long the camera has been running, which leaves out time paused in the background. */
+/** `activeMs` is how long the session has been logging, which leaves out time paused. */
 type Counts = { framesProcessed: number; activeMs: number };
 
 export type SessionRecorder = {
   id: string;
-  /** Records one processed frame, with or without Readings. */
+  /** Records one processed frame, with or without Readings. Frames while paused are left out. */
   addFrame(frame: FrameReadings, heading: Heading | null): void;
   /** Saves the JPEG of a Mark's frame straight away and returns its file name. */
   saveMarkFrame(jpeg: Uint8Array): string;
@@ -62,7 +62,10 @@ export type SessionRecorder = {
   addMark(mark: Mark): void;
   /** Writes everything buffered so far. */
   flush(): void;
-  /** The camera stopped, for example because the app went to the background. Also writes what is buffered. */
+  /**
+   * Stops logging, for example because the app went to the background and the camera stopped,
+   * or a Mark's form is open. Also writes what is buffered.
+   */
   pause(): void;
   resume(): void;
   stop(): void;
@@ -98,6 +101,7 @@ export function createSessionStore(root: SessionsRoot, clock: Clock = { now: () 
     return {
       id,
       addFrame(frame, heading) {
+        if (activeSince === null) return;
         framesProcessed += 1;
         if (frame.readings.length > 0) buffered.push({ kind: 'frame', heading, readings: frame.readings });
         if (clock.now().getTime() - lastFlush >= FLUSH_INTERVAL_MS) flush();

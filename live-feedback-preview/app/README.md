@@ -66,6 +66,7 @@ The app opens on the camera, with a box over each Reading and a list of the most
 3. Tap **Mark** at a target.
    The app saves the frame at the tap with its Readings, then asks for the target kind, side of the street, whether you can read it yourself, its style, and the distance in feet.
    **Cancel** throws the frame away.
+   The camera keeps running behind the form, but nothing is logged until you save or cancel it, because you are standing at the target and would only log the same Readings again.
 4. Tap **Stop** to end the session.
 
 The session is saved on the phone every 2 seconds while it runs, so closing or killing the app loses at most the last 2 seconds.
@@ -147,7 +148,8 @@ The export turns the log into `session.json`.
 
 - `version` goes up whenever the shape changes.
 - `endedAt` is `null` for a session that was cut off; `framesProcessed` and `framesPerSecond` then run to its last save.
-- `framesPerSecond` is frames read per second while the camera was running, which leaves out time with the app in the background, or `null` if the camera never ran.
+- `framesPerSecond` is frames read per second while the session was logging, which leaves out time with the app in the background or a Mark's form open, or `null` if it never logged.
+  `framesProcessed` leaves out the same frames.
 - A Reading is one line of text ML Kit recognised.
 - `box` is where the Reading sits in the upright frame, as fractions (0 to 1) of the frame's width and height from its top-left corner.
 - `frameTimestamp` is when the camera captured the frame, in milliseconds on the camera's own clock.

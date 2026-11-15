@@ -80,6 +80,28 @@ describe('session store', () => {
     expect(store.load(recorder.id).framesPerSecond).toBe(1);
   });
 
+  test('leaves frames that arrive while paused, such as with a Mark form open, out of the log', () => {
+    const clock = manualClock('2026-11-15T14:00:00.000Z');
+    const store = createSessionStore(diskSessionsRoot(), clock);
+
+    const recorder = store.start(info);
+    clock.advance(1000);
+    recorder.addFrame({ readings: [reading('34', 1000)], frameSize }, heading);
+    recorder.pause();
+    clock.advance(10_000);
+    recorder.addFrame({ readings: [reading('34', 2000)], frameSize }, heading);
+    recorder.addFrame({ readings: [], frameSize }, heading);
+    recorder.resume();
+    clock.advance(1000);
+    recorder.addFrame({ readings: [reading('36', 3000)], frameSize }, heading);
+    recorder.stop();
+
+    const session = store.load(recorder.id);
+    expect(session.readings.map((logged) => logged.frameTimestamp)).toEqual([1000, 3000]);
+    expect(session.framesProcessed).toBe(2);
+    expect(session.framesPerSecond).toBe(1);
+  });
+
   test('two sessions started within the same second are kept apart', () => {
     const store = createSessionStore(diskSessionsRoot(), manualClock('2026-11-15T14:00:00.000Z'));
 
