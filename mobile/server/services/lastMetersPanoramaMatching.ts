@@ -171,7 +171,7 @@ export async function matchPanoramaHeadings(
         return entranceExit();
       }
       assessment?.examined.push({ panoId: panorama.metadata.pano_id, date: panorama.metadata.date });
-      const matched = await matchOnePanorama(trial, input, panorama, assessment);
+      const matched = await matchOnePanorama(trial, input, panorama, assessment, attempt > 1);
       if (matched.kind !== "destination_not_found") {
         if (shouldTryAnotherPanoramaForUnmatchedCurrentView(matched, input, panorama, attempt)) {
           const next = await nextPanoramaIfCurrentViewUnmatched(input, panorama);
@@ -183,7 +183,7 @@ export async function matchPanoramaHeadings(
         }
         return matched;
       }
-      const next = !assessment && attempt < MAX_PANORAMAS ? await nextPanorama(input, panorama) : undefined;
+      const next = attempt < MAX_PANORAMAS ? await nextPanorama(input, panorama) : undefined;
       if (!next) {
         if (unmatchedViewFallback && (!assessment || assessment.restoreVerified(unmatchedViewFallback.value.panorama.metadata.pano_id))) {
           trial.note({ panorama: unmatchedViewFallback.value.panorama });
@@ -316,6 +316,7 @@ async function matchOnePanorama(
   input: PanoramaMatchingInput,
   panorama: Panorama,
   assessment?: LastMetersEntranceAssessment,
+  additionalCamera = false,
 ): Promise<OnePanoramaResult> {
   const { request: { lat, lng, destination }, entrance } = input;
   trial.source("street_view_panorama");
@@ -342,6 +343,8 @@ async function matchOnePanorama(
   console.log("   ➤ Step 1: Locating User's Current View...");
   if (assessment) {
     if (Date.now() >= input.search.budget.deadline) throw new Error("Panorama search budget exhausted.");
+    // Count B and C only when about to start them, not if tile assembly failed.
+    if (additionalCamera) input.search.budget.apiRequests = (input.search.budget.apiRequests ?? 0) + 2;
   }
   const destinationMatch = startDestinationMatch(input, panoramaOverview, target,
     work => trial.moduleTimer.time("destinationMatch", work));

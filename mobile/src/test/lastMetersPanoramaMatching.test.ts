@@ -591,9 +591,52 @@ test("experimental entrance visible at the first camera uses no fallback", async
   assert.equal(audits.length, 0); assert.equal(entranceReport(await saved()).additionalApiRequests, 1);
 });
 
+test("a second camera can verify a door without replacing the phone heading", async t => {
+  const { result, saved, entranceCalls } = await match(t, world({
+    occlusion: {}, panoramaDates: ["2025-01", "2025-02"],
+    panoramaLocations: [USER, { lat: 40.7, lng: -73.99955 }],
+    vision: { currentView: ["90"], destination: ["0", "315"], reference: [], signText: [] },
+    entranceAnswers: [blockedEntrance, entranceReply({ entranceHeading: 315 })],
+  }));
+  assert.equal(result.kind, "ok");
+  if (result.kind !== "ok") return;
+  assert.equal(result.value.currentHeading, 90);
+  assert.equal(result.value.targetHeading, 315);
+  assert.equal(result.value.panorama.metadata.pano_id, "pano-2");
+  assert.equal(entranceCalls, 2);
+  const report = entranceReport(await saved());
+  assert.equal(report.occlusionDetected, true);
+  assert.equal(report.originalPanorama, "pano-1");
+  assert.deepEqual(report.examinedPanoramas.map((p: any) => p.panoId), ["pano-1", "pano-2"]);
+});
+
+test("three obstructed cameras with no provider withhold; signs never launch independent backup cameras", async t => {
+  const { result, saved, prompts, entranceCalls } = await match(t, world({
+    occlusion: {}, panoramaDates: ["2025-01", "2025-02", "2025-03", "2025-04"], entranceAnswers: [blockedEntrance],
+  }));
+  assert.equal(result.kind, "exit");
+  const row = await saved();
+  assert.equal(row.error, "turn_withheld");
+  assert.equal(result.kind === "exit" && result.result.kind === "response" && result.result.body.warning, "turn_withheld");
+  assert.deepEqual(row.safetyReasons, ["entrance_not_visually_confirmed"]);
+  assert.equal(entranceCalls, 3);
+  assert.equal(prompts.includes("reference"), false);
+  assert.equal(prompts.includes("signText"), false);
+  const report = entranceReport(row);
+  assert.equal(report.additionalApiRequests, 51); // 3 assessments + 2 * (metadata + 4 previews + classifier + 16 tiles + B + C).
+  assert.equal(report.entranceVerified, false);
+});
+
 test("a store sign without a visible door cannot authorize an experimental entrance turn", async t => {
   const { result, saved } = await match(t, world({ occlusion: {}, pinned: true,
     entranceAnswers: [entranceReply({ panoramaEntrance: "UNCERTAIN", sameEntrance: false })] }));
+  assert.equal(result.kind, "exit");
+  assert.equal(entranceReport(await saved()).entranceVerified, false);
+});
+
+test("an obstructed current photo cannot be overridden by a later contradictory camera assessment", async t => {
+  const { result, saved } = await match(t, world({ occlusion: {}, panoramaDates: ["2025-01", "2025-02"],
+    entranceAnswers: [entranceReply({ photoEntrance: "OCCLUDED", sameEntrance: false, obstruction: "vehicle" }), entranceReply()] }));
   assert.equal(result.kind, "exit");
   assert.equal(entranceReport(await saved()).entranceVerified, false);
 });
