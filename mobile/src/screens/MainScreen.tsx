@@ -1,6 +1,8 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { LastMetersSensors, validPoint, RECAPTURE_MESSAGE } from "../utils/lastMetersSafety";
 import { mobileResponseSensorReasons } from "../utils/mobileLastMetersGuidance";
+import { createLastMetersMovementShadow, LAST_METERS_MOVEMENT_SHADOW_ENABLED,
+  movementShadowTelemetry, type LastMetersMovementShadow } from "../utils/lastMetersMovementShadow";
 import { getSafetyGateVoicePrompt } from "../utils/safetyGateVoicePrompt";
 import {
   View,
@@ -197,6 +199,8 @@ export default function MainScreen({ navigation }: Props) {
   const [feedbackVisible, setFeedbackVisible] = useState(false);
 
   const locationRef = useRef<Location.LocationObject | null>(null);
+  const movementShadowRef = useRef<LastMetersMovementShadow | null>(null);
+  const capturedPhotoMovementShadowRef = useRef<LastMetersMovementShadow | null>(null);
   const headingRef = useRef<number | null>(null);
   /** expo-location compass calibration: 3 high, 2 medium, 1 low, 0 none. */
   const headingAccuracyRef = useRef<number | null>(null);
@@ -332,9 +336,11 @@ export default function MainScreen({ navigation }: Props) {
   useEffect(() => {
     let locationSub: Location.LocationSubscription | null = null;
     let headingSub: Location.LocationSubscription | null = null;
+    let disposed = false;
 
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
+      if (disposed) return;
       if (status === "granted") {
         // Seed an immediate fix so the very first question already carries
         // coordinates — the watcher's first callback can lag by seconds,
@@ -343,11 +349,12 @@ export default function MainScreen({ navigation }: Props) {
           const first = await Location.getCurrentPositionAsync({
             accuracy: Location.Accuracy.Balanced,
           });
-          if (!locationRef.current) locationRef.current = first;
+          if (!disposed && !locationRef.current) locationRef.current = first;
         } catch {
           // Watcher below may still succeed.
         }
-        locationSub = await Location.watchPositionAsync(
+        if (disposed) return;
+        const createdLocationSub = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.BestForNavigation,
             // Last Meters needs fresh fixes even while the user stands still.
@@ -355,12 +362,18 @@ export default function MainScreen({ navigation }: Props) {
             timeInterval: 1000,
           },
           (loc) => {
+            if (disposed) return;
             locationRef.current = loc;
+            movementShadowRef.current?.observeGps(movementGpsSample(loc)!);
           },
+          () => { if (!disposed) movementShadowRef.current?.markGpsUnavailable(); },
         );
+        if (disposed) { createdLocationSub.remove(); return; }
+        locationSub = createdLocationSub;
         if (Platform.OS !== "web") {
           try {
-            headingSub = await Location.watchHeadingAsync((heading) => {
+            const createdHeadingSub = await Location.watchHeadingAsync((heading) => {
+              if (disposed) return;
               headingTimestampRef.current = Date.now();
               headingReferenceRef.current = heading.trueHeading >= 0 ? "true" : "magnetic";
               headingAccuracyRef.current = heading.accuracy;
@@ -378,15 +391,20 @@ export default function MainScreen({ navigation }: Props) {
                 headingRef.current = (degrees + 360) % 360;
               }
             });
+            if (disposed) createdHeadingSub.remove();
+            else headingSub = createdHeadingSub;
           } catch (e) {
             console.warn("Compass heading unavailable:", e);
           }
         }
       }
-    })();
+    })().catch(() => {
+      if (!disposed) movementShadowRef.current?.markGpsUnavailable();
+    });
 
     // Low-accuracy readings stay unset; panorama evidence cannot replace them.
     return () => {
+      disposed = true;
       locationSub?.remove();
       headingSub?.remove();
     };
@@ -653,6 +671,39 @@ export default function MainScreen({ navigation }: Props) {
     return null;
   }
 
+  function movementGpsSample(loc: Location.LocationObject | null) {
+    return loc ? { lat: loc.coords.latitude, lng: loc.coords.longitude,
+      accuracy: loc.coords.accuracy ?? undefined, timestamp: loc.timestamp,
+      reportedSpeed: loc.coords.speed ?? null } : undefined;
+  }
+
+  function stopMovementShadow(reason: string) {
+    movementShadowRef.current?.stop(reason);
+    capturedPhotoMovementShadowRef.current?.stop(reason);
+  }
+
+  function startMovementShadow(captureAt: number, loc: Location.LocationObject | null) {
+    stopMovementShadow("retake");
+    movementShadowRef.current = null;
+    capturedPhotoMovementShadowRef.current = null;
+    if (!LAST_METERS_MOVEMENT_SHADOW_ENABLED) return null;
+    const platform = Platform.OS === "ios" || Platform.OS === "android" || Platform.OS === "web"
+      ? Platform.OS : "unknown";
+    movementShadowRef.current = createLastMetersMovementShadow({
+      captureId: createRequestId(), captureAt, capture: movementGpsSample(loc), platform,
+      adapter: platform === "ios" || platform === "android" ? {
+        requestPermission: async () => (await Location.requestMotionActivityPermissionsAsync()).status === "granted",
+        watch: (onEvent, onError) => Location.watchMotionActivityAsync(onEvent, onError),
+      } : undefined,
+    });
+    return movementShadowRef.current;
+  }
+
+  useEffect(() => () => {
+    movementShadowRef.current?.stop("unmount");
+    capturedPhotoMovementShadowRef.current?.stop("unmount");
+  }, []);
+
   async function takePhoto() {
     if (!cameraRef.current) return;
     const ready = await waitForCameraReady();
@@ -660,6 +711,7 @@ export default function MainScreen({ navigation }: Props) {
       speak("Camera is still starting. Try again in a moment.");
       return;
     }
+    let captureMovementSession: LastMetersMovementShadow | null = null;
     try {
       cancelLastMetersRequest();
       // remove the compass & location belonging to the previous photo
@@ -678,6 +730,9 @@ export default function MainScreen({ navigation }: Props) {
         photoCapturedAt: Date.now(), positionTimestamp: locationAtCapture?.timestamp ?? 0,
         headingTimestamp: headingTimestampRef.current, headingReference: headingReferenceRef.current,
       };
+      // Opt-in diagnostics only. Native permission/watch startup is asynchronous
+      // and cannot delay the photo or establish continuous activity coverage.
+      captureMovementSession = startMovementShadow(sensorMetadataAtCapture.photoCapturedAt, locationAtCapture);
 
       const photo = await cameraRef.current.takePictureAsync({
         base64: true,
@@ -694,6 +749,8 @@ export default function MainScreen({ navigation }: Props) {
         capturedPhotoHeadingAccuracyRef.current = headingAccuracyAtCapture;
         capturedPhotoLocationRef.current = locationAtCapture;
         capturedSensorMetadataRef.current = sensorMetadataAtCapture;
+        // Bind diagnostics to this completed photo, even if captures overlapped.
+        capturedPhotoMovementShadowRef.current = captureMovementSession;
         // disabled for testing
         // setUserInput("Describe the image");
         speak(
@@ -707,9 +764,11 @@ export default function MainScreen({ navigation }: Props) {
         }
         void track(Events.PhotoCaptured);
       } else {
+        captureMovementSession?.stop("capture_failed");
         speak("Could not capture image");
       }
     } catch (e) {
+      captureMovementSession?.stop("capture_failed");
       console.error("takePhoto error:", e);
       speak("Could not capture image");
     }
@@ -717,6 +776,7 @@ export default function MainScreen({ navigation }: Props) {
 
   async function startVideoRecording() {
     if (!cameraRef.current || videoRecordStartedRef.current) return;
+    stopMovementShadow("video");
 
     // Web: no MediaRecorder/thumbnail pipeline — sample frames off the live
     // preview while the user holds, auto-stopping at the max duration.
@@ -902,6 +962,7 @@ export default function MainScreen({ navigation }: Props) {
       rotateConversationId();
       void stopSpeaking();
       cancelLastMetersRequest();
+      stopMovementShadow("reset");
       if (slowResponseTimerRef.current) {
         clearTimeout(slowResponseTimerRef.current);
         slowResponseTimerRef.current = null;
@@ -944,6 +1005,8 @@ export default function MainScreen({ navigation }: Props) {
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "background" || state === "inactive") {
+        movementShadowRef.current?.stop("background");
+        capturedPhotoMovementShadowRef.current?.stop("background");
         rotateConversationId();
       }
     });
@@ -1373,6 +1436,7 @@ export default function MainScreen({ navigation }: Props) {
     const controller = lastMetersAbortRef.current;
     if (!controller) return false;
     lastMetersAbortRef.current = null;
+    stopMovementShadow("cancelled");
     controller.abort();
     return true;
   }
@@ -1409,6 +1473,11 @@ export default function MainScreen({ navigation }: Props) {
 
     const controller = new AbortController();
     lastMetersAbortRef.current = controller;
+    const movementSession = capturedPhotoMovementShadowRef.current;
+    // An overlapping capture can leave another watch active for a photo that
+    // was not selected. Stop it without touching future request sessions.
+    if (movementShadowRef.current !== movementSession) movementShadowRef.current?.stop("photo_not_selected");
+    const movementRequestId = movementSession ? createRequestId() : undefined;
     // Owned by this request, so identical replies to separate requests still speak.
     let responsePresented = false;
     const presentResponse = (output: string, speechText = output) => {
@@ -1454,6 +1523,24 @@ export default function MainScreen({ navigation }: Props) {
       const captureHeading = capturedPhotoHeadingRef.current ?? undefined;
       const sensors = makeSensors();
       const requestedAt = Date.now();
+      const recordMovementShadow = (phase: "submission" | "response", observedAt: number,
+        liveSensors: LastMetersSensors | undefined,
+        response?: Awaited<ReturnType<typeof sendLastMetersRequest>>, finalReasons?: string[]) => {
+        if (!movementSession || !movementRequestId) return;
+        try {
+          const snapshot = movementSession.snapshot({ latest: movementGpsSample(locationRef.current),
+            sensors: liveSensors, captureHeading, requestedAt, observedAt });
+          void track(Events.LastMetersMovementShadow, movementShadowTelemetry({
+            ...snapshot, captureId: movementSession.captureId, requestId: movementRequestId, phase,
+            testLogId: response?.testLogId, serverReasons: response?.safetyReasons,
+            serverWarning: response?.warning, finalReasons,
+            preciseTurnCheckApplied: response ? response.guidanceKind !== "withheld" && Number.isFinite(response.targetHeading) : undefined,
+          }));
+        } catch {
+          // Diagnostic failure must never affect the existing navigation path.
+        }
+      };
+      recordMovementShadow("submission", requestedAt, sensors);
       if (!loc || !validPoint(position)) {
         presentResponse(RECAPTURE_MESSAGE);
         return;
@@ -1475,7 +1562,11 @@ export default function MainScreen({ navigation }: Props) {
       );
 
       if (controller.signal.aborted || lastMetersAbortRef.current !== controller) return;
-      if (mobileResponseSensorReasons(data, makeSensors(), position, captureHeading, loc.coords.accuracy ?? undefined, requestedAt).length) {
+      const responseAt = Date.now();
+      const responseSensors = makeSensors();
+      const responseReasons = mobileResponseSensorReasons(data, responseSensors, position, captureHeading, loc.coords.accuracy ?? undefined, requestedAt, responseAt);
+      recordMovementShadow("response", responseAt, responseSensors, data, responseReasons);
+      if (responseReasons.length) {
         presentResponse(RECAPTURE_MESSAGE);
         return;
       }
@@ -1497,6 +1588,7 @@ export default function MainScreen({ navigation }: Props) {
       }
     } catch (e) {
       if (controller.signal.aborted) return;
+      movementSession?.stop("request_error");
       console.error("Last Meters Error:", e);
       const isTimeout = (e as { code?: string })?.code === "ECONNABORTED";
       const detail = e instanceof Error ? e.message : "";
@@ -1507,6 +1599,7 @@ export default function MainScreen({ navigation }: Props) {
           : "Error calculating last meters navigation. Please try again.";
       presentResponse(errMsg);
     } finally {
+      movementSession?.stop("completed");
       // A cancelled request settles after the user may have started a new one;
       // only the latest request may clear the loading state.
       if (
@@ -1533,6 +1626,7 @@ export default function MainScreen({ navigation }: Props) {
       return;
     }
     const question = raw;
+    stopMovementShadow("question");
     lastMetersVoiceResponseRef.current = null;
     setUserInput(question);
     setDisplayQuestion(question);
@@ -1977,6 +2071,7 @@ export default function MainScreen({ navigation }: Props) {
               onPressIn={() => tap()}
               onPress={() => {
                 cancelLastMetersRequest();
+                stopMovementShadow("photo_removed");
                 cameraReadyRef.current = false;
                 setCapturedImage(null);
                 setCapturedVideoUri(null);

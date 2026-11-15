@@ -46,6 +46,7 @@ export const Events = {
   FeedbackSubmitted: 'feedback_submitted',
   AnswerRated: 'answer_rated',
   NewTestStarted: 'new_test_started',
+  LastMetersMovementShadow: 'last_meters_movement_shadow',
 } as const;
 
 export type EventName = (typeof Events)[keyof typeof Events] | string;

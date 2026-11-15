@@ -57,7 +57,9 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Buddy Walk uses your location for navigation assistance."
+          "locationAlwaysAndWhenInUsePermission": "Buddy Walk uses your location for navigation assistance.",
+          "motionUsagePermission": "Buddy Walk uses motion activity during experimental navigation tests to study GPS drift and movement.",
+          "isAndroidMotionActivityEnabled": true
         }
       ],
       "expo-web-browser",
