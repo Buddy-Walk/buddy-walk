@@ -29,6 +29,10 @@ bun test
 
 Add native packages with `bunx expo install <package>` so they match the Expo SDK.
 
+After adding or updating packages, stop Metro and start it again with `bun start --clear`.
+A Metro that was already running keeps its old Babel setup and cache.
+For example, it bundles `react-native-worklets` without the worklets plugin, and the app then fails on launch with `cannot read property 'bytecode' of undefined`.
+
 The camera and text recognition only work on a real iPhone.
 Google ML Kit has no Apple Silicon simulator build, so `bun run ios` can fail on an Apple Silicon Mac unless the simulator runs under Rosetta.
 
