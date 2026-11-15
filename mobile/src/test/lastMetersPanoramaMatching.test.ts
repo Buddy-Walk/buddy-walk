@@ -581,14 +581,22 @@ const entranceReply = (changes: Partial<EntranceAssessment> = {}) => JSON.string
 const blockedEntrance = entranceReply({ panoramaEntrance: "OCCLUDED", sameEntrance: false, obstruction: "scaffolding" });
 const entranceReport = (row: Record<string, any>) => JSON.parse(row.steps.find((s: any) => s.name === "entrance_assessment").response);
 
-test("experimental entrance visible at the first camera uses no fallback", async t => {
+test("experimental entrance visible at the first camera uses no fallback or historical requests", async t => {
+  const history = t.mock.fn(async () => { throw new Error("History must not run"); });
   const { result, saved, prompts, audits, entranceCalls } = await match(t, world({
-    occlusion: {}, panoramaDates: ["2025-01", "2025-02"], entranceAnswers: [entranceReply()],
+    occlusion: { historicalProvider: { id: "test-only", list: history, loadView: history } },
+    panoramaDates: ["2025-01", "2025-02"], entranceAnswers: [entranceReply()],
   }));
   assert.equal(result.kind, "ok");
   assert.equal(result.kind === "ok" && result.value.entranceVerified, true);
-  assert.equal(entranceCalls, 1); assert.deepEqual(prompts.sort(), ["currentView", "destination"]);
-  assert.equal(audits.length, 0); assert.equal(entranceReport(await saved()).additionalApiRequests, 1);
+  assert.equal(entranceCalls, 1);
+  assert.deepEqual(prompts.sort(), ["currentView", "destination"]);
+  assert.equal(audits.length, 0);
+  assert.equal(history.mock.callCount(), 0);
+  const report = entranceReport(await saved());
+  assert.equal(report.entranceVerified, true);
+  assert.equal(report.additionalApiRequests, 1);
+  assert.equal(report.historicalStatus, "not_requested");
 });
 
 test("a second camera can verify a door without replacing the phone heading", async t => {
@@ -623,6 +631,7 @@ test("three obstructed cameras with no provider withhold; signs never launch ind
   assert.equal(prompts.includes("reference"), false);
   assert.equal(prompts.includes("signText"), false);
   const report = entranceReport(row);
+  assert.equal(report.historicalStatus, "provider_unavailable");
   assert.equal(report.additionalApiRequests, 51); // 3 assessments + 2 * (metadata + 4 previews + classifier + 16 tiles + B + C).
   assert.equal(report.entranceVerified, false);
 });
@@ -639,6 +648,16 @@ test("an obstructed current photo cannot be overridden by a later contradictory 
     entranceAnswers: [entranceReply({ photoEntrance: "OCCLUDED", sameEntrance: false, obstruction: "vehicle" }), entranceReply()] }));
   assert.equal(result.kind, "exit");
   assert.equal(entranceReport(await saved()).entranceVerified, false);
+});
+
+test("a pinned occluded retry stays pinned and never requests history", async t => {
+  const list = t.mock.fn(async () => []);
+  const { result, audits, saved } = await match(t, world({ pinned: true, panoramaDates: ["2025-01", "2025-02"],
+    occlusion: { historicalProvider: { id: "test-only", list, loadView: async () => "" } }, entranceAnswers: [blockedEntrance] }));
+  assert.equal(result.kind, "exit");
+  assert.equal(list.mock.callCount(), 0);
+  assert.equal(audits.length, 0);
+  assert.equal(entranceReport(await saved()).historicalStatus, "pinned_retry");
 });
 
 test("the experimental branch still exits on a missing compass before entrance assessment", async t => {
@@ -665,4 +684,25 @@ test("experimental matching errors are recorded without leaking provider credent
   const row = await saved();
   assert.equal(JSON.stringify(row).includes("private-api-key"), false);
   assert.equal(entranceReport(row).failureReason, "panorama_matching_failed_or_timed_out");
+});
+
+test("historical entrance evidence after three blocked cameras remains a withheld API response", async t => {
+  let historyCalls = 0;
+  const { result, saved } = await match(t, world({ panoramaDates: ["2025-01", "2025-02", "2025-03"],
+    occlusion: { historicalProvider: {
+      id: "test-only-authorized-history",
+      list: async () => { historyCalls++; return [{ panoId: "historic-door", date: "2024-01", placeId: DESTINATION.placeId, camera: USER }]; },
+      loadView: async () => "data:image/jpeg;base64,AAAA",
+    } }, entranceAnswers: [blockedEntrance, blockedEntrance, blockedEntrance, entranceReply()],
+  }));
+  assert.equal(historyCalls, 1);
+  assert.equal(result.kind, "exit");
+  if (result.kind !== "exit" || result.result.kind !== "response") return assert.fail("Expected withheld response");
+  assert.equal(result.result.body.warning, "turn_withheld");
+  assert.equal(result.result.body.targetHeading, null);
+  assert.equal(result.result.body.guidanceKind, "withheld");
+  assert.match(String(result.result.body.output), /Older imagery/);
+  const report = entranceReport(await saved());
+  assert.equal(report.historicalStatus, "historical_entrance_only");
+  assert.equal(report.entranceVerified, false);
 });

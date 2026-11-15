@@ -162,7 +162,9 @@ export async function matchPanoramaHeadings(
   const originalRequests = input.search.budget.apiRequests ?? 0;
   const entranceExit = (): StepResult<PanoramaHeadings> => ({ kind: "exit", respond: () => trial.withhold(
     ["entrance_not_visually_confirmed"],
-    "I cannot visually verify the entrance. Stay in a safe place and take a clear photo of the entrance if you can, or ask for assistance.",
+    assessment?.historicalStatus === "historical_entrance_only"
+      ? "Older imagery suggests a past entrance, but I cannot verify the current entrance or its accessibility. Stay in a safe place and use your primary navigation or ask for assistance."
+      : "I cannot visually verify the entrance. Stay in a safe place and take a clear photo of the entrance if you can, or ask for assistance.",
   ) });
   try {
     for (let attempt = 1; ; attempt++) {
@@ -190,6 +192,7 @@ export async function matchPanoramaHeadings(
           return unmatchedViewFallback;
         }
         if (assessment) {
+          await trial.moduleTimer.time("destinationMatch", () => assessment.searchHistory(input.search.pinned));
           return entranceExit();
         }
         if (matched.backups) trial.note(matched.backups);
