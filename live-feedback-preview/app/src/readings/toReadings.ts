@@ -16,6 +16,30 @@ export type FrameInfo = Size & {
   timestamp: number;
 };
 
+// Each worklet must come after the worklets it calls. The worklets Babel plugin captures a
+// worklet's callees where it is declared, so a callee declared further down is captured as
+// undefined and the call throws on the frame thread.
+
+function clamp(value: number, max: number) {
+  'worklet';
+  return Math.min(Math.max(value, 0), max);
+}
+
+// ocr-plus 2.1.2 computes the frame's x and y wrongly, so the box is built from its center and size.
+function toBox(lineFrame: LineFrame, size: Size): Box {
+  'worklet';
+  const left = clamp(lineFrame.boundingCenterX - lineFrame.width / 2, size.width);
+  const right = clamp(lineFrame.boundingCenterX + lineFrame.width / 2, size.width);
+  const top = clamp(lineFrame.boundingCenterY - lineFrame.height / 2, size.height);
+  const bottom = clamp(lineFrame.boundingCenterY + lineFrame.height / 2, size.height);
+  return {
+    x: left / size.width,
+    y: top / size.height,
+    width: (right - left) / size.width,
+    height: (bottom - top) / size.height,
+  };
+}
+
 /**
  * The size of the frame once ocr-plus has turned it upright, which is the space its boxes are in.
  * A frame rotated a quarter turn has its width and height swapped.
@@ -44,24 +68,4 @@ export function toReadings(recognized: RecognizedText, frame: FrameInfo, recogni
     }
   }
   return readings;
-}
-
-// ocr-plus 2.1.2 computes the frame's x and y wrongly, so the box is built from its center and size.
-function toBox(lineFrame: LineFrame, size: Size): Box {
-  'worklet';
-  const left = clamp(lineFrame.boundingCenterX - lineFrame.width / 2, size.width);
-  const right = clamp(lineFrame.boundingCenterX + lineFrame.width / 2, size.width);
-  const top = clamp(lineFrame.boundingCenterY - lineFrame.height / 2, size.height);
-  const bottom = clamp(lineFrame.boundingCenterY + lineFrame.height / 2, size.height);
-  return {
-    x: left / size.width,
-    y: top / size.height,
-    width: (right - left) / size.width,
-    height: (bottom - top) / size.height,
-  };
-}
-
-function clamp(value: number, max: number) {
-  'worklet';
-  return Math.min(Math.max(value, 0), max);
 }
