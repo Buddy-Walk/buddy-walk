@@ -59,6 +59,7 @@ interface Reply {
 function screen(reply: Reply) {
   const spoken: string[] = [];
   const statuses: string[] = [];
+  const requests: any[] = [];
   let pendingEffect = false;
   let stopCount = 0;
   let speaking = false;
@@ -87,7 +88,10 @@ function screen(reply: Reply) {
     },
     setTimeout: () => 1, clearTimeout: () => {},
     track: async () => {}, Events: { AnswerReceived: 'answer_received' },
-    sendLastMetersRequest: async () => reply,
+    sendLastMetersRequest: async (data: unknown) => {
+      requests.push(JSON.parse(JSON.stringify(data)));
+      return reply;
+    },
   });
   context.speakAnswer = load(named('speakAnswer'), context);
   context.cancelLastMetersRequest = load(named('cancelLastMetersRequest'), context);
@@ -103,6 +107,7 @@ function screen(reply: Reply) {
     context.capturedPhotoHeadingRef = { current: 90 };
     context.capturedPhotoHeadingAccuracyRef = { current: 3 };
     context.headingRef = { current: 90 };
+    context.headingAccuracyRef = { current: 3 };
     context.headingTimestampRef = { current: now };
     context.headingReferenceRef = { current: 'true' };
     context.capturedSensorMetadataRef = { current: {
@@ -112,7 +117,7 @@ function screen(reply: Reply) {
   };
   prepare();
   return {
-    context, spoken, statuses, handle, replay, autoSpeak, prepare,
+    context, spoken, statuses, requests, handle, replay, autoSpeak, prepare,
     flush: () => { if (pendingEffect) { pendingEffect = false; autoSpeak(); } },
     setSpeaking: (value: boolean) => { speaking = value; },
     stopped: () => stopCount,
@@ -227,3 +232,21 @@ test('a transport error retains its existing text and is spoken once', async () 
   assert.equal(s.context.aiResponse, 'Last Meters error: offline');
   assert.deepEqual(s.spoken, ['Last Meters error: offline']);
 });
+
+for (const accuracy of [0, 1, 2, 3, null]) {
+  test(`Last Meters submits latest Expo accuracy ${accuracy ?? "not recorded"} independently of capture accuracy`, async () => {
+    const s = screen({ output: "Keep the original backend explanation.", warning: "turn_withheld", guidanceKind: "withheld" });
+    s.context.headingAccuracyRef.current = accuracy;
+    // The existing low-accuracy callback clears the current heading; the capture stays immutable.
+    s.context.headingRef.current = accuracy !== null && accuracy < 2 ? null : 90;
+    await s.handle();
+    assert.equal(s.requests.length, 1);
+    const request = s.requests[0];
+    assert.equal(request.heading, 90);
+    assert.equal(request.compassAccuracyLevel, 3);
+    assert.equal(request.sensors.latestHeadingAccuracyLevel, accuracy);
+    assert.equal(request.sensors.latestHeading, s.context.headingRef.current ?? -1);
+    assert.equal(request.sensors.latestHeadingTimestamp, s.context.headingTimestampRef.current);
+    assert.equal(request.sensors.latestHeadingReference, "true");
+  });
+}

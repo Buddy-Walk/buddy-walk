@@ -205,8 +205,25 @@ const retryHistorySchema = z.object({
 });
 export type RetryHistory = z.output<typeof retryHistorySchema>;
 
+// Diagnostics read the saved request, not the derived compass/panorama headings.
+// Optional fields keep old Trials readable without inventing sensor readings.
+const headingReplayInputSchema = z.object({
+  receivedAt: maybe(z.number()),
+  heading: maybe(z.number()),
+  compassAccuracyLevel: maybe(z.number()),
+  sensors: maybe(
+    z.object({
+      latestHeading: maybe(z.number()),
+      latestHeadingAccuracyLevel: maybe(z.number()),
+      latestHeadingTimestamp: maybe(z.number()),
+      latestHeadingReference: maybe(z.string()),
+    }),
+  ),
+});
+
 /** One Trial as the detail sends it: images, Places candidates and its retry history. */
 export const trialDetailSchema = trialSchema.extend({
+  replayInput: maybe(headingReplayInputSchema),
   userPhoto: maybe(z.string()),
   panoramaPhoto: maybe(z.string()),
   destinationPhoto: maybe(z.string()),

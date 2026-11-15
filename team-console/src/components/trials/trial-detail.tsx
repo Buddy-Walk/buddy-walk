@@ -11,6 +11,7 @@ import {
   UNVERSIONED,
 } from "#/lib/trials/display";
 import { failureExplanation } from "#/lib/trials/failure";
+import { headingDiagnostics } from "#/lib/trials/heading-diagnostics";
 import { buildModules, type TrialModule } from "#/lib/trials/modules";
 import { RETRY_HISTORY_HASH } from "#/lib/trials/retry";
 import type { TrialDetail } from "#/lib/trials/schema";
@@ -130,6 +131,30 @@ function FailureSummary({ trial }: { trial: TrialDetail }) {
         </ul>
       )}
     </section>
+  );
+}
+
+function HeadingSensorDiagnostics({ trial }: { trial: TrialDetail }) {
+  return (
+    <Block title={<h3>Heading &amp; Sensor Diagnostics</h3>}>
+      {trial.safetyReasons.includes("current_heading_unavailable") && (
+        <p className="mb-2 text-sm text-muted-foreground">
+          The safety gate reported current_heading_unavailable. Latest Heading and Latest Expo
+          Accuracy show the saved phone readings for this request.
+        </p>
+      )}
+      {headingDiagnostics(trial).map(([label, value]) => (
+        <Metric key={label} label={label}>
+          {value}
+        </Metric>
+      ))}
+      <p className="mt-2 text-xs text-quiet">
+        Heading age uses the saved backend receipt time, including request transit time. The
+        reference and validity describe the latest sensor heading, not a panorama match. Validity
+        describes the recorded value; freshness remains a separate safety check. Expo accuracy is
+        diagnostic only and does not establish why a reading was invalid.
+      </p>
+    </Block>
   );
 }
 
@@ -275,6 +300,7 @@ export function TrialDetailBody({ trial }: { trial: TrialDetail }) {
 
       <MetaFacts trial={trial} />
       <FailureSummary trial={trial} />
+      <HeadingSensorDiagnostics trial={trial} />
       {trial.history && (
         <RetryHistorySection id={RETRY_HISTORY_HASH} trial={trial} history={trial.history} />
       )}
