@@ -21,6 +21,13 @@ describe('app variant', () => {
     expect(config.name).toBe('BW Live Dev');
   });
 
+  test('explains why it asks for the camera and for location', () => {
+    const { infoPlist } = resolvedConfig().ios;
+
+    expect(infoPlist.NSCameraUsageDescription).toContain('signs and door numbers');
+    expect(infoPlist.NSLocationWhenInUseUsageDescription).toContain('compass');
+  });
+
   test('release variant uses the TestFlight bundle ID and name', () => {
     const config = resolvedConfig('release');
 

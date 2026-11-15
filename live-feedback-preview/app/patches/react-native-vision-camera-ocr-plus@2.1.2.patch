@@ -1,0 +1,78 @@
+diff --git a/ios/HybridTextRecognizer.swift b/ios/HybridTextRecognizer.swift
+index 5df716e62cdf2393592112c62845940f05857091..e234bc49a532b1125a0afdd9e1ef2917dd0c5889 100644
+--- a/ios/HybridTextRecognizer.swift
++++ b/ios/HybridTextRecognizer.swift
+@@ -83,23 +83,20 @@ class HybridTextRecognizer: HybridTextRecognizerSpec {
+     }
+   }
+ 
++  // Buddy Walk patch: OCR runs synchronously on the calling (frame) thread and returns
++  // the result for this very frame, so callers can time it and tie it to the frame's
++  // timestamp. Frames that are skipped or cannot be read return nil instead of a
++  // stale result. VisionCamera drops frames that arrive while this one is read.
+   func scanFrame(nativeBufferPointer: UInt64, orientation: String) throws -> RecognizedText? {
+     // Apply frame-skip for performance
+     frameCounter += 1
+     if frameCounter % max(1, frameSkipThreshold) != 0 {
+-      return try getLastResult()
+-    }
+-
+-    // If the OCR queue is still processing the previous frame, skip this one.
+-    // This is the key fix: we never block the frame thread waiting for MLKit.
+-    guard startOCRIfIdle() else {
+-      return try getLastResult()
++      return nil
+     }
+ 
+     // Reconstruct CVPixelBuffer from the pointer (retain count +1 from caller)
+     guard let rawPtr = UnsafeRawPointer(bitPattern: UInt(nativeBufferPointer)) else {
+-      finishOCR()
+-      return try getLastResult()
++      return nil
+     }
+     let pixelBuffer: CVPixelBuffer = Unmanaged<CVPixelBuffer>.fromOpaque(rawPtr).takeUnretainedValue()
+ 
+@@ -116,8 +113,7 @@ class HybridTextRecognizer: HybridTextRecognizerSpec {
+       colorSpace: CGColorSpaceCreateDeviceRGB()
+     ) else {
+       CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
+-      finishOCR()
+-      return try getLastResult()
++      return nil
+     }
+     CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
+ 
+@@ -149,28 +145,11 @@ class HybridTextRecognizer: HybridTextRecognizerSpec {
+       capturedImage = normalizedImage
+     }
+ 
+-    // --- Slow path: run MLKit OCR off the frame thread.
+-    let recognizer = textRecognizer
+-    ocrQueue.async { [weak self] in
+-      guard let self = self else { return }
+-      // capturedImage is already normalised to .up — no orientation hint needed.
+-      let visionImage = VisionImage(image: capturedImage)
+-      visionImage.orientation = .up
+-      do {
+-        let result = try recognizer.results(in: visionImage)
+-        let recognized = self.buildRecognizedText(from: result)
+-        self.setLastResult(recognized)
+-      } catch {
+-        self.stateLock.lock()
+-        self.lastResult = nil
+-        self.hasPendingError = true
+-        self.stateLock.unlock()
+-      }
+-      self.finishOCR()
+-    }
+-
+-    // Return the last completed result immediately — the frame thread is never blocked.
+-    return try getLastResult()
++    // capturedImage is already normalised to .up — no orientation hint needed.
++    let visionImage = VisionImage(image: capturedImage)
++    visionImage.orientation = .up
++    let result = try textRecognizer.results(in: visionImage)
++    return buildRecognizedText(from: result)
+   }
+ 
+   func recognizePhoto(uri: String, orientation: String) throws -> Promise<RecognizedText> {

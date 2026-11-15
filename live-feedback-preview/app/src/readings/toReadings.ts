@@ -1,0 +1,74 @@
+import type { Box, Reading } from './Reading';
+
+/** The parts of an ocr-plus result that Readings are built from. */
+export type RecognizedText = {
+  blocks: {
+    lines: {
+      lineText: string;
+      lineFrame: { boundingCenterX: number; boundingCenterY: number; width: number; height: number };
+    }[];
+  }[];
+};
+
+/** The parts of a VisionCamera frame that Readings need. */
+export type FrameInfo = {
+  width: number;
+  height: number;
+  /** How the buffer is rotated relative to upright. */
+  orientation: 'up' | 'right' | 'down' | 'left';
+  /** In seconds, on the camera's clock. */
+  timestamp: number;
+};
+
+/**
+ * The size of the frame once ocr-plus has turned it upright, which is the space its boxes are in.
+ * A frame rotated a quarter turn has its width and height swapped.
+ */
+export function uprightSize(frame: Pick<FrameInfo, 'width' | 'height' | 'orientation'>) {
+  'worklet';
+  const quarterTurn = frame.orientation === 'left' || frame.orientation === 'right';
+  return quarterTurn ? { width: frame.height, height: frame.width } : { width: frame.width, height: frame.height };
+}
+
+/** Turns one frame's ocr-plus result into Readings, one per recognised line. */
+export function toReadings(recognized: RecognizedText, frame: FrameInfo, recognitionMs: number): Reading[] {
+  'worklet';
+  const size = uprightSize(frame);
+  const readings: Reading[] = [];
+  for (const block of recognized.blocks) {
+    for (const line of block.lines) {
+      const text = line.lineText.trim();
+      if (text === '') continue;
+      readings.push({
+        text,
+        box: toBox(line.lineFrame, size),
+        frameTimestamp: frame.timestamp * 1000,
+        recognitionMs,
+      });
+    }
+  }
+  return readings;
+}
+
+// ocr-plus 2.1.2 computes the frame's x and y wrongly, so the box is built from its center and size.
+function toBox(
+  lineFrame: RecognizedText['blocks'][number]['lines'][number]['lineFrame'],
+  size: { width: number; height: number },
+): Box {
+  'worklet';
+  const left = clamp(lineFrame.boundingCenterX - lineFrame.width / 2, size.width);
+  const right = clamp(lineFrame.boundingCenterX + lineFrame.width / 2, size.width);
+  const top = clamp(lineFrame.boundingCenterY - lineFrame.height / 2, size.height);
+  const bottom = clamp(lineFrame.boundingCenterY + lineFrame.height / 2, size.height);
+  return {
+    x: left / size.width,
+    y: top / size.height,
+    width: (right - left) / size.width,
+    height: (bottom - top) / size.height,
+  };
+}
+
+function clamp(value: number, max: number) {
+  'worklet';
+  return Math.min(Math.max(value, 0), max);
+}

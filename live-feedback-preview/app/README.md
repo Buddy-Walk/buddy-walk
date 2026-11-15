@@ -29,6 +29,111 @@ bun test
 
 Add native packages with `bunx expo install <package>` so they match the Expo SDK.
 
+The camera and text recognition only work on a real iPhone.
+Google ML Kit has no Apple Silicon simulator build, so `bun run ios` can fail on an Apple Silicon Mac unless the simulator runs under Rosetta.
+
+## Code layout
+
+- `src/readings/` turns live camera frames into Readings, on the phone, with `react-native-vision-camera` and `react-native-vision-camera-ocr-plus` (Google ML Kit).
+  It knows nothing about experiment sessions, so later screens (#118) use it as it is.
+- `src/experiment/` is the first experiment's screen (#106): live Readings, experiment sessions, Marks and export.
+  It goes away after the experiment.
+
+`patches/` holds a patch to `react-native-vision-camera-ocr-plus`, applied by `bun install`.
+As released, ocr-plus returns the result of an earlier frame for each frame it is given.
+The patch makes it read each frame before returning, so every Reading has its own frame's timestamp and recognition time.
+VisionCamera drops the frames that arrive while a frame is being read.
+ocr-plus is pinned to the exact version the patch is for.
+
+## The experiment screen
+
+The app opens on the camera, with a box over each Reading and a list of the most recent Readings below.
+
+1. Tap **Start** to begin an experiment session.
+   iOS asks for location permission the first time, because it only gives a compass heading with it.
+2. Walk the street.
+   Every Reading is logged with the compass heading.
+3. Tap **Mark** at a target.
+   The app saves the frame at the tap with its Readings, then asks for the target kind, side of the street, whether you can read it yourself, its style, and the distance in feet.
+   **Cancel** throws the frame away.
+4. Tap **Stop** to end the session.
+
+The session is saved on the phone every 2 seconds while it runs, so closing or killing the app loses at most the last 2 seconds.
+A session that was never stopped still appears under **Sessions**, marked "cut off".
+
+### Exporting a session
+
+Tap **Sessions**, then **Export** on a session.
+The share sheet opens with one zip file, which AirDrop sends to a Mac.
+The zip holds a folder named after the session, with `session.json` and one JPEG per Mark.
+**Delete** removes a session from the phone.
+
+Frames from public streets can show people, so exported sessions stay out of git (#139).
+
+### Session files
+
+On the phone, each session is a folder in the app's documents, named after its start time, such as `2026-11-15T14-00-00Z`.
+It holds `log.jsonl`, which is only ever appended to, and the Mark frames.
+The export turns the log into `session.json`.
+
+`session.json` looks like this:
+
+```json
+{
+  "version": 1,
+  "id": "2026-11-15T14-00-00Z",
+  "device": { "model": "iPhone 15", "osVersion": "26.1" },
+  "app": { "version": "1.0.0", "build": "1" },
+  "startedAt": "2026-11-15T14:00:00.000Z",
+  "endedAt": "2026-11-15T14:20:00.000Z",
+  "framesProcessed": 6000,
+  "framesPerSecond": 5,
+  "readings": [
+    {
+      "text": "34",
+      "box": { "x": 0.4, "y": 0.475, "width": 0.2, "height": 0.05 },
+      "frameTimestamp": 81234567.8,
+      "recognitionMs": 42,
+      "heading": { "trueDegrees": 92.5, "magneticDegrees": 80.1, "accuracy": 3 }
+    }
+  ],
+  "marks": [
+    {
+      "markedAt": "2026-11-15T14:03:12.000Z",
+      "frameFile": "mark-001.jpg",
+      "heading": { "trueDegrees": 92.5, "magneticDegrees": 80.1, "accuracy": 3 },
+      "readings": [
+        {
+          "text": "34",
+          "box": { "x": 0.4, "y": 0.475, "width": 0.2, "height": 0.05 },
+          "frameTimestamp": 81234890.1,
+          "recognitionMs": 40
+        }
+      ],
+      "targetKind": "street-number",
+      "side": "same-sidewalk",
+      "visibleToTester": true,
+      "signStyle": "plain",
+      "distanceFeet": 12
+    }
+  ]
+}
+```
+
+- `version` goes up whenever the shape changes.
+- `endedAt` is `null` for a session that was cut off; `framesProcessed` and `framesPerSecond` then run to its last save.
+- `framesPerSecond` is frames read per second over the whole session, or `null` if no time passed.
+- A Reading is one line of text ML Kit recognised.
+- `box` is where the Reading sits in the upright frame, as fractions (0 to 1) of the frame's width and height from its top-left corner.
+- `frameTimestamp` is when the camera captured the frame, in milliseconds on the camera's own clock.
+  It is not wall-clock time: use it to compare frames within a session.
+- `recognitionMs` is how long ML Kit took to read the frame.
+- `heading` is the phone's compass heading when the frame was read, or `null` before the first compass reading or without location permission.
+  `trueDegrees` is `null` when iOS can't give true north, and `accuracy` runs from 0 (over 50° uncertainty) to 3 (under 20°).
+- `targetKind` is `street-number` or `sign`, `side` is `same-sidewalk` or `across-street`, and `signStyle` is `plain`, `stylised` or `angled`.
+- `visibleToTester` is whether the tester could read the target themselves.
+- A Mark's `readings` are the Readings of its frame, `frameFile`.
+
 ## Running on your own iPhone
 
 You need Xcode, an iPhone connected by cable, and an Apple ID added in Xcode → Settings → Accounts.
