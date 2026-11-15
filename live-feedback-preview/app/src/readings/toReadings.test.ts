@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test';
+import { join } from 'node:path';
 
-import { toReadings, type RecognizedText } from './toReadings';
+import { loadAsMetroBundles } from '../testing/loadAsMetroBundles';
+import * as asWritten from './toReadings';
+import type { RecognizedText } from './toReadings';
+
+// toReadings runs on the camera's frame thread as a worklet, so it is also tested as the
+// worklets plugin compiles it.
+const asMetroBundles = loadAsMetroBundles(join(import.meta.dir, 'toReadings.ts')) as typeof asWritten;
 
 function line(lineText: string, centerX: number, centerY: number, width: number, height: number) {
   // x and y are deliberately wrong, as ocr-plus 2.1.2 reports them: only the center and size are right.
@@ -11,7 +18,10 @@ function recognized(...lines: ReturnType<typeof line>[]): RecognizedText {
   return { blocks: [{ lines }] };
 }
 
-describe('toReadings', () => {
+describe.each([
+  ['as written', asWritten],
+  ['as Metro bundles it', asMetroBundles],
+])('toReadings %s', (_, { toReadings }) => {
   test('gives one Reading per line, with its box as fractions of the upright frame', () => {
     const readings = toReadings(
       recognized(line('34', 360, 640, 144, 64), line("Joe's Pizza", 360, 320, 360, 128)),
