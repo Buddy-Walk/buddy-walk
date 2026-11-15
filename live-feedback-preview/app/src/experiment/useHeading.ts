@@ -5,19 +5,20 @@ import type { Heading } from './session';
 
 /**
  * Watches the compass while `active`, and returns a ref holding the latest heading, or null before
- * the first one. iOS only gives a heading with location permission, which this asks for.
+ * the first one. iOS only gives a heading with location permission, which this asks for as soon as
+ * the screen opens, so the question never interrupts a session.
  */
 export function useHeading(active: boolean) {
   const latest = useRef<Heading | null>(null);
+  const [permission] = Location.useForegroundPermissions({ request: true });
+  const granted = permission?.granted ?? false;
 
   useEffect(() => {
-    if (!active) return;
+    if (!active || !granted) return;
     let subscription: Location.LocationSubscription | null = null;
     let cancelled = false;
 
     (async () => {
-      const { granted } = await Location.requestForegroundPermissionsAsync();
-      if (!granted || cancelled) return;
       const watch = await Location.watchHeadingAsync((heading) => {
         latest.current = {
           trueDegrees: heading.trueHeading >= 0 ? heading.trueHeading : null,
@@ -34,7 +35,7 @@ export function useHeading(active: boolean) {
       subscription?.remove();
       latest.current = null;
     };
-  }, [active]);
+  }, [active, granted]);
 
   return latest;
 }

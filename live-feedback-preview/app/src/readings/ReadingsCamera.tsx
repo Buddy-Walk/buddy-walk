@@ -19,13 +19,16 @@ import { toReadings, uprightSize } from './toReadings';
 export type Snapshot = { image: Image; frame: FrameReadings };
 
 export type ReadingsCameraRef = {
-  /** Captures the next processed frame and its Readings. */
+  /** Captures the next processed frame and its Readings. Only works while `isReading`. */
   takeSnapshot(): Promise<Snapshot>;
 };
 
 type Props = {
+  /** Whether the camera runs and shows its picture. */
   isActive: boolean;
-  /** Called on the JS thread for every processed frame, including frames with no Readings. */
+  /** Whether frames are read for text. The camera can show its picture without reading anything. */
+  isReading: boolean;
+  /** Called on the JS thread for every processed frame while reading, including frames with no Readings. */
   onFrameReadings: (frame: FrameReadings) => void;
   /** Drawn over the camera view, in a box that matches the frame, so `Box` fractions can be used as percentages. */
   children?: ReactNode;
@@ -46,7 +49,7 @@ const defaultFrameSize = { width: 720, height: 1280 };
  * The back camera, reading text live on the phone with Google ML Kit.
  * It knows nothing about sessions or Marks, so later screens can use it as it is.
  */
-export function ReadingsCamera({ isActive, onFrameReadings, children, style, ref }: Props) {
+export function ReadingsCamera({ isActive, isReading, onFrameReadings, children, style, ref }: Props) {
   const permission = useCameraPermission();
   const device = useCameraDevice('back');
   const { recognizer } = useTextRecognition(recognitionOptions);
@@ -58,9 +61,19 @@ export function ReadingsCamera({ isActive, onFrameReadings, children, style, ref
     if (canRequestPermission) requestPermission();
   }, [canRequestPermission, requestPermission]);
 
+  // The frame thread checks `reading` before reading a frame. Frames it was already reading when
+  // reading stopped are dropped here, so no Readings arrive after `isReading` turns false.
+  const reading = useMemo(() => createSynchronizable(false), []);
+  const isReadingRef = useRef(isReading);
+  isReadingRef.current = isReading;
+  useEffect(() => {
+    reading.setBlocking(isReading);
+  }, [reading, isReading]);
+
   const onFrameReadingsRef = useRef(onFrameReadings);
   onFrameReadingsRef.current = onFrameReadings;
   const deliver = useCallback((frame: FrameReadings) => {
+    if (!isReadingRef.current) return;
     setFrameSize((current) =>
       current.width === frame.frameSize.width && current.height === frame.frameSize.height ? current : frame.frameSize,
     );
@@ -102,6 +115,7 @@ export function ReadingsCamera({ isActive, onFrameReadings, children, style, ref
     (frame: Frame) => {
       'worklet';
       try {
+        if (!reading.getDirty()) return;
         const started = Date.now();
         const buffer = frame.getNativeBuffer();
         let recognized;
@@ -135,7 +149,7 @@ export function ReadingsCamera({ isActive, onFrameReadings, children, style, ref
         frame.dispose();
       }
     },
-    [recognizer, snapshotRequested, frameFailed, deliver, deliverSnapshot],
+    [recognizer, reading, snapshotRequested, frameFailed, deliver, deliverSnapshot],
   );
 
   const frameOutput = useFrameOutput({

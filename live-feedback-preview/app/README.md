@@ -55,10 +55,12 @@ Both packages are pinned to the exact versions the patches are for.
 
 ## The experiment screen
 
-The app opens on the camera, with a box over each Reading and a list of the most recent Readings below.
+The app opens on the camera.
+The first time, iOS asks for camera and location permission as it opens, because it only gives a compass heading with location.
+Nothing is read until you tap **Start**.
 
 1. Tap **Start** to begin an experiment session.
-   iOS asks for location permission the first time, because it only gives a compass heading with it.
+   The app reads text from then on, with a box over each Reading and a list of the most recent Readings below.
 2. Walk the street.
    Every Reading is logged with the compass heading.
    The status line says "no compass heading" while there is none, for example when location permission is denied.

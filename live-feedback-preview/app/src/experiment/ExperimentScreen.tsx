@@ -83,12 +83,14 @@ export function ExperimentScreen() {
 
   function startSession() {
     setLoggedCount(0);
+    setRecent([]);
     setRecorder(store.start(currentSessionInfo()));
   }
 
   function stopSession() {
     recorder?.stop();
     setRecorder(null);
+    setCurrentReadings([]);
   }
 
   async function mark() {
@@ -125,6 +127,8 @@ export function ExperimentScreen() {
         ref={camera}
         style={styles.camera}
         isActive={appActive && !showingSessions}
+        // Text is read only while recording, so nothing is read while the tester gets ready.
+        isReading={recording}
         onFrameReadings={onFrameReadings}
       >
         {currentReadings.map((reading, index) => (
@@ -155,7 +159,7 @@ export function ExperimentScreen() {
         </Text>
         <View style={styles.recent} accessibilityLabel="Most recent Readings">
           {recent.length === 0 ? (
-            <Text style={styles.recentText}>No Readings yet.</Text>
+            <Text style={styles.recentText}>{recorder ? 'No Readings yet.' : 'Tap Start to read text.'}</Text>
           ) : (
             recent.map((reading, index) => (
               <Text key={index} style={styles.recentText} numberOfLines={1}>
