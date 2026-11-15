@@ -71,12 +71,13 @@ export function startPanoramaSearch(
   trial: LastMetersTrial,
   position: LatLng,
   pinned: StreetViewMetadata | undefined,
+  enforceDeadline = false,
 ): PanoramaSearch {
   const panoramaValidation: PanoramaAttempt[] = [];
   trial.note({ panoramaValidation });
   const audit: PanoramaAudit = attempt => panoramaValidation.push(attempt);
   const classify: SceneClassifier = (images, timeoutMs) => classifyPanoramaScene(getOpenAIClient(), images, timeoutMs);
-  const budget: PanoramaSearchBudget = { seen: new Set(), deadline: Date.now() + 45_000 };
+  const budget: PanoramaSearchBudget = { seen: new Set(), deadline: Date.now() + 45_000, enforceDeadline, apiRequests: 0 };
   const first = processPanoramaTiles(position.lat, position.lng, classify, audit, budget, pinned);
   void first.catch(() => undefined);
   return { first, budget, classify, audit, pinned: pinned !== undefined };
