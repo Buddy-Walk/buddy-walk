@@ -29,8 +29,17 @@ const config: ExpoConfig = {
     supportsTablet: false,
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
+      NSCameraUsageDescription:
+        'BW Live reads signs and door numbers from the camera, on this phone. Camera frames are not uploaded.',
+      // iOS only gives a compass heading with location permission.
+      NSLocationWhenInUseUsageDescription:
+        'BW Live records which way the phone faces, from the compass, alongside the text it reads.',
     },
   },
+  plugins: [
+    // Only Latin text is read, so the translation and non-Latin ML Kit models are left out of the app.
+    ['react-native-vision-camera-ocr-plus', { disableTranslate: true, disableNonLatinTextRecognition: true }],
+  ],
 };
 
 export default config;

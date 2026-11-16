@@ -1,0 +1,32 @@
+diff --git a/ios/Hybrid Objects/Utils/HybridFrameConverter.swift b/ios/Hybrid Objects/Utils/HybridFrameConverter.swift
+index 803fd8cd9b849d202abe9e33d24ccca56c61eacd..105f6946bd554acbecbdfd18ff08305fa52e6694 100644
+--- a/ios/Hybrid Objects/Utils/HybridFrameConverter.swift	
++++ b/ios/Hybrid Objects/Utils/HybridFrameConverter.swift	
+@@ -17,11 +17,26 @@ final class HybridFrameConverter: HybridFrameConverterSpec {
+     guard let sampleBuffer = frame.sampleBuffer else {
+       throw RuntimeError.error(withMessage: "The given `Frame` has already been disposed!")
+     }
+-    let uiOrientation = frame.metadata.uiImageOrientation
++    let uiOrientation = Self.displayOrientation(of: frame.metadata)
+     let uiImage = try sampleBuffer.toUIImage(orientation: uiOrientation)
+     return HybridUIImage(uiImage: uiImage)
+   }
+ 
++  // Buddy Walk patch: a Frame's orientation says how its pixels are rotated relative to
++  // upright ('left' is -90°), but UIImage.Orientation names the turn that displays them
++  // upright (.right turns the pixels 90° clockwise). Mapping 'left' to .left showed
++  // quarter-turned frames upside down, so the quarter turns are swapped here.
++  private static func displayOrientation(of metadata: MediaSampleMetadata) -> UIImage.Orientation {
++    switch metadata.orientation {
++    case .up, .down:
++      return metadata.uiImageOrientation
++    case .left:
++      return metadata.isMirrored ? .rightMirrored : .right
++    case .right:
++      return metadata.isMirrored ? .leftMirrored : .left
++    }
++  }
++
+   func convertFrameToImageAsync(frame: any HybridFrameSpec) throws -> Promise<any HybridImageSpec> {
+     return Promise.async {
+       return try self.convertFrameToImage(frame: frame)
