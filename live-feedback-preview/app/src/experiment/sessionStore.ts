@@ -8,6 +8,8 @@ import {
   type LoggedReading,
   type Mark,
   type SessionInfo,
+  type SessionVersion,
+  type StoredMark,
 } from './session';
 
 /** One session's folder. File names are plain names, never paths. */
@@ -41,9 +43,9 @@ const FLUSH_INTERVAL_MS = 2000;
  * The log is only ever appended to, so a session cut off partway still reloads.
  */
 type LogEntry =
-  | ({ kind: 'started'; version: typeof SESSION_VERSION; id: string; startedAt: string } & SessionInfo)
+  | ({ kind: 'started'; version: SessionVersion; id: string; startedAt: string } & SessionInfo)
   | { kind: 'frame'; heading: Heading | null; readings: FrameReadings['readings'] }
-  | ({ kind: 'mark' } & Mark)
+  | ({ kind: 'mark' } & StoredMark)
   | ({ kind: 'progress'; at: string } & Counts)
   | ({ kind: 'ended'; endedAt: string } & Counts);
 
@@ -229,7 +231,7 @@ function fromLog(entries: LogEntry[]): ExperimentSession {
   if (started?.kind !== 'started') throw new Error('Session log does not begin with its start');
 
   const readings: LoggedReading[] = [];
-  const marks: Mark[] = [];
+  const marks: StoredMark[] = [];
   let endedAt: string | null = null;
   let counts: Counts = { framesProcessed: 0, activeMs: 0 };
 

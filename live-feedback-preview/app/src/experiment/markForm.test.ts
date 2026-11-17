@@ -28,7 +28,7 @@ describe('Mark form', () => {
     expect(validateMarkForm(emptyMarkDraft)).toEqual({
       ok: false,
       errors: {
-        targetKind: 'Choose street number or sign.',
+        targetKind: 'Choose door number or sign.',
         side: 'Choose same sidewalk or across the street.',
         visibleToTester: 'Choose whether you can read it yourself.',
         signStyle: 'Choose plain, stylised or angled.',

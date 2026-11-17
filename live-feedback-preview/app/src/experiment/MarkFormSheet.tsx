@@ -16,7 +16,7 @@ const choices: { [Field in ChoiceField]: { label: string; options: { value: NonN
   targetKind: {
     label: 'Target',
     options: [
-      { value: 'street-number', label: 'Street number' },
+      { value: 'door-number', label: 'Door number' },
       { value: 'sign', label: 'Sign' },
     ],
   },

@@ -7,11 +7,14 @@ import type { MarkFields } from './markForm';
  *
  * This is the shape of the exported `session.json`, documented in the app README.
  * Bump `SESSION_VERSION` whenever the shape changes.
+ * Sessions keep the version they were recorded in, so one on the phone from an older version exports as it was.
  */
-export const SESSION_VERSION = 1;
+export const SESSION_VERSION = 2;
+
+export type SessionVersion = 1 | typeof SESSION_VERSION;
 
 export type ExperimentSession = {
-  version: typeof SESSION_VERSION;
+  version: SessionVersion;
   id: string;
   device: { model: string | null; osVersion: string | null };
   app: { version: string | null; build: string | null };
@@ -22,7 +25,7 @@ export type ExperimentSession = {
   /** Frames processed per second over the session, or null if no time passed. */
   framesPerSecond: number | null;
   readings: LoggedReading[];
-  marks: Mark[];
+  marks: StoredMark[];
 };
 
 /** The phone's compass heading when a frame was read. */
@@ -46,5 +49,8 @@ export type Mark = MarkFields & {
   heading: Heading | null;
   readings: Reading[];
 };
+
+/** A Mark as a session holds it. Version 1 sessions stored a door number's `targetKind` as `street-number`. */
+export type StoredMark = Omit<Mark, 'targetKind'> & { targetKind: Mark['targetKind'] | 'street-number' };
 
 export type SessionInfo = Pick<ExperimentSession, 'device' | 'app'>;

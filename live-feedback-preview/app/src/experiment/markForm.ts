@@ -1,6 +1,6 @@
 /** What the tester fills in for a Mark. */
 export type MarkFields = {
-  targetKind: 'street-number' | 'sign';
+  targetKind: 'door-number' | 'sign';
   side: 'same-sidewalk' | 'across-street';
   /** Whether the tester can read the target themselves from where they stand. */
   visibleToTester: boolean;
@@ -30,7 +30,7 @@ const MAX_DISTANCE_FEET = 1000;
 /** Checks the form and, when it is complete, gives the Mark's fields. */
 export function validateMarkForm(draft: MarkDraft): MarkFormResult {
   const errors: Partial<Record<keyof MarkDraft, string>> = {};
-  if (draft.targetKind === null) errors.targetKind = 'Choose street number or sign.';
+  if (draft.targetKind === null) errors.targetKind = 'Choose door number or sign.';
   if (draft.side === null) errors.side = 'Choose same sidewalk or across the street.';
   if (draft.visibleToTester === null) errors.visibleToTester = 'Choose whether you can read it yourself.';
   if (draft.signStyle === null) errors.signStyle = 'Choose plain, stylised or angled.';
