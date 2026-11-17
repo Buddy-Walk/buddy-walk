@@ -33,8 +33,13 @@ It exists to find out whether this approach is more helpful than the current app
 _Avoid_: Beta, Labs, the beta app
 
 **Destination brief**:
-Everything the phone needs to know about a Verified destination to run Last Meters on its own: its side of the street, street number, name variants, and its neighbouring businesses.
+Everything the phone needs to know about a Verified destination to run Last Meters on its own: its side of the street, door number, name variants, and its neighbouring businesses.
 _Avoid_: Destination payload, place data
+
+**Door number**:
+The number in a building's address, such as 310, wherever it is posted: on the door, awning, glass or wall.
+Not the number in a street's name, like the 5 in 5th Avenue.
+_Avoid_: Street number, house number, building number
 
 **Scan**:
 One stretch of the user panning the phone from one spot while the camera reads text.
@@ -45,7 +50,7 @@ One piece of text the camera recognised during a Scan, such as "34", "Joe's Pizz
 _Avoid_: OCR result, detection
 
 **Match**:
-A Reading tied to the Destination brief: the destination's own name, a street number, or a neighbouring business.
+A Reading tied to the Destination brief: the destination's own name, a door number, or a neighbouring business.
 The Matches in a Trial are its evidence.
 _Avoid_: Hit, evidence item
 

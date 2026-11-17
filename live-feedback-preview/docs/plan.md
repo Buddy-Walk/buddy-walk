@@ -105,7 +105,7 @@ A run has four parts: start, orient, find, and the fallbacks when the destinatio
 - Beside the building, 14 m of GPS error could flip a GPS-to-pin answer, so it is never used.
 - The app does not need to know which way the user was walking.
 - It uses the compass reading at that moment to start a Guided turn toward the destination's side ("turn to your right"), with about ±45° of tolerance.
-- The parity of the first street number read (odd or even) confirms the side, which catches compass error near steel buildings.
+- The parity of the first door number read (odd or even) confirms the side, which catches compass error near steel buildings.
 - If the compass is unreliable, the user pans a full circle instead.
 
 **The opposite sidewalk:**
@@ -118,7 +118,7 @@ A run has four parts: start, orient, find, and the fallbacks when the destinatio
 - The user slowly sweeps the phone, and the app gives real-time feedback ("sign to your left").
 - Text recognition runs on the phone, with no server and no AI model during the run (ADR 0005).
 - Each Scan produces Readings, and the app ties Readings to the Destination brief as Matches.
-- The destination counts as **found** when a Match on its own name or street number is close and centred in the camera view.
+- The destination counts as **found** when a Match on its own name or door number is close and centred in the camera view.
 - A Guided turn then faces the user toward it, and the app says "the entrance is in front of you".
 - Detecting the door itself is a later experiment (see 6.2).
 - Assumed working range from the same sidewalk is about 10 ft, because signs along the shop fronts appear edge-on from there; the first experiment measures this.
@@ -130,7 +130,7 @@ The fallbacks are an order of preference over the Matches, not separate modes.
 
 **Matches, strongest first:**
 1. **The destination's own sign or name.** If visible, it settles everything.
-2. **A street number** on the door, awning or glass.
+2. **A door number** on the door, awning or glass.
    - Numbers usually rise in one direction along a block, with odds on one side and evens on the other.
    - If the door beside the user reads 34 and the destination is 40, the user is a few doors away.
    - The rising direction and the parity come from the Destination brief.

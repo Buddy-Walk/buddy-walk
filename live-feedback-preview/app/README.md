@@ -66,7 +66,7 @@ Nothing is read until you tap **Start**.
    The status line says "no compass heading" while there is none, for example when location permission is denied.
    The screen stays on while recording, because a locked phone stops the camera.
 3. Tap **Mark** at a target.
-   The app saves the frame at the tap with its Readings, then asks for the target kind, side of the street, whether you can read it yourself, its style, and the distance in feet.
+   The app saves the frame at the tap with its Readings, then asks whether the target is a door number or a sign, its side of the street, whether you can read it yourself, its style, and the distance in feet.
    **Cancel** throws the frame away.
    Nothing is read or logged while the form is open, so no boxes move behind it, and reading starts again when you save or cancel it.
 4. Tap **Stop** to end the session.
@@ -112,7 +112,7 @@ The export turns the log into `session.json`.
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "id": "2026-11-15T14-00-00Z",
   "device": { "model": "iPhone 15", "osVersion": "26.1" },
   "app": { "version": "1.0.0", "build": "1" },
@@ -142,7 +142,7 @@ The export turns the log into `session.json`.
           "recognitionMs": 40
         }
       ],
-      "targetKind": "street-number",
+      "targetKind": "door-number",
       "side": "same-sidewalk",
       "visibleToTester": true,
       "signStyle": "plain",
@@ -153,6 +153,7 @@ The export turns the log into `session.json`.
 ```
 
 - `version` goes up whenever the shape changes.
+  A session keeps the version it was recorded in, so one from an older version exports in that shape.
 - `endedAt` is `null` for a session that was cut off; `framesProcessed` and `framesPerSecond` then run to its last save.
 - `framesPerSecond` is frames read per second while the session was logging, which leaves out time with the app in the background or a Mark's form open, or `null` if it never logged.
   `framesProcessed` leaves out the same frames.
@@ -165,7 +166,8 @@ The export turns the log into `session.json`.
 - `heading` is the phone's latest compass heading when the frame's Readings were logged, a few milliseconds after the frame was read.
   It is `null` before the first compass reading or without location permission.
   `trueDegrees` is `null` when iOS can't give true north, and `accuracy` runs from 0 (over 50° uncertainty) to 3 (under 20°).
-- `targetKind` is `street-number` or `sign`, `side` is `same-sidewalk` or `across-street`, and `signStyle` is `plain`, `stylised` or `angled`.
+- `targetKind` is `door-number` or `sign`; version 1 sessions store `street-number` for a door number.
+  `side` is `same-sidewalk` or `across-street`, and `signStyle` is `plain`, `stylised` or `angled`.
 - `visibleToTester` is whether the tester could read the target themselves.
 - A Mark's frame, `frameFile`, is the first frame read after the tap, a frame or two after it.
   Its `readings` are that frame's Readings, and `markedAt` and `heading` are that frame's too, so `markedAt` matches its Readings' `frameTimestamp`.

@@ -49,7 +49,7 @@ describe('session store', () => {
     recorder.stop();
 
     expect(store.load(recorder.id)).toEqual({
-      version: 1,
+      version: 2,
       id: recorder.id,
       device: { model: 'iPhone 15', osVersion: '26.1' },
       app: { version: '1.0.0', build: '3' },
@@ -149,7 +149,7 @@ describe('session store', () => {
       frameFile,
       heading,
       readings: [reading('34', 5000)],
-      targetKind: 'street-number',
+      targetKind: 'door-number',
       side: 'same-sidewalk',
       visibleToTester: true,
       signStyle: 'plain',
@@ -163,7 +163,7 @@ describe('session store', () => {
         frameFile: 'mark-001.jpg',
         heading,
         readings: [reading('34', 5000)],
-        targetKind: 'street-number',
+        targetKind: 'door-number',
         side: 'same-sidewalk',
         visibleToTester: true,
         signStyle: 'plain',
@@ -245,7 +245,7 @@ describe('session store', () => {
       frameFile,
       heading,
       readings: [reading('34', 1000)],
-      targetKind: 'street-number',
+      targetKind: 'door-number',
       side: 'same-sidewalk',
       visibleToTester: true,
       signStyle: 'plain',
@@ -279,5 +279,39 @@ describe('session store', () => {
     expect(Object.keys(files).sort()).toEqual([`${first.id}/session.json`, `${second.id}/session.json`]);
     expect(JSON.parse(strFromU8(files[`${first.id}/session.json`]))).toEqual(store.load(first.id));
     expect(JSON.parse(strFromU8(files[`${second.id}/session.json`]))).toEqual(store.load(second.id));
+  });
+
+  test('exports a session recorded by version 1 as it was, with street-number for a door number', () => {
+    const root = diskSessionsRoot();
+    const store = createSessionStore(root, manualClock('2026-11-16T10:00:00.000Z'));
+    const id = '2026-11-15T19-56-42Z';
+    const folder = root.folder(id);
+    const mark = {
+      markedAt: '2026-11-15T19:57:00.000Z',
+      frameFile: 'mark-001.jpg',
+      heading,
+      readings: [reading('310', 1000)],
+      targetKind: 'street-number',
+      side: 'same-sidewalk',
+      visibleToTester: true,
+      signStyle: 'plain',
+      distanceFeet: 12,
+    };
+    folder.appendText(
+      'log.jsonl',
+      [
+        { kind: 'started', version: 1, id, startedAt: '2026-11-15T19:56:42.000Z', ...info },
+        { kind: 'mark', ...mark },
+        { kind: 'ended', endedAt: '2026-11-15T19:58:00.000Z', framesProcessed: 0, activeMs: 78_000 },
+      ]
+        .map((entry) => `${JSON.stringify(entry)}\n`)
+        .join(''),
+    );
+    folder.writeBytes('mark-001.jpg', new Uint8Array([0xff, 0xd8, 0xff]));
+
+    const session = JSON.parse(strFromU8(unzipSync(store.exportArchive([id]))[`${id}/session.json`]));
+
+    expect(session.version).toBe(1);
+    expect(session.marks).toEqual([mark]);
   });
 });
