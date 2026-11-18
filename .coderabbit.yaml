@@ -1,0 +1,47 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+
+tone_instructions: >-
+  The team is students. For each finding, say how to confirm it is real: a failing test,
+  steps to reproduce, or the exact input that breaks. Mark findings you cannot confirm that way as unverified.
+
+reviews:
+  profile: chill
+  in_progress_fortune: false
+
+  merge_risk_instructions: >-
+    A merge to main that touches mobile/ deploys to production through GitHub Actions.
+    High risk: .github/ workflows, render.yaml, Dockerfiles, mobile/eas.json, mobile/app.json, mobile/app.config.js,
+    .env.example files, mobile/server/config, mobile/server/database, mobile/server/middleware,
+    changes to the shape of saved Trials, and anything that adds or repeats paid API calls
+    (Google Maps, Street View, OpenAI).
+    Low risk: docs, tests, team-console UI, and live-feedback-preview/, which no users run yet.
+
+  path_filters:
+    - "!**/dist/**"
+    - "!**/package-lock.json"
+    - "!**/bun.lock"
+    - "!**/*.tsbuildinfo"
+    - "!mobile/exports/**"
+    - "!**/*.pptx"
+
+  path_instructions:
+    - path: "mobile/server/services/**"
+      instructions: >-
+        Flag new or extra calls to paid APIs (Google Maps, Street View, OpenAI),
+        especially inside loops, retries or per-panorama work, and say roughly how many calls one request can now make.
+    - path: "mobile/src/**"
+      instructions: >-
+        Users are blind or low vision. Flag changes that make feedback visual-only,
+        remove spoken or haptic feedback, or add touchable elements without an accessibility label and role.
+    - path: "mobile/server/{config,database,middleware}/**"
+      instructions: >-
+        Flag secrets or API keys in code or logs, and database changes that would reject or hide documents saved in an older shape.
+
+knowledge_base:
+  code_guidelines:
+    filePatterns:
+      - "CODING_STANDARDS.md"
+      - "CONTEXT.md"
+      - "docs/team/watch-outs.md"
+      - "**/AGENTS.md"
