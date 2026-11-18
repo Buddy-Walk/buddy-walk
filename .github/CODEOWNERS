@@ -1,5 +1,5 @@
-# Changes to these paths need an approval from one of their owners.
-# Paths not listed here have no owner and merge on passing checks.
+# PRs that touch these paths request a review from their owners.
+# The protect-main ruleset decides whether an owner's approval is required to merge.
 
 # Deploys and CI
 /.github/                   @mykaelsss @Justraymond99
