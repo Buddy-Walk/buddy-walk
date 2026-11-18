@@ -2,7 +2,7 @@
 # Paths not listed here have no owner and merge on passing checks.
 
 # Deploys and CI
-/.github/                   @mykaelsss
+/.github/                   @mykaelsss @Justraymond99
 /render.yaml                @mykaelsss @Justraymond99
 /Dockerfile                 @mykaelsss @Justraymond99
 /mobile/Dockerfile          @mykaelsss @Justraymond99
@@ -16,4 +16,4 @@
 /mobile/server/database/    @mykaelsss @Justraymond99
 /mobile/server/middleware/  @mykaelsss @Justraymond99
 
-/.github/CODEOWNERS         @mykaelsss
+/.github/CODEOWNERS         @mykaelsss @Justraymond99
