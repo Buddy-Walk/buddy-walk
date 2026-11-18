@@ -44,3 +44,10 @@ import '../api/companion.test.ts';
 import './mobileGuidance.test.ts';
 import '../utils/safetyGateVoicePrompt.test.ts';
 import './lastMetersVoicePlayback.test.ts';
+
+import './lastMetersEntranceAssessment.test.ts';
+import './gpsQuality.test.ts';
+import './motionActivityInterval.test.ts';
+import './movementAssessment.test.ts';
+import './lastMetersMovementShadow.test.ts';
+import './gpsSampleHistory.test.ts';
