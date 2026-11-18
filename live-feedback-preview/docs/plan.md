@@ -340,13 +340,19 @@ The console shows, for each build, how many Trials got through each step.
 
 - It runs in the Live Feedback Preview app itself, as its first screen: a live camera reading text, through internal TestFlight.
 - A browser page was rejected: Safari gives web pages no built-in text recognition, so a browser library's results would not carry over to the app.
-- It runs with sighted testers on real streets.
+- It runs with sighted testers on real streets, marking targets on the same sidewalk within a few doors.
+- Reading across the street is not a goal: the app reads the storefront beside the user, and parity tells it when the destination is across the street (3.2).
+- Each Mark records what the target actually says, so a read can be scored exact, partial, wrong or missed.
+- Distances are measured with a laser measure, and the viewing angle follows from the distance to the target and to the wall in front.
+- Mark frames are saved at full size and replayed at several frame sizes, so every size is compared on the same image.
 - It should answer:
-  - at what distance numbers and signs are readable from the same sidewalk and from across the street
+  - how often a number or sign is read correctly, and how that changes with viewing angle and distance
+  - read rate for each condition that makes a target hard to read, such as faded or obstructed, against clear targets
   - how often a number is visible at all
   - how long recognition takes
-  - whether ML Kit reads angled and stylised shop signs well enough, or the Apple Vision fallback is needed
-  - whether storefronts on the near sidewalk can be told apart from those across the street
+  - whether ML Kit reads slanted and stylised lettering well enough, or the Apple Vision fallback is needed
+  - the smallest frame size that reads reliably, and what larger sizes cost in recognition time
+  - how often a sign across the street is read by accident, since a Match on it could mislead (3.4)
 
 ### 6.2 Door detection experiment
 
@@ -382,7 +388,7 @@ Filed on 2026-11-11 as sub-issues of the tracking issue #104, roughly in depende
 Each issue lists the issues that block it.
 
 - #105 Set up the iOS app: Expo development build, bundle ID, EAS profile, internal TestFlight, bun (4.1).
-- #106 First experiment: a live text-reading screen with VisionCamera and ML Kit, recording distance, visibility and latency (6.1).
+- #106 First experiment: a live text-reading screen with VisionCamera and ML Kit, recording correct reads by angle, distance, condition and frame size, visibility and latency (6.1).
 - #107 Count how often the door, sign or number was visible in stored Trial photos (6.3).
 - #108 Field-test protocol for GPS error and map app arrival error (6.4).
 - #109 Research: web framework for the server on Bun (4.3, 7).

@@ -4,7 +4,7 @@ Once a pedestrian's map app has brought them to the right block, can live on-dev
 
 ## Sub-questions
 
-1. **Feasibility:** how often can a phone read a door number or sign live from the sidewalk, and from how far? (#106)
+1. **Feasibility:** how often can a phone correctly read a door number or sign live from the same sidewalk, and from what distance and angle? (#106)
 2. **Effectiveness:** is the share of Field tests Guided to the door higher than the current app's at the same destinations? (#121, #123)
 3. **Safety:** does the share of Field tests that end Misled stay at zero?
 4. **Usability:** do blind and low-vision users find the guidance intuitive? (User tests, after the safety rules in #124 are approved)
