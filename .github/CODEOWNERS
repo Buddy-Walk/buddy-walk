@@ -1,0 +1,19 @@
+# Changes to these paths need an approval from one of their owners.
+# Paths not listed here have no owner and merge on passing checks.
+
+# Deploys and CI
+/.github/                   @mykaelsss
+/render.yaml                @mykaelsss @Justraymond99
+/Dockerfile                 @mykaelsss @Justraymond99
+/mobile/Dockerfile          @mykaelsss @Justraymond99
+/mobile/eas.json            @mykaelsss @Justraymond99
+/mobile/app.json            @mykaelsss @Justraymond99
+/mobile/app.config.js       @mykaelsss @Justraymond99
+
+# Secrets and server plumbing
+**/.env.example             @mykaelsss @Justraymond99
+/mobile/server/config/      @mykaelsss @Justraymond99
+/mobile/server/database/    @mykaelsss @Justraymond99
+/mobile/server/middleware/  @mykaelsss @Justraymond99
+
+/.github/CODEOWNERS         @mykaelsss
