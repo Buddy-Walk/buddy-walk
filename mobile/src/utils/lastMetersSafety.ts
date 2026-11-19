@@ -8,6 +8,8 @@ export interface LastMetersSensors {
   latestHeading: number;
   latestHeadingTimestamp: number;
   latestHeadingReference: "true" | "magnetic" | "unknown";
+  /** Latest Expo compass accuracy; diagnostic only, absent/null when not recorded. */
+  latestHeadingAccuracyLevel?: number | null;
 }
 
 export function validPoint(point: { lat: number; lng: number }): boolean {

@@ -213,3 +213,34 @@ test("upgradeReplayInput rejects a step that does not advance the version", () =
   );
   assert.equal(result.ok, false);
 });
+
+for (const latestHeadingAccuracyLevel of [0, 1, 2, 3, null]) {
+  test(`Expo accuracy ${latestHeadingAccuracyLevel} survives request JSON and replay snapshots without changing inputs`, () => {
+    const body = JSON.parse(JSON.stringify({
+      ...request, heading: request.deviceHeading,
+      sensors: { ...sensors, latestHeading: -1, latestHeadingAccuracyLevel },
+    }));
+    const parsed = parseLastMetersRequest(body)!;
+    const saved = JSON.parse(JSON.stringify(buildReplayInput(parsed, PHOTO, RECEIVED_AT)));
+    const assessment = assessReplay({ replayInput: saved, userPhoto: PHOTO });
+    assert.equal(saved.schemaVersion, 1, "diagnostics do not change the replay contract version");
+    assert.equal(saved.heading, 92.5, "the capture heading remains separate from the latest sensor heading");
+    assert.equal(saved.compassAccuracyLevel, 3);
+    assert.equal(saved.sensors.latestHeading, -1);
+    assert.equal(saved.sensors.latestHeadingAccuracyLevel, latestHeadingAccuracyLevel);
+    assert.equal(assessment.status, "replayable");
+    assert.deepEqual(assessment.defaultsApplied, []);
+    assert.deepEqual(replayRequest(assessment.input!), parsed);
+  });
+}
+
+test("older version-one Trials remain replayable without inventing latest Expo accuracy", () => {
+  const parsed = parseLastMetersRequest(JSON.parse(JSON.stringify({ ...request, heading: request.deviceHeading })))!;
+  const saved = buildReplayInput(parsed, PHOTO, RECEIVED_AT);
+  const assessment = assessReplay({ replayInput: saved, userPhoto: PHOTO });
+  assert.equal(assessment.status, "replayable");
+  assert.deepEqual(assessment.defaultsApplied, []);
+  assert.equal(Object.hasOwn(saved.sensors!, "latestHeadingAccuracyLevel"), false);
+  assert.equal(Object.hasOwn(assessment.input!.sensors!, "latestHeadingAccuracyLevel"), false);
+  assert.equal(Object.hasOwn(replayRequest(assessment.input!).sensors!, "latestHeadingAccuracyLevel"), false);
+});

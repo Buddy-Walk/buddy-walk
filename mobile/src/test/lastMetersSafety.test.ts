@@ -87,3 +87,14 @@ test("evaluation separates versions, excludes replays and does not infer field s
   assert.equal(summarizeFieldEvaluation([{}]).groups[0].successRate, null);
   assert.equal(summarizeFieldEvaluation([{}]).groups[0].week, "unknown");
 });
+
+test("Expo accuracy diagnostics do not change valid or unavailable latest-heading safety decisions", () => {
+  for (const latestHeading of [359, -1]) {
+    const reading = { ...sensors(), latestHeading };
+    const expected = sensorSafetyReasons(reading, origin, 1, 5, now);
+    assert.deepEqual(expected, latestHeading === -1 ? ["current_heading_unavailable"] : []);
+    for (const latestHeadingAccuracyLevel of [0, 1, 2, 3, null]) {
+      assert.deepEqual(sensorSafetyReasons({ ...reading, latestHeadingAccuracyLevel }, origin, 1, 5, now), expected);
+    }
+  }
+});

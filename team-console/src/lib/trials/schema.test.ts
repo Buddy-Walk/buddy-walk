@@ -268,3 +268,59 @@ describe("trialDetailResponseSchema", () => {
     expect(data.placeCandidates).toEqual([]);
   });
 });
+
+describe("heading diagnostics snapshot", () => {
+  it.each([0, 1, 2, 3])("keeps raw accuracy level %s with an invalid latest heading", (level) => {
+    const { data } = trialDetailResponseSchema.parse({
+      data: {
+        ...listRow,
+        replayInput: {
+          schemaVersion: 1,
+          receivedAt: 10000,
+          heading: 116,
+          compassAccuracyLevel: 3,
+          sensors: {
+            latestHeading: -1,
+            latestHeadingTimestamp: 8750,
+            latestHeadingReference: "true",
+            latestHeadingAccuracyLevel: level,
+          },
+        },
+      },
+    });
+    expect(data.replayInput).toEqual({
+      receivedAt: 10000,
+      heading: 116,
+      compassAccuracyLevel: 3,
+      sensors: {
+        latestHeading: -1,
+        latestHeadingTimestamp: 8750,
+        latestHeadingReference: "true",
+        latestHeadingAccuracyLevel: level,
+      },
+    });
+  });
+
+  it.each([undefined, null, "old shape"])(
+    "keeps Trials with missing or old snapshot %j readable",
+    (replayInput) => {
+      expect(
+        trialDetailResponseSchema.parse({ data: { ...listRow, replayInput } }).data.replayInput,
+      ).toBeUndefined();
+    },
+  );
+
+  it("leaves missing accuracy absent rather than borrowing capture accuracy", () => {
+    const { data } = trialDetailResponseSchema.parse({
+      data: {
+        ...listRow,
+        replayInput: {
+          heading: 116,
+          compassAccuracyLevel: 3,
+          sensors: { latestHeading: -1 },
+        },
+      },
+    });
+    expect(data.replayInput?.sensors?.latestHeadingAccuracyLevel).toBeUndefined();
+  });
+});

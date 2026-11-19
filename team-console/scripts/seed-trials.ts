@@ -12,6 +12,8 @@ export const SEEDED = {
   reviewedBeforeOutcomes: "6720f1c2a1b2c3d4e5f6071b",
   /** Best Buy Express, saved with values the console's schema no longer defines. */
   olderShape: "6720f1c2a1b2c3d4e5f6071c",
+  /** Valid capture heading, then a low-accuracy invalid latest reading. */
+  unavailableHeading: "6720f1c2a1b2c3d4e5f60722",
   // The ones below are unscored, and only e2e/reviews.spec.ts writes to them.
   /** Kohl's, with notes and a turn a quick score must keep. */
   quickScored: "6720f1c2a1b2c3d4e5f6071d",
@@ -69,6 +71,29 @@ const base: Doc = {
 };
 
 const cases: Doc[] = [
+  {
+    _id: id(SEEDED.unavailableHeading),
+    destination: "16 Handles",
+    navigationMode: "exact",
+    success: false,
+    error: "turn_withheld",
+    safetyReasons: ["current_heading_unavailable"],
+    currentHeading: 120,
+    panoramaMatchedHeading: 120,
+    replayInput: {
+      schemaVersion: 1,
+      receivedAt: Date.parse("2026-11-06T20:00:00Z"),
+      heading: 116,
+      compassAccuracyLevel: 3,
+      sensors: {
+        latestHeading: -1,
+        latestHeadingAccuracyLevel: 1,
+        latestHeadingTimestamp: Date.parse("2026-11-06T19:59:58.750Z"),
+        latestHeadingReference: "true",
+      },
+    },
+    serverTs: at("2026-11-06T20:00:00Z"),
+  },
   {
     _id: id(SEEDED.original),
     destination: "CVS",
