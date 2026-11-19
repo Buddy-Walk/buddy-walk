@@ -1,8 +1,24 @@
 name: Build and Submit iOS to TestFlight
 
-# Manual only — run from GitHub Actions when you actually want a new TestFlight build.
+# A push to main that changes the native app starts an EAS production build
+# and submits it to TestFlight. API-only and test-only changes do not.
 # Requires EXPO_TOKEN in repo secrets.
 on:
+  push:
+    branches: [main]
+    paths:
+      - "mobile/App.tsx"
+      - "mobile/app.json"
+      - "mobile/app.config.js"
+      - "mobile/eas.json"
+      - "mobile/index.js"
+      - "mobile/package.json"
+      - "mobile/package-lock.json"
+      - "mobile/assets/**"
+      - "mobile/src/**"
+      - "!mobile/src/test/**"
+      - "mobile/buddy-walk-default-api.json"
+      - ".github/workflows/testflight.yml"
   workflow_dispatch:
 
 concurrency:
