@@ -1,4 +1,5 @@
 import type { ChatCompletionContentPartImage, ChatCompletionContentPartText } from "openai/resources";
+import * as Sentry from "@sentry/node";
 import { AIPrompt, type textRequestBody } from "../types";
 import { formatHistoryForPrompt, getConversationHistory } from "../utils/conversationHistory";
 import { addPanoramaDescription } from "./doorfront";
@@ -92,6 +93,7 @@ export async function answerWithModel({
     );
   } catch (e: any) {
     console.error("Error with OpenAI API request:", e);
+    Sentry.captureException(e, { tags: { subsystem: "openai", feature: "question" } });
     return reply.modelFailed(e, toolUsed);
   }
 }

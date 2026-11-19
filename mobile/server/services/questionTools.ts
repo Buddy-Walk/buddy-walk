@@ -13,6 +13,7 @@ import { describeOpeningStatus, placeHoursFromDetails } from "../utils/openingHo
 import { getPanoramaData } from "./doorfront";
 import { getNearbyFeatures } from "./features";
 import { getGoogleMapsApiKey, getStreetViewWithHeading } from "./googleMaps";
+import * as Sentry from "@sentry/node";
 import { getOpenAIClient } from "./openAIClient";
 import { getSubwayArrivals } from "./mta";
 import { isReply, verifiedWalkingDirections, type Evidence } from "./questionEvidence";
@@ -127,6 +128,7 @@ export async function toolEvidence(call: ToolCall, context: ToolContext): Promis
     return isReply(found) ? found : { ...toolOnly, ...found };
   } catch (error) {
     console.error("Error including api information in OpenAI request:", error);
+    Sentry.captureException(error, { tags: { subsystem: "openai", feature: "tools" } });
     return toolOnly;
   }
 }

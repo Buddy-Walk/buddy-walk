@@ -34,8 +34,57 @@ Set in the dashboard, not in git:
 - `ADMIN_TOKEN` (Render can generate this)
 - Mongo URI (`MONGODB_URI` / `DATABASE_URL` / `WEB_LINK`)
 - `ALLOWED_ORIGINS`
+- `SENTRY_DSN` (API project `buddy-walk-api`; optional — code has a default DSN)
+- `SENTRY_ENVIRONMENT` (use `production` on Render)
+- `SENTRY_RELEASE` (optional; falls back to `RENDER_GIT_COMMIT`)
 
 `render.yaml` documents the Blueprint. Secrets use `sync: false`.
+
+## Observability (Sentry)
+
+Org: [buddy-walk-cuny](https://buddy-walk-cuny.sentry.io/) (US region).
+
+| Surface | Project | SDK |
+| --- | --- | --- |
+| Expo app | `buddy-walk-mobile` | `@sentry/react-native` |
+| Express API (`mobile/server`) | `buddy-walk-api` | `@sentry/node` |
+| Team console (Cloudflare) | `buddy-walk-web` | Project created; SDK wiring follows in a bun-lockfile PR |
+
+Uptime: [Buddy Walk API health](https://buddy-walk-cuny.sentry.io/monitors/10925083/) hits `GET /api/health` every 5 minutes.
+
+### What Sentry receives
+
+Testers are blind and walk with the camera and GPS on, so both SDKs send errors and timings only.
+
+| Sent | Not sent |
+| --- | --- |
+| Exceptions with stack traces, our `subsystem` / `feature` tags | Request or response bodies (Questions, camera frames, GPS) |
+| Release, environment, device / OS / runtime context | User identity, IP address, cookies |
+| Sampled timings (20% of requests in production) | Header values other than `content-type` / `content-length` |
+| URL paths | Query string values |
+| | OpenAI prompts and answers, Mongo query data, stack-frame variables |
+| | Console output, screenshots, view hierarchy |
+
+Only Render and release app builds send. Local runs, including the Team console stack, send nothing unless `SENTRY_DSN` (API) or `EXPO_PUBLIC_SENTRY_DSN` (app) is set.
+
+The API sets this with `dataCollection` in `mobile/server/instrument.ts`: SDK v11 collects everything unless told otherwise.
+The app sets `sendDefaultPii: false` in `mobile/src/sentry.ts`.
+Session replay is off. An internal build can set `EXPO_PUBLIC_SENTRY_REPLAY=1` for masked replays on errors; never set it for TestFlight.
+
+### Checking ingest after a deploy
+
+With `SENTRY_DEBUG_ROUTE=1` and `ADMIN_TOKEN` set, the API sends one test error per call, at most one a minute:
+
+```bash
+curl -X POST -H "x-admin-token: $ADMIN_TOKEN" https://buddy-walk-api.onrender.com/api/debug-sentry
+```
+
+The route does not exist without both variables. Unset `SENTRY_DEBUG_ROUTE` again afterwards.
+
+### Source maps
+
+EAS builds upload source maps to Sentry when the `SENTRY_AUTH_TOKEN` EAS secret is set.
+Until then `SENTRY_ALLOW_FAILURE=true` in `mobile/eas.json` lets the build finish without them, and app stack traces stay minified.
 
 ## Dashboards
 
