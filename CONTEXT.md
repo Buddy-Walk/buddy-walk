@@ -19,6 +19,18 @@ _Avoid_: Destination lookup result, place match
 Guidance that takes a user standing near a destination the final stretch to its door, using their photo, GPS, compass, and Street View panoramas to produce a turn instruction.
 _Avoid_: Last mile
 
+**Entrance assessment**:
+A Last Meters check that examines the doorway in one selected Street View panorama and in the user's current photo. It records storefront identity and doorway visibility separately for each camera.
+
+**Entrance verification**:
+Confirmation that the verified destination's identifiable door is visible in both sources, that the doorway geometry matches, and that its panorama heading agrees with the mapped entrance. The Trial records this as `entranceVerified`. A storefront sign alone supplies only identity evidence. Older imagery cannot confirm the current entrance. Visibility alone cannot establish that a door is accessible or that a walking route is safe.
+
+**Occlusion**:
+An obstruction, such as scaffolding or a vehicle, that prevents inspection of the likely entrance area in an image. The presence of a door behind it remains unknown.
+
+**Current-view and destination matching**:
+Current-view matching (B) compares the user's photo with panorama views. Destination matching (C) locates the verified business in those views and compares its heading with the map. The device compass supplies the user's heading for a turn. Panorama matching cannot supply a missing or invalid compass heading.
+
 **Trial**:
 One recorded Last Meters run, from the app or replayed from the Team console, with the evidence gathered, each step taken, and the answer given.
 The team reviews and retries Trials on the Team console.

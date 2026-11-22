@@ -3,7 +3,8 @@ import OpenAI from "openai";
 import sharp from "sharp";
 import { lastMetersTestLogService } from "./lastMetersTestLog";
 import { outdoorPanoramaRejection, panoramaIsGone } from "../utils/outdoorPanorama";
-import { selectOutdoorPanorama, parseSceneVerdict, countPanoramaRequest, SceneClassifier, PanoramaAudit, PanoramaAttempt, PanoramaSearchBudget } from "./outdoorPanoramaSelection";
+import { startPanoramaRequest, panoramaDeadlineReached, PanoramaDeadlineError, type PanoramaSearchBudget } from "./lastMetersPanoramaBudget";
+import { selectOutdoorPanorama, parseSceneVerdict, SceneClassifier, PanoramaAudit, PanoramaAttempt } from "./outdoorPanoramaSelection";
 import {
   LAST_METERS_HEADINGS,
   LAST_METERS_PANORAMA_FOV_DEGREES,
@@ -258,17 +259,16 @@ export async function processPanoramaTiles(
 
   const tilesData = await Promise.all(
     headings.map(async (heading) => {
-      if (budget?.enforceDeadline && Date.now() >= budget.deadline) throw new Error("Panorama search budget exhausted.");
+      if (budget?.enforceDeadline && panoramaDeadlineReached(budget)) throw new PanoramaDeadlineError();
       const url =
         `https://maps.googleapis.com/maps/api/streetview?size=640x640&${panoramaSelector}` +
         `&heading=${heading}&fov=${LAST_METERS_PANORAMA_FOV_DEGREES}` +
         `&pitch=0&source=outdoor&return_error_code=true&key=${apiKey}`;
-      countPanoramaRequest(budget);
-      const response = await axios.get(url, {
+      const response = await startPanoramaRequest(budget, () => axios.get(url, {
         responseType: "arraybuffer",
         timeout: budget?.enforceDeadline ? Math.max(1, Math.min(20_000, budget.deadline - Date.now())) : 20_000,
         validateStatus: () => true,
-      });
+      }));
       const buffer = Buffer.from(response.data);
       if (response.status !== 200 || buffer.byteLength < 10_000) {
         const tileError = new Error(

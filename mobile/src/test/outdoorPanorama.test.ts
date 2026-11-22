@@ -265,7 +265,7 @@ test("moving on from a panorama already evaluated still looks 30 meters away", a
   const preview = await sharp({ create: { width: 640, height: 640, channels: 3, background: "#123456" } }).jpeg().toBuffer();
   const { get, probeMeters } = camerasAround({ ...metadata, pano_id: "evaluated" }, preview);
   t.mock.method(axios, "get", get);
-  const budget = { seen: new Set(["evaluated"]), deadline: Date.now() + 45_000 };
+  const budget = { seen: new Set(["evaluated"]), deadline: Date.now() + 45_000, apiRequests: 0 };
   const result = await selectOutdoorPanorama(40.7, -74, "unit-test", async () => "outdoor", undefined, budget);
   assert.equal(result.metadata.pano_id, "across");
   assert.deepEqual(probeMeters, [0, 30]);

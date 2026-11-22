@@ -13,7 +13,6 @@ import { passProximityGate } from "./lastMetersProximityGate";
 import { matchPanoramaHeadings, startPanoramaSearch } from "./lastMetersPanoramaMatching";
 import { decideTurn, TURN_NOT_VERIFIED_MESSAGE } from "./lastMetersTurnDecision";
 import { composeGuidance } from "./lastMetersGuidance";
-import type { OcclusionOptions } from "./lastMetersEntranceAssessment";
 dotenv.config();
 
 export class LastMetersService {
@@ -54,8 +53,7 @@ export class LastMetersService {
     const guidancePolicy = this.lastMetersGuidancePolicy(options);
     const { lat, lng, deviceHeading, gpsAccuracyMeters, sensors } = request;
     const { retry, pinnedPanorama } = options;
-    // Server-only opt-in. No authorized historical provider is configured by default.
-    const occlusion = options.occlusion ?? (process.env.LAST_METERS_OCCLUSION_AWARE === "true" ? {} : undefined);
+    const occlusion = process.env.LAST_METERS_OCCLUSION_AWARE === "true";
     const trial = new LastMetersTrial({ request, image, options, policy: guidancePolicy });
     // A retry keeps the original's snapshot and judges sensor freshness as of
     // the original request.
@@ -87,7 +85,7 @@ export class LastMetersService {
         if (destinationResult.kind === "exit") return destinationResult;
         const place = destinationResult.value;
 
-        const panoramaSearch = startPanoramaSearch(trial, { lat, lng }, pinnedPanorama, occlusion !== undefined);
+        const panoramaSearch = startPanoramaSearch(trial, { lat, lng }, pinnedPanorama, occlusion);
         const { entrance, closedNotice } = await findEntrance(trial, request, place);
         const proximity = await passProximityGate(trial, {
           request, destinationQuery, place, entrance, closedNotice,
@@ -102,7 +100,7 @@ export class LastMetersService {
       const { place, panoramaSearch, entrance, closedNotice, destinationBearing } = prepared.value;
 
       const matching = await matchPanoramaHeadings(trial, {
-        request, image, destinationQuery, place, entrance, closedNotice, search: panoramaSearch, occlusion,
+        request, image, destinationQuery, place, entrance, closedNotice, search: panoramaSearch,
       });
       if (matching.kind === "exit") return await matching.respond();
       const headings = matching.value;
@@ -132,7 +130,7 @@ export class LastMetersService {
         turnInstruction,
       });
     } catch (error) {
-      return trial.fail(error);
+      return trial.fail(error, occlusion);
     }
   }
 }
@@ -149,8 +147,6 @@ function logRequest(request: LastMetersRequestInput, image: string): void {
 }
 
 export interface LastMetersRunOptions {
-  /** Experimental, internal configuration; never populated from the request body. */
-  occlusion?: OcclusionOptions;
   /**
    * Use this user-position panorama instead of searching for one. The caller
    * has already checked it with fetchStreetViewPanoramaById, so the pipeline

@@ -90,6 +90,10 @@ export interface TrialFacts {
   safetyReasons: string[];
 }
 
+type PanoramaEvidence = Pick<TrialFacts,
+  "panorama" | "panoramaPhoto" | "headingComparison" | "currentHeading" | "panoramaTargetHeading"
+  | "testScenario" | "destinationReference" | "destinationReferenceUsed" | "signText">;
+
 /** How a run ended, saved alongside the facts. */
 interface TrialOutcome {
   finalOutput?: string;
@@ -159,6 +163,14 @@ export class LastMetersTrial {
     this.facts = { ...this.facts, ...facts };
   }
 
+  /** Only the selected camera's evidence. Steps, audits and phone sensors belong to the whole Trial. */
+  panoramaEvidence(): PanoramaEvidence {
+    const { panorama, panoramaPhoto, headingComparison, currentHeading, panoramaTargetHeading,
+      testScenario, destinationReference, destinationReferenceUsed, signText } = this.facts;
+    return { panorama, panoramaPhoto, headingComparison, currentHeading, panoramaTargetHeading,
+      testScenario, destinationReference, destinationReferenceUsed, signText };
+  }
+
   /** The guidance policy's message for a withheld turn, given what the run has learned. */
   withheldMessage(reasons: string[], message: string): string {
     return this.policy.withheldMessage(reasons, message, this.row());
@@ -193,25 +205,29 @@ export class LastMetersTrial {
   }
 
   /** Ends the run with a 502 naming the stage that failed. */
-  async fail(caught: unknown): Promise<LastMetersRunResult> {
+  async fail(caught: unknown, redactProviderDetails = false): Promise<LastMetersRunResult> {
     const error = caught as { status?: unknown; response?: { status?: unknown }; code?: unknown; message?: string } | undefined;
-    const upstreamStatus = error?.status ?? error?.response?.status;
+    const status = error?.status ?? error?.response?.status;
+    const upstreamStatus = !redactProviderDetails ? status : typeof status === "number" && Number.isInteger(status) && status >= 400 && status <= 599 ? status : undefined;
+    const code = typeof error?.code === "string" && (!redactProviderDetails ||
+      ["PANORAMA_SEARCH_DEADLINE", "PANORAMA_REQUEST_TIMEOUT", "STREET_VIEW_TILE_UNUSABLE"].includes(error.code)) ? error.code : undefined;
     const failureReason =
       typeof upstreamStatus === "number"
         ? `upstream returned HTTP ${upstreamStatus}`
-        : typeof error?.code === "string"
-          ? error.code
+        : code !== undefined
+          ? code
           : "unexpected backend error";
     const clientError = `Last Meters failed during ${this.activeStage}: ${failureReason}.`;
+    const diagnostic = redactProviderDetails ? clientError : error?.message;
     console.error("❌ Last Meters request failed:", {
       stage: this.activeStage,
       status: upstreamStatus,
-      code: error?.code,
-      message: error?.message,
+      code,
+      message: diagnostic,
     });
     const testLogId = await this.record({
       success: false,
-      error: error?.message ?? "Last meters calculation failed.",
+      error: diagnostic ?? "Last meters calculation failed.",
     });
     return this.respond(502, { error: clientError }, testLogId);
   }

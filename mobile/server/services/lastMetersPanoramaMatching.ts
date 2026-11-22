@@ -22,10 +22,10 @@ import { calculateHeading, getGoogleMapsApiKey, type LatLng } from "./googleMaps
 import { getOpenAIClient } from "./openAIClient";
 import {
   panoramaSearchSpent,
+  noValidatedPanorama,
   selectOutdoorPanorama,
   type PanoramaAttempt,
   type PanoramaAudit,
-  type PanoramaSearchBudget,
   type SceneClassifier,
 } from "./outdoorPanoramaSelection";
 import {
@@ -38,7 +38,8 @@ import {
 import { getVerifiedNearbyDestination, type VerifiedNearbyDestination } from "./verifiedDestination";
 import type { LastMetersRunResult } from "./lastMetersService";
 import type { DestinationReference, GuidanceTarget, LastMetersTrial, StepResult, TrialFacts } from "./lastMetersTrial";
-import { LastMetersEntranceAssessment, withinEntranceBudget, type OcclusionOptions } from "./lastMetersEntranceAssessment";
+import { startPanoramaRequest, withinEntranceBudget, panoramaDeadlineReached, PanoramaDeadlineError, isSearchDeadline, type PanoramaSearchBudget } from "./lastMetersPanoramaBudget";
+import { LastMetersEntranceAssessment } from "./lastMetersEntranceAssessment";
 
 /** Matching tries at most this many panoramas at the user's position. */
 const MAX_PANORAMAS = 3;
@@ -94,7 +95,6 @@ export interface PanoramaMatchingInput {
   entrance: GuidanceTarget;
   closedNotice: string;
   search: PanoramaSearch;
-  occlusion?: OcclusionOptions;
 }
 
 /** The headings panorama matching settled on, and the evidence behind them. */
@@ -146,65 +146,81 @@ export async function matchPanoramaHeadings(
   input: PanoramaMatchingInput,
 ): Promise<StepResult<PanoramaHeadings>> {
   trial.stage("panorama download");
+  const { budget } = input.search;
+  const expired = () => budget.enforceDeadline && panoramaDeadlineReached(budget);
+  const budgetExit = (assessment?: LastMetersEntranceAssessment): StepResult<PanoramaHeadings> => {
+    if (assessment) {
+      assessment.currentVerified = false;
+      assessment.failureReason = "search_budget_exhausted";
+    }
+    return { kind: "exit", respond: () => trial.fail(new PanoramaDeadlineError(), true) };
+  };
   let panorama: Panorama;
   try {
     panorama = await input.search.first;
   } catch (panoramaError) {
+    if (budget.enforceDeadline) {
+      if (isSearchDeadline(panoramaError, budget)) return budgetExit();
+      if (!noValidatedPanorama(panoramaError)) throw panoramaError;
+    }
     return { kind: "exit", respond: () => answerNoPanorama(trial, input, panoramaError) };
   }
-  let unmatchedViewFallback: Extract<OnePanoramaResult, { kind: "ok" }> | undefined;
-  const assessment = input.occlusion ? new LastMetersEntranceAssessment({
-    placeId: input.place.placeId, placeName: input.place.placeName, target: input.entrance.location,
-    photo: input.image, deadline: input.search.budget.deadline, options: input.occlusion,
-    original: panorama.metadata, seenPanoramas: input.search.budget.seen,
+  const initialEvidence = trial.panoramaEvidence();
+  let unmatchedViewFallback: {
+    match: Extract<OnePanoramaResult, { kind: "ok" }>;
+    evidence: ReturnType<LastMetersTrial["panoramaEvidence"]>;
+  } | undefined;
+  const assessment = budget.enforceDeadline ? new LastMetersEntranceAssessment({
+    placeName: input.place.placeName, photo: input.image, budget,
+    original: panorama.metadata,
   }) : undefined;
-  const originalRequests = input.search.budget.apiRequests ?? 0;
   const entranceExit = (): StepResult<PanoramaHeadings> => ({ kind: "exit", respond: () => trial.withhold(
     ["entrance_not_visually_confirmed"],
-    assessment?.historicalStatus === "historical_entrance_only"
-      ? "Older imagery suggests a past entrance, but I cannot verify the current entrance or its accessibility. Stay in a safe place and use your primary navigation or ask for assistance."
-      : "I cannot visually verify the entrance. Stay in a safe place and take a clear photo of the entrance if you can, or ask for assistance.",
+    "I cannot visually verify the entrance. Stay in a safe place and take a clear photo of the entrance if you can, or ask for assistance.",
   ) });
   try {
     for (let attempt = 1; ; attempt++) {
-      if (assessment && Date.now() >= input.search.budget.deadline) {
-        assessment.failureReason = "search_budget_exhausted";
-        return entranceExit();
-      }
-      assessment?.examined.push({ panoId: panorama.metadata.pano_id, date: panorama.metadata.date });
+      if (expired()) return budgetExit(assessment);
+      assessment?.examine(panorama.metadata);
       const matched = await matchOnePanorama(trial, input, panorama, assessment, attempt > 1);
+      if (expired()) return budgetExit(assessment);
       if (matched.kind !== "destination_not_found") {
         if (shouldTryAnotherPanoramaForUnmatchedCurrentView(matched, input, panorama, attempt)) {
-          const next = await nextPanoramaIfCurrentViewUnmatched(input, panorama);
+          trial.stage("alternative panorama download");
+          const next = await nextPanorama(input, panorama, true);
+          if (expired()) return budgetExit(assessment);
           if (next) {
-            unmatchedViewFallback = matched;
+            unmatchedViewFallback = { match: matched, evidence: trial.panoramaEvidence() };
+            trial.note(initialEvidence);
             panorama = next;
             continue;
           }
         }
         return matched;
       }
+      trial.stage("alternative panorama download");
       const next = attempt < MAX_PANORAMAS ? await nextPanorama(input, panorama) : undefined;
+      if (expired()) return budgetExit(assessment);
       if (!next) {
-        if (unmatchedViewFallback && (!assessment || assessment.restoreVerified(unmatchedViewFallback.value.panorama.metadata.pano_id))) {
-          trial.note({ panorama: unmatchedViewFallback.value.panorama });
-          return unmatchedViewFallback;
+        if (unmatchedViewFallback && (!assessment || assessment.restoreVerified(unmatchedViewFallback.match.value.panorama.metadata.pano_id))) {
+          trial.note(unmatchedViewFallback.evidence);
+          return unmatchedViewFallback.match;
         }
-        if (assessment) {
-          await trial.moduleTimer.time("destinationMatch", () => assessment.searchHistory(input.search.pinned));
-          return entranceExit();
-        }
+        if (assessment) return entranceExit();
         if (matched.backups) trial.note(matched.backups);
         return { kind: "exit", respond: () => answerDestinationNotFound(trial, input, panorama, matched.currentHeading) };
       }
+      trial.note(initialEvidence);
       panorama = next;
     }
   } catch (error) {
     if (!assessment) throw error;
-    assessment.failureReason = "panorama_matching_failed_or_timed_out";
-    return entranceExit();
+    if (isSearchDeadline(error, budget)) return budgetExit(assessment);
+    assessment.currentVerified = false;
+    assessment.failureReason = "panorama_matching_failed";
+    throw error;
   } finally {
-    assessment?.record(trial, (input.search.budget.apiRequests ?? 0) - originalRequests);
+    assessment?.record(trial);
   }
 }
 
@@ -243,14 +259,19 @@ async function answerNoPanorama(
  * Records that the destination was not visible in `panorama` and searches for
  * a distinct nearby outdoor panorama, unless the search is pinned or out of budget.
  */
-async function nextPanorama(input: PanoramaMatchingInput, panorama: Panorama): Promise<Panorama | undefined> {
+async function nextPanorama(input: PanoramaMatchingInput, panorama: Panorama, unmatchedCurrentView = false): Promise<Panorama | undefined> {
   const { request: { lat, lng }, search } = input;
   if (search.pinned || panoramaSearchSpent(search.budget)) return undefined;
-  search.audit({ panoId: panorama.metadata.pano_id, status: "destination_not_visible",
-    reason: "Destination matching failed; trying a distinct nearby outdoor panorama." });
+  search.audit({ panoId: panorama.metadata.pano_id,
+    status: unmatchedCurrentView ? "current_view_not_matched" : "destination_not_visible",
+    reason: unmatchedCurrentView ? "The photo did not match this camera; trying a distinct nearby outdoor panorama."
+      : "Destination matching failed; trying a distinct nearby outdoor panorama." });
   try {
     return await processPanoramaTiles(lat, lng, search.classify, search.audit, search.budget);
-  } catch { return undefined; }
+  } catch (error) {
+    if (search.budget.enforceDeadline && !noValidatedPanorama(error)) throw error;
+    return undefined;
+  }
 }
 
 function currentViewUnmatched(matched: OnePanoramaResult): matched is Extract<OnePanoramaResult, { kind: "ok" }> {
@@ -273,19 +294,6 @@ function shouldTryAnotherPanoramaForUnmatchedCurrentView(
     && attempt < MAX_PANORAMAS
     && !panoramaSearchSpent(input.search.budget)
     && panoramaCameraDistanceMeters(panorama, input.request) > CURRENT_VIEW_RETRY_CAMERA_METERS;
-}
-
-async function nextPanoramaIfCurrentViewUnmatched(
-  input: PanoramaMatchingInput,
-  panorama: Panorama,
-): Promise<Panorama | undefined> {
-  const { request: { lat, lng }, search } = input;
-  if (search.pinned || panoramaSearchSpent(search.budget)) return undefined;
-  search.audit({ panoId: panorama.metadata.pano_id, status: "current_view_not_matched",
-    reason: "The photo did not match this camera; trying a distinct nearby outdoor panorama." });
-  try {
-    return await processPanoramaTiles(lat, lng, search.classify, search.audit, search.budget);
-  } catch { return undefined; }
 }
 
 /** Ends the run when no panorama tried showed the destination. */
@@ -343,15 +351,15 @@ async function matchOnePanorama(
 
   trial.stage("current-view matching");
   console.log("   ➤ Step 1: Locating User's Current View...");
-  if (assessment) {
-    if (Date.now() >= input.search.budget.deadline) throw new Error("Panorama search budget exhausted.");
-    // Count B and C only when about to start them, not if tile assembly failed.
-    if (additionalCamera) input.search.budget.apiRequests = (input.search.budget.apiRequests ?? 0) + 2;
-  }
-  const destinationMatch = startDestinationMatch(input, panoramaOverview, target,
+  const { budget } = input.search;
+  const request: MatchingRequest = work => assessment
+    ? withinEntranceBudget(budget, (signal, timeout) =>
+      startPanoramaRequest(additionalCamera ? budget : undefined, () => work({ signal, timeout, maxRetries: 0 })))
+    : Promise.resolve(work());
+  const destinationMatch = startDestinationMatch(input, panoramaOverview, target, request,
     work => trial.moduleTimer.time("destinationMatch", work));
   const current = await trial.moduleTimer.time("currentViewMatch",
-    () => matchCurrentView(trial, input, panoramaOverview, panorama));
+    () => matchCurrentView(trial, input, panoramaOverview, panorama, request));
   if (current.kind === "exit") return current;
   const { comparison, currentHeading } = current.value;
 
@@ -362,6 +370,7 @@ async function matchOnePanorama(
     ({ kind: "ok", value: { currentHeading, comparison, targetHeading, panorama, ...evidence,
       ...(assessment ? { entranceVerified: true } : {}) } });
   if (assessment) {
+    trial.stage("entrance assessment");
     const verified = await trial.moduleTimer.time("destinationMatch", () =>
       assessment.assessCurrent(panorama, target.expectedTargetHeading, visualTargetHeading));
     if (verified) return found(assessment.verifiedHeading!, { visualMatch: true, signTextMatched: false });
@@ -423,11 +432,12 @@ async function matchCurrentView(
   input: PanoramaMatchingInput,
   panoramaOverview: ContentPart[],
   panorama: Panorama,
+  request: MatchingRequest,
 ): Promise<StepResult<{ comparison: HeadingComparison; currentHeading: number }>> {
   const { request: { deviceHeading }, image, place, entrance, closedNotice } = input;
   const panoramaDate = panorama.metadata.date;
   const step1StartedAt = Date.now();
-  const step1Response = await matchingRequest(input, options => getOpenAIClient().chat.completions.create({
+  const step1Response = await request(options => getOpenAIClient().chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
       { role: "system", content: currentViewPrompt },
@@ -559,11 +569,12 @@ function startDestinationMatch(
   input: PanoramaMatchingInput,
   panoramaOverview: ContentPart[],
   target: PanoramaWithMapBearing,
+  requestVision: MatchingRequest,
   timeRequest: (work: () => Promise<OpenAI.Chat.ChatCompletion>) => Promise<OpenAI.Chat.ChatCompletion>,
 ) {
   const prompt = destinationPrompt(input, target);
   const startedAt = Date.now();
-  const request = timeRequest(() => matchingRequest(input, options => getOpenAIClient().chat.completions.create({
+  const request = timeRequest(() => requestVision(options => getOpenAIClient().chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
       { role: "system", content: prompt },
@@ -582,12 +593,7 @@ function startDestinationMatch(
   return { prompt, request };
 }
 
-/** Bound experimental B/C work by the same deadline; leave legacy retries unchanged. */
-function matchingRequest<T>(input: PanoramaMatchingInput, work: (options?: { signal: AbortSignal; timeout: number; maxRetries: number }) => PromiseLike<T>): Promise<T> {
-  return input.occlusion
-    ? withinEntranceBudget(input.search.budget.deadline, (signal, timeout) => Promise.resolve(work({ signal, timeout, maxRetries: 0 })))
-    : Promise.resolve(work());
-}
+type MatchingRequest = <T>(work: (options?: { signal: AbortSignal; timeout: number; maxRetries: number }) => PromiseLike<T>) => Promise<T>;
 
 /** The destination's heading when Step 2 saw it where the map places it. */
 async function readDestinationMatch(
