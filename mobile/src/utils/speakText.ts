@@ -16,6 +16,8 @@ let activeSound: AudioPlayer | null = null;
 let activeWebAudio: HTMLAudioElement | null = null;
 /** Bumps when a new speak starts or stopSpeaking() runs — stale async work exits early. */
 let speakGeneration = 0;
+// Includes audio setup, when the device may still report silence.
+let activeSpeechGeneration: number | undefined;
 
 function stopWebAudio(): void {
   if (!activeWebAudio) return;
@@ -154,7 +156,11 @@ function speakWithWebSpeech(text: string, generation: number): Promise<void> {
     const synth = window.speechSynthesis;
     const safari = isSafariBrowser();
 
+    let started = false;
+    let finished = false;
     const start = () => {
+      if (started) return;
+      started = true;
       if (generation !== speakGeneration) {
         resolve();
         return;
@@ -176,6 +182,7 @@ function speakWithWebSpeech(text: string, generation: number): Promise<void> {
 
       let resumeTimer: ReturnType<typeof setInterval> | null = null;
       const cleanup = () => {
+        finished = true;
         if (resumeTimer) {
           clearInterval(resumeTimer);
           resumeTimer = null;
@@ -205,7 +212,7 @@ function speakWithWebSpeech(text: string, generation: number): Promise<void> {
       synth.speak(utterance);
 
       window.setTimeout(() => {
-        if (generation !== speakGeneration) return;
+        if (finished || generation !== speakGeneration) return;
         if (!synth.speaking && !synth.pending) {
           synth.resume();
           synth.speak(utterance);
@@ -276,6 +283,15 @@ export async function speakText(text: string, options?: { preferDevice?: boolean
   if (!trimmed) return;
 
   const generation = ++speakGeneration;
+  activeSpeechGeneration = generation;
+  try {
+    await playText(trimmed, generation, options);
+  } finally {
+    if (activeSpeechGeneration === generation) activeSpeechGeneration = undefined;
+  }
+}
+
+async function playText(trimmed: string, generation: number, options?: { preferDevice?: boolean }): Promise<void> {
   stopDeviceSpeech();
   await stopPlayback();
   if (generation !== speakGeneration) return;
@@ -313,8 +329,21 @@ export async function speakText(text: string, options?: { preferDevice?: boolean
   await speakWithExpoSpeech(trimmed, generation);
 }
 
+/** Waiting hints yield to all app speech, including a final answer being prepared or replayed. */
+export function speakProgressIfIdle(text: string): (() => void) | undefined {
+  if (activeSpeechGeneration !== undefined) return;
+  void speakText(text, { preferDevice: true }).catch(() => {
+    // Optional audio feedback must never fail the navigation request.
+  });
+  const generation = speakGeneration;
+  return () => {
+    if (activeSpeechGeneration === generation) void stopSpeaking();
+  };
+}
+
 export async function stopSpeaking(): Promise<void> {
   speakGeneration += 1;
+  activeSpeechGeneration = undefined;
   stopDeviceSpeech();
   await stopPlayback();
 }

@@ -108,7 +108,7 @@ type TrialRow = Omit<Parameters<typeof lastMetersTestLogService.record>[0], "suc
  */
 export class LastMetersTrial {
   readonly startedAt = Date.now();
-  readonly moduleTimer = createLastMetersModuleTimer();
+  readonly moduleTimer: ReturnType<typeof createLastMetersModuleTimer>;
   private readonly request: LastMetersRequestInput;
   private readonly image: string;
   private readonly options: LastMetersRunOptions;
@@ -128,6 +128,10 @@ export class LastMetersTrial {
     this.request = input.request;
     this.image = input.image;
     this.options = input.options;
+    const { onProgress } = input.options;
+    this.moduleTimer = createLastMetersModuleTimer(undefined, onProgress
+      ? module => onProgress({ type: "module_started", module })
+      : undefined);
     this.policy = input.policy;
     this.replayInput = input.options.retry?.replayInput ?? buildReplayInput(input.request, input.image, this.startedAt);
     this.facts = {

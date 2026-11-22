@@ -1,7 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
-import { LastMetersSensors, validPoint, RECAPTURE_MESSAGE } from "../utils/lastMetersSafety";
+import { LastMetersSensors, validPoint } from "../utils/lastMetersSafety";
 import { mobileResponseSensorReasons } from "../utils/mobileLastMetersGuidance";
-import { getSafetyGateVoicePrompt } from "../utils/safetyGateVoicePrompt";
 import {
   View,
   ScrollView,
@@ -37,6 +36,11 @@ import FeedbackModal from "../components/FeedbackModal";
 import AnswerFeedback from "../components/AnswerFeedback";
 import { sendTextRequest } from "../api/question";
 import { sendLastMetersRequest } from "../api/lastMeters";
+import type { LastMetersModule, LastMetersProgressEvent } from "../utils/lastMetersProgress";
+import {
+  getLastMetersVoicePriority, getLastMetersVoiceText, LAST_METERS_STATUS,
+  type LastMetersProgressVoiceEvent, type LastMetersResultVoiceEvent,
+} from "../utils/lastMetersVoicePrompts";
 import { fetchMtaArrivals } from "../api/mta";
 import { createChatLog, addChatToChatLog } from "../api/chatLog";
 import { track, Events } from "../api/telemetry";
@@ -69,8 +73,8 @@ import {
   prepareAudioForRecording,
   resetAudioForPlayback,
 } from "../utils/audioSession";
-import { stopSpeaking, isSpeaking } from "../utils/speakText";
-import { announce, speakContent } from "../utils/announce";
+import { stopSpeaking, isSpeaking, speakProgressIfIdle } from "../utils/speakText";
+import { announce, isScreenReaderActive, speakContent } from "../utils/announce";
 import { cueListening, cueCaptured, cueError } from "../utils/voiceFeedback";
 import { rotateConversationId } from "../utils/conversationSession";
 import {
@@ -97,6 +101,8 @@ const MIN_VIDEO_RECORD_MS = 900;
 const MAX_VIDEO_DURATION_MS = 30000;
 const MTA_LOOKUP_MS = 8000;
 const LOCATION_WAIT_MS = 1000;
+const LAST_METERS_INITIAL_HINT_MS = 1500;
+const LAST_METERS_PROGRESS_COALESCE_MS = 120;
 const SLOW_RESPONSE_HINT_MS = 4500;
 const VIDEO_RECORDING_START_VIBRATION = [0, 120, 80, 120] as const;
 const PHOTO_CAPTURED_VIBRATION = [0, 50] as const;
@@ -177,6 +183,7 @@ export default function MainScreen({ navigation }: Props) {
   const cameraRef = useRef<CameraView>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
+  const [takingPhoto, setTakingPhoto] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [capturedVideoUri, setCapturedVideoUri] = useState<string | null>(null);
   // Web only: frames sampled live from the camera preview during a "video"
@@ -225,6 +232,7 @@ export default function MainScreen({ navigation }: Props) {
   const userInputRef = useRef("");
   const azureTokenRef = useRef<{ token: string; region: string } | null>(null);
   const cameraReadyRef = useRef(false);
+  const takingPhotoRef = useRef(false);
   const videoRecordStartedRef = useRef(false);
   const videoRecordingStartedAtRef = useRef<number | null>(null);
   // Snapshot of the question actually sent, so the chat log records it even
@@ -426,7 +434,7 @@ export default function MainScreen({ navigation }: Props) {
         if (!connected && !isOfflineRef.current) {
           isOfflineRef.current = true;
           Vibration.vibrate(NO_INTERNET_VIBRATION_PATTERN);
-          announce("No internet connection.");
+          announce(LAST_METERS_STATUS.offline);
         } else if (connected && isOfflineRef.current) {
           isOfflineRef.current = false;
         }
@@ -442,6 +450,8 @@ export default function MainScreen({ navigation }: Props) {
 
   useEffect(() => {
     return () => {
+      lastMetersAbortRef.current?.abort();
+      lastMetersAbortRef.current = null;
       webAudioSessionRef.current?.abort();
       webAudioSessionRef.current = null;
       webSpeechSessionRef.current?.abort();
@@ -528,7 +538,7 @@ export default function MainScreen({ navigation }: Props) {
 
   const notifyNoSpeechHeard = useCallback(() => {
     void cueError();
-    speak("I didn't catch that. Ask again.");
+    speak(LAST_METERS_STATUS.no_transcript);
   }, [speak]);
 
   const speakListeningPrompt = useCallback(async () => {
@@ -539,7 +549,7 @@ export default function MainScreen({ navigation }: Props) {
   }, []);
 
   const notifyNoInternetConnection = useCallback(() => {
-    // The response text is set to "No internet connection." and the auto-speak
+    // The response text is set to LAST_METERS_STATUS.offline and the auto-speak
     // effect narrates it, so here we only add the haptic cue (no double speak).
     Vibration.vibrate(NO_INTERNET_VIBRATION_PATTERN);
   }, []);
@@ -654,13 +664,18 @@ export default function MainScreen({ navigation }: Props) {
   }
 
   async function takePhoto() {
-    if (!cameraRef.current) return;
-    const ready = await waitForCameraReady();
-    if (!ready) {
-      speak("Camera is still starting. Try again in a moment.");
-      return;
-    }
+    const camera = cameraRef.current;
+    if (!camera || takingPhotoRef.current || videoRecordStartedRef.current) return;
+    // Reserve the camera before awaiting readiness. React may not have disabled the button yet.
+    takingPhotoRef.current = true;
+    setTakingPhoto(true);
     try {
+      const ready = await waitForCameraReady();
+      if (cameraRef.current !== camera) return;
+      if (!ready) {
+        speak(LAST_METERS_STATUS.camera_starting);
+        return;
+      }
       cancelLastMetersRequest();
       // remove the compass & location belonging to the previous photo
       capturedPhotoHeadingRef.current = null;
@@ -679,12 +694,13 @@ export default function MainScreen({ navigation }: Props) {
         headingTimestamp: headingTimestampRef.current, headingReference: headingReferenceRef.current,
       };
 
-      const photo = await cameraRef.current.takePictureAsync({
+      const photo = await camera.takePictureAsync({
         base64: true,
         quality: 0.4,
         skipProcessing: false,
         exif: false,
       });
+      if (cameraRef.current !== camera) return;
       const dataUrl = photoToDataUrl(photo);
       if (dataUrl) {
         setCapturedVideoUri(null);
@@ -696,9 +712,7 @@ export default function MainScreen({ navigation }: Props) {
         capturedSensorMetadataRef.current = sensorMetadataAtCapture;
         // disabled for testing
         // setUserInput("Describe the image");
-        speak(
-          "Photo captured. Speak or type the destination, then tap Last Meters for entrance guidance. Or Submit to ask about the photo.",
-        );
+        speak(LAST_METERS_STATUS.capture_success);
         notifySuccess();
         try {
           Vibration.vibrate([...PHOTO_CAPTURED_VIBRATION]);
@@ -707,29 +721,37 @@ export default function MainScreen({ navigation }: Props) {
         }
         void track(Events.PhotoCaptured);
       } else {
-        speak("Could not capture image");
+        speak(LAST_METERS_STATUS.capture_failed);
       }
     } catch (e) {
-      console.error("takePhoto error:", e);
-      speak("Could not capture image");
+      if (cameraRef.current !== camera) return;
+      if (e instanceof Error && e.message.startsWith("Camera is not ready yet")) {
+        speak(LAST_METERS_STATUS.camera_busy);
+      } else {
+        console.error("takePhoto error:", e);
+        speak(LAST_METERS_STATUS.capture_failed);
+      }
+    } finally {
+      takingPhotoRef.current = false;
+      setTakingPhoto(false);
     }
   }
 
   async function startVideoRecording() {
-    if (!cameraRef.current || videoRecordStartedRef.current) return;
+    if (!cameraRef.current || videoRecordStartedRef.current || takingPhotoRef.current) return;
 
     // Web: no MediaRecorder/thumbnail pipeline — sample frames off the live
     // preview while the user holds, auto-stopping at the max duration.
     if (Platform.OS === "web") {
       const session = startWebFrameCapture();
       if (!session) {
-        speak("Camera is still starting. Try again in a moment.");
+        speak(LAST_METERS_STATUS.camera_starting);
         return;
       }
       webFrameSessionRef.current = session;
       videoRecordStartedRef.current = true;
       beginRecordingFeedback();
-      AccessibilityInfo.announceForAccessibility("Video recording started");
+      AccessibilityInfo.announceForAccessibility(LAST_METERS_STATUS.video_started);
       setTimeout(() => {
         if (webFrameSessionRef.current === session) void stopVideoRecording();
       }, MAX_VIDEO_DURATION_MS);
@@ -738,19 +760,20 @@ export default function MainScreen({ navigation }: Props) {
 
     const micOk = await ensureMicrophonePermission();
     if (!micOk) {
-      speak("Microphone permission is required to record video.");
+      speak(LAST_METERS_STATUS.video_mic_permission);
       return;
     }
     const ready = await waitForCameraReady();
     if (!ready) {
-      speak("Camera is still starting. Try again in a moment.");
+      speak(LAST_METERS_STATUS.camera_starting);
       return;
     }
+    if (!cameraRef.current || videoRecordStartedRef.current || takingPhotoRef.current) return;
     try {
       videoRecordStartedRef.current = true;
       beginRecordingFeedback();
       await prepareAudioForRecording();
-      AccessibilityInfo.announceForAccessibility("Video recording started");
+      AccessibilityInfo.announceForAccessibility(LAST_METERS_STATUS.video_started);
       // recordAsync resolves when stopRecording is called or maxDuration is reached
       const video = await cameraRef.current.recordAsync({
         maxDuration: MAX_VIDEO_DURATION_MS / 1000,
@@ -758,7 +781,7 @@ export default function MainScreen({ navigation }: Props) {
       if (video?.uri) {
         setCapturedImage(null);
         setCapturedVideoUri(video.uri);
-        speak("Video recording ended. Ready to describe the video.");
+        speak(LAST_METERS_STATUS.video_ended);
         setUserInput("Describe the video");
         notifySuccess();
         void track(Events.VideoRecorded, { platform: Platform.OS });
@@ -767,9 +790,9 @@ export default function MainScreen({ navigation }: Props) {
       console.error("startVideoRecording error:", e);
       const msg = e instanceof Error ? e.message : "";
       if (/not ready/i.test(msg)) {
-        speak("Camera not ready. Wait a second, then try again.");
+        speak(LAST_METERS_STATUS.video_camera_unready);
       } else {
-        speak("Could not capture video");
+        speak(LAST_METERS_STATUS.video_failed);
       }
     } finally {
       videoRecordStartedRef.current = false;
@@ -798,7 +821,7 @@ export default function MainScreen({ navigation }: Props) {
         setCapturedVideoUri(null);
         setWebVideoFrames(frames);
         setUserInput("Describe the video");
-        speak("Video recording ended. Ready to describe the video.");
+        speak(LAST_METERS_STATUS.video_ended);
         notifySuccess();
         void track(Events.VideoRecorded, {
           platform: "web",
@@ -806,7 +829,7 @@ export default function MainScreen({ navigation }: Props) {
         });
       } else {
         setWebVideoFrames(null);
-        speak("Could not capture video");
+        speak(LAST_METERS_STATUS.video_failed);
       }
       return;
     }
@@ -923,10 +946,8 @@ export default function MainScreen({ navigation }: Props) {
       lastMetersVoiceResponseRef.current = null;
       cameraReadyRef.current = false;
       if (options?.announceReset) {
-        AccessibilityInfo.announceForAccessibility(
-          "New test started. Previous question, answer, and AI memory cleared.",
-        );
-        announce("New test started.");
+        const useReader = Platform.OS !== "web" && isScreenReaderActive();
+        announce(useReader ? LAST_METERS_STATUS.new_test_accessible : LAST_METERS_STATUS.new_test);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -981,7 +1002,7 @@ export default function MainScreen({ navigation }: Props) {
       return;
     }
     if (loadingRef.current) {
-      speak("Still loading the last answer. Please wait.");
+      speak(LAST_METERS_STATUS.answer_loading);
       return;
     }
     setUserInput(trimmed);
@@ -995,14 +1016,14 @@ export default function MainScreen({ navigation }: Props) {
         looksLikeBareDestination(trimmed) ||
         classifyFeature({ text: trimmed, hasImage: true }) === "directions";
       if (wantsLastMeters) {
-        speak(`Destination set to ${trimmed}. Starting Last Meters.`, {
+        speak(getLastMetersVoiceText({ type: "destination_confirmed", destination: trimmed }), {
           preferDevice: true,
         });
         await handleLastMetersNavigation(trimmed);
         return;
       }
       speak(
-        `Got ${trimmed}. Double-tap Last Meters for entrance guidance, or Submit to ask about the photo.`,
+        getLastMetersVoiceText({ type: "photo_transcript", transcript: trimmed }),
         { preferDevice: true },
       );
       notifySuccess();
@@ -1112,11 +1133,11 @@ export default function MainScreen({ navigation }: Props) {
     if (Platform.OS === "web") unlockWebAudioForPlayback();
 
     if (loadingRef.current) {
-      speak("Still loading your last answer. Wait a moment, then try again.");
+      speak(LAST_METERS_STATUS.mic_while_loading);
       return;
     }
     if (isTranscribingRef.current) {
-      speak("Still transcribing your last question. Wait a moment.");
+      speak(LAST_METERS_STATUS.transcription_busy);
       return;
     }
     if (isListeningRef.current) return;
@@ -1128,9 +1149,7 @@ export default function MainScreen({ navigation }: Props) {
       await refreshAzureToken();
     }
     if (!azureTokenRef.current) {
-      speak(
-        "Voice input is unavailable. Make sure the backend is running and try again.",
-      );
+      speak(LAST_METERS_STATUS.voice_unavailable);
       if (Platform.OS !== "web") {
         Alert.alert(
           "Voice Input Unavailable",
@@ -1141,7 +1160,7 @@ export default function MainScreen({ navigation }: Props) {
     }
     const micOk = await ensureMicrophonePermission();
     if (!micOk) {
-      speak("Microphone permission is required for voice questions.");
+      speak(LAST_METERS_STATUS.mic_permission);
       return;
     }
 
@@ -1151,9 +1170,7 @@ export default function MainScreen({ navigation }: Props) {
       try {
         const session = await startWebAudioCapture();
         if (!session) {
-          speak(
-            "Could not start microphone. Check browser permissions and try again.",
-          );
+          speak(LAST_METERS_STATUS.browser_mic_permission);
           return;
         }
         webAudioSessionRef.current = session;
@@ -1185,7 +1202,7 @@ export default function MainScreen({ navigation }: Props) {
       } catch (e) {
         console.error("startListening web error:", e);
         await resetVoiceUiState();
-        speak("Could not start microphone");
+        speak(LAST_METERS_STATUS.browser_mic_failed);
       }
       return;
     }
@@ -1211,7 +1228,7 @@ export default function MainScreen({ navigation }: Props) {
       console.error("startListening error:", e);
       await resetVoiceUiState();
       await resetAudioForPlayback();
-      speak("Could not start microphone. Tap again in a moment.");
+      speak(LAST_METERS_STATUS.native_mic_failed);
     }
   }
 
@@ -1238,7 +1255,7 @@ export default function MainScreen({ navigation }: Props) {
         setIsTranscribing(false);
         isTranscribingRef.current = false;
         void cueError();
-        speak("I didn't hear anything. Ask again.");
+        speak(LAST_METERS_STATUS.no_speech);
         return;
       }
 
@@ -1273,7 +1290,7 @@ export default function MainScreen({ navigation }: Props) {
             contentTypeForWebBlob(blob),
           );
           if (transcript === null) {
-            speak("Speech service error. Please try again.");
+            speak(LAST_METERS_STATUS.speech_service_error);
             return;
           }
           text = transcript.trim();
@@ -1290,9 +1307,7 @@ export default function MainScreen({ navigation }: Props) {
         }
       } catch (e) {
         console.error("stopListening web error:", e);
-        speak(
-          "Voice recognition failed. Tap the voice button and speak again.",
-        );
+        speak(LAST_METERS_STATUS.recognition_failed);
       } finally {
         setIsTranscribing(false);
         isTranscribingRef.current = false;
@@ -1319,7 +1334,7 @@ export default function MainScreen({ navigation }: Props) {
         isTranscribingRef.current = false;
         setUserInput("");
         void cueError();
-        speak("I didn't hear anything. Ask again.");
+        speak(LAST_METERS_STATUS.no_speech);
         return;
       }
       setIsTranscribing(true);
@@ -1333,7 +1348,7 @@ export default function MainScreen({ navigation }: Props) {
 
       if (!uri || !azureTokenRef.current) {
         setIsTranscribing(false);
-        if (!uri) speak("Could not read the recording. Please try again.");
+        if (!uri) speak(LAST_METERS_STATUS.recording_unreadable);
         return;
       }
 
@@ -1345,7 +1360,7 @@ export default function MainScreen({ navigation }: Props) {
       );
 
       if (transcript === null) {
-        speak("Speech service error. Please try again.");
+        speak(LAST_METERS_STATUS.speech_service_error);
         return;
       }
       const cleaned = transcript.trim();
@@ -1359,7 +1374,7 @@ export default function MainScreen({ navigation }: Props) {
       }
     } catch (e) {
       console.error("stopListening error:", e);
-      speak("Voice recognition failed. Tap the voice button and speak again.");
+      speak(LAST_METERS_STATUS.recognition_failed);
     } finally {
       setIsTranscribing(false);
       isTranscribingRef.current = false;
@@ -1374,20 +1389,96 @@ export default function MainScreen({ navigation }: Props) {
     if (!controller) return false;
     lastMetersAbortRef.current = null;
     controller.abort();
+    setLastMetersLoading(false);
+    setLoading(false);
     return true;
+  }
+
+  /** Coalesce module events and keep the waiting hints available for JSON responses. */
+  function startLastMetersProgress(controller: AbortController) {
+    const hints = [
+      [LAST_METERS_INITIAL_HINT_MS, "initial_wait"],
+      [SLOW_RESPONSE_HINT_MS, "continued_wait"],
+      [SLOW_RESPONSE_HINT_MS * 2, "still_processing"],
+    ] as const;
+    const observed = new Set<LastMetersModule>();
+    let timer: ReturnType<typeof setTimeout>;
+    let moduleTimer: ReturnType<typeof setTimeout> | undefined;
+    let pendingModule: LastMetersModule | undefined;
+    let stopped = false;
+    let stopSpeech: (() => void) | undefined;
+    const isCurrent = () => !stopped && lastMetersAbortRef.current === controller && !controller.signal.aborted;
+    let activePriority = 0;
+    let lastModuleSpokenAt = -Infinity;
+    const play = (event: LastMetersProgressVoiceEvent, parallel?: LastMetersProgressEvent) => {
+      const priority = getLastMetersVoicePriority(event);
+      if (priority > activePriority) stopSpeech?.(); // Only stops audio owned by this request.
+      const text = getLastMetersVoiceText(event);
+      const stop = speakProgressIfIdle(parallel ? text + " " + getLastMetersVoiceText(parallel) : text);
+      if (stop) {
+        stopSpeech = stop;
+        activePriority = priority;
+        if (event.type === "module_started") lastModuleSpokenAt = Date.now();
+      }
+    };
+
+    const schedule = (index: number) => {
+      const [at, type] = hints[index];
+      const previous = index === 0 ? 0 : hints[index - 1][0];
+      timer = setTimeout(() => {
+        if (!isCurrent()) return;
+        const isLongReminder = index === hints.length - 1;
+        const reminderDue = isLongReminder && Date.now() - lastModuleSpokenAt >= SLOW_RESPONSE_HINT_MS;
+        if (moduleTimer === undefined && (!observed.size || reminderDue)) play({ type });
+        if (!isLongReminder) schedule(index + 1);
+      }, at - previous);
+    };
+    const onProgress = (event: LastMetersProgressEvent) => {
+      const { module } = event;
+      if (!isCurrent() || observed.has(module)) return;
+      observed.add(module);
+      const matchesAreParallel =
+        (module === "currentViewMatch" && pendingModule === "destinationMatch") ||
+        (module === "destinationMatch" && pendingModule === "currentViewMatch");
+      pendingModule = module;
+      clearTimeout(moduleTimer);
+      moduleTimer = setTimeout(() => {
+        pendingModule = undefined;
+        moduleTimer = undefined;
+        if (!isCurrent()) return;
+        if (matchesAreParallel) {
+          play({ type: "module_started", module: "currentViewMatch" },
+            { type: "module_started", module: "destinationMatch" });
+        } else {
+          play(event);
+        }
+      }, LAST_METERS_PROGRESS_COALESCE_MS);
+    };
+    const stop = () => {
+      stopped = true;
+      clearTimeout(timer);
+      clearTimeout(moduleTimer);
+      controller.signal.removeEventListener("abort", stop);
+      stopSpeech?.();
+      stopSpeech = undefined;
+    };
+
+    controller.signal.addEventListener("abort", stop);
+    schedule(0);
+    return { stop, onProgress };
   }
 
   /** Analyze the original capture, then check current sensors only before speaking a precise turn. */
   async function handleLastMetersNavigation(destinationOverride?: string) {
     if (cancelLastMetersRequest()) {
-      speak("Last Meters cancelled.", { preferDevice: true });
+      speak(getLastMetersVoiceText({ type: "cancelled" }), { preferDevice: true });
       return;
     }
     if (loading) return;
 
     const rawDestination = (destinationOverride ?? userInput).trim();
     if (!rawDestination) {
-      speak("Please enter the name of the store or destination first.", {
+      speak(LAST_METERS_STATUS.missing_destination, {
         preferDevice: true,
       });
       return;
@@ -1400,7 +1491,7 @@ export default function MainScreen({ navigation }: Props) {
       return;
     }
     if (!capturedImage) {
-      speak("Please take a photo of your surroundings first.", {
+      speak(LAST_METERS_STATUS.missing_photo, {
         preferDevice: true,
       });
       return;
@@ -1409,11 +1500,15 @@ export default function MainScreen({ navigation }: Props) {
 
     const controller = new AbortController();
     lastMetersAbortRef.current = controller;
+    const { stop: stopProgress, onProgress } = startLastMetersProgress(controller);
     // Owned by this request, so identical replies to separate requests still speak.
     let responsePresented = false;
-    const presentResponse = (output: string, speechText = output) => {
-      if (responsePresented) return;
+    const presentResponse = (event: LastMetersResultVoiceEvent) => {
+      if (responsePresented || controller.signal.aborted || lastMetersAbortRef.current !== controller) return;
       responsePresented = true;
+      stopProgress();
+      const speechText = getLastMetersVoiceText(event);
+      const output = event.type === "safety_gate" ? event.backendOutput : speechText;
       lastMetersVoiceResponseRef.current = { output, speechText };
       // Match the existing direct-response pattern: the aiResponse effect must not
       // speak the full backend text again or interrupt the selected prompt.
@@ -1424,19 +1519,6 @@ export default function MainScreen({ navigation }: Props) {
     };
     setLoading(true);
     setLastMetersLoading(true);
-    void stopSpeaking();
-    AccessibilityInfo.announceForAccessibility(
-      "Checking your distance and surroundings. This may take a moment.",
-    );
-    if (slowResponseTimerRef.current)
-      clearTimeout(slowResponseTimerRef.current);
-    slowResponseTimerRef.current = setTimeout(() => {
-      if (lastMetersAbortRef.current === controller)
-        speak(
-          "Still checking your surroundings. Tap Last Meters again to cancel.",
-          { preferDevice: true },
-        );
-    }, SLOW_RESPONSE_HINT_MS * 2);
 
     try {
       const loc = capturedPhotoLocationRef.current;
@@ -1455,7 +1537,7 @@ export default function MainScreen({ navigation }: Props) {
       const sensors = makeSensors();
       const requestedAt = Date.now();
       if (!loc || !validPoint(position)) {
-        presentResponse(RECAPTURE_MESSAGE);
+        presentResponse({ type: "recapture_required" });
         return;
       }
 
@@ -1472,18 +1554,20 @@ export default function MainScreen({ navigation }: Props) {
           sensors,
         },
         controller.signal,
+        onProgress,
       );
 
       if (controller.signal.aborted || lastMetersAbortRef.current !== controller) return;
       if (mobileResponseSensorReasons(data, makeSensors(), position, captureHeading, loc.coords.accuracy ?? undefined, requestedAt).length) {
-        presentResponse(RECAPTURE_MESSAGE);
+        presentResponse({ type: "recapture_required" });
         return;
       }
       if (data.output) {
-        presentResponse(
-          data.output,
-          getSafetyGateVoicePrompt(data.safetyReasons, data.warning) ?? data.output,
-        );
+        if (data.guidanceKind === "withheld" || data.safetyReasons?.length || data.warning) {
+          presentResponse({ type: "safety_gate", reasons: data.safetyReasons, warning: data.warning, backendOutput: data.output });
+        } else {
+          presentResponse({ type: "navigation_result", output: data.output });
+        }
 
         setUserInput("");
         setCapturedImage(null);
@@ -1499,25 +1583,11 @@ export default function MainScreen({ navigation }: Props) {
       if (controller.signal.aborted) return;
       console.error("Last Meters Error:", e);
       const isTimeout = (e as { code?: string })?.code === "ECONNABORTED";
-      const detail = e instanceof Error ? e.message : "";
-      const errMsg = isTimeout
-        ? "Last Meters took too long to answer. The server may be busy. Take a new photo and try again."
-        : detail
-          ? `Last Meters error: ${detail}`
-          : "Error calculating last meters navigation. Please try again.";
-      presentResponse(errMsg);
+      presentResponse(isTimeout ? { type: "timeout" } : { type: "error", message: e instanceof Error ? e.message : undefined });
     } finally {
-      // A cancelled request settles after the user may have started a new one;
-      // only the latest request may clear the loading state.
-      if (
-        lastMetersAbortRef.current === controller ||
-        lastMetersAbortRef.current === null
-      ) {
+      stopProgress();
+      if (lastMetersAbortRef.current === controller) {
         lastMetersAbortRef.current = null;
-        if (slowResponseTimerRef.current) {
-          clearTimeout(slowResponseTimerRef.current);
-          slowResponseTimerRef.current = null;
-        }
         setLoading(false);
         setLastMetersLoading(false);
       }
@@ -1929,7 +1999,8 @@ export default function MainScreen({ navigation }: Props) {
                   mode="contained"
                   onPressIn={() => tap()}
                   onPress={() => void takePhoto()}
-                  disabled={isRecordingVideo}
+                  disabled={isRecordingVideo || takingPhoto}
+                  accessibilityState={{ busy: takingPhoto }}
                   style={[
                     styles.captureActionButton,
                     styles.capturePhotoButton,
@@ -1945,6 +2016,7 @@ export default function MainScreen({ navigation }: Props) {
                   mode="contained"
                   onPressIn={() => tapMedium()}
                   onPress={() => void toggleVideoCapture()}
+                  disabled={takingPhoto}
                   style={[
                     styles.captureActionButton,
                     isRecordingVideo

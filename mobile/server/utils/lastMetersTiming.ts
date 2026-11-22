@@ -1,13 +1,18 @@
 import { performance } from "node:perf_hooks";
 
-export type LastMetersModule = "preCheck" | "currentViewMatch" | "destinationMatch" | "turnDecision" | "guidance";
+import type { LastMetersModule } from "../../src/utils/lastMetersProgress";
+export type { LastMetersModule } from "../../src/utils/lastMetersProgress";
 /** Missing means skipped or unfinished, never zero. UI labels are mapped by buildModules. */
 export type LastMetersModuleTimings = Partial<Record<LastMetersModule, number>>;
 
 /** Completed stretches accumulate; different modules may overlap in wall-clock time.
  * Stretches of the same module run in sequence; parallel backups share one stretch.
  */
-export function createLastMetersModuleTimer(now = () => performance.now()) {
+export function createLastMetersModuleTimer(
+  now = () => performance.now(),
+  onModuleStarted?: (name: LastMetersModule) => void,
+) {
+  const announced = onModuleStarted ? new Set<LastMetersModule>() : undefined;
   const started = new Map<LastMetersModule, number>();
   const durations: LastMetersModuleTimings = {};
   let finished = false;
@@ -24,6 +29,14 @@ export function createLastMetersModuleTimer(now = () => performance.now()) {
 
   return {
     async time<T>(name: LastMetersModule, work: () => Promise<T>): Promise<T> {
+      if (!finished && announced && !announced.has(name)) {
+        announced.add(name);
+        try {
+          onModuleStarted?.(name);
+        } catch {
+          // A disconnected or faulty progress observer cannot affect the run.
+        }
+      }
       start(name);
       try {
         return await work();
