@@ -15,10 +15,6 @@ A place Buddy Walk has confirmed exists within walking range of the user.
 It is the only kind of destination Buddy Walk will give directions or Last Meters guidance to.
 _Avoid_: Destination lookup result, place match
 
-**Last Meters**:
-Guidance that takes a user standing near a destination the final stretch to its door, using their photo, GPS, compass, and Street View panoramas to produce a turn instruction.
-_Avoid_: Last mile
-
 **Entrance assessment**:
 A Last Meters check that examines the doorway in one selected Street View panorama and in the user's current photo. It records storefront identity and doorway visibility separately for each camera.
 
@@ -30,6 +26,10 @@ An obstruction, such as scaffolding or a vehicle, that prevents inspection of th
 
 **Current-view and destination matching**:
 Current-view matching (B) compares the user's photo with panorama views. Destination matching (C) locates the verified business in those views and compares its heading with the map. The device compass supplies the user's heading for a turn. Panorama matching cannot supply a missing or invalid compass heading.
+
+**Last Meters**:
+Guidance that takes a user standing near a destination the final stretch to its door, using their photo, GPS, compass, and Street View panoramas to produce a turn instruction.
+_Avoid_: Last mile
 
 **Trial**:
 One recorded Last Meters run, from the app or replayed from the Team console, with the evidence gathered, each step taken, and the answer given.
