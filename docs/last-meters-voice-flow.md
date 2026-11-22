@@ -1,6 +1,6 @@
 # Last Meters voice flow
 
-A user can take a photo, say or type a destination, request Last Meters, and pause or replay the final answer. Phase 1 gives those interactions a typed voice catalog. All spoken wording below already existed in the current checkout. The changes are the event contract, centralized selection and priority handling.
+A user can take a photo, say or type a destination, request Last Meters, and pause or replay the final answer. The mobile client uses a typed catalog for spoken messages. During a request it can announce module starts streamed by the backend, then give the final answer or Safety Gate recovery prompt priority over progress speech.
 
 ## Capture, destination and recovery
 
@@ -89,12 +89,14 @@ Only a request-scoped `{ type: "module_started", module }` event can select thes
 ## Priority, cancellation and replay
 
 1. A validated answer, Safety Gate response or client recapture message takes ownership of playback immediately. Only one terminal response is presented per request.
-2. Cancellation, timeout and terminal errors stop pending and active progress. The Cancel button aborts the request and announces cancellation once. Unmount, reset and replacement of a capture invalidate the request silently.
+2. Cancellation, timeout and terminal errors stop pending and active progress. The Cancel button aborts the request and announces cancellation once. Leaving the main screen, unmounting, resetting or replacing the capture silently cancels the active request.
 3. A genuine module start can replace this request’s generic waiting speech. Each module is considered once per request. A 120 ms window combines concurrent B/C starts or replaces a superseded pending start. Busy content or module speech wins over a new module announcement.
 4. The three generic hints use the existing waiting timer. Busy speech or a pending module suppresses the hint. The long reminder also yields to recently spoken module feedback.
 
 Input and reset events use the existing accessibility status routing. A native screen reader gets the longer New Test confirmation once. App TTS supplies the short version otherwise. Optional request progress uses idle device TTS. Answers and recovery content use app TTS so Stop, Replay and VoiceOver’s Magic Tap control the selected response. Replay reads the saved final speech (including a terminal error shown as the response). It never reads a waiting or module event. A cancelled run cannot replace the replay target.
 
-## Phase 2 integration
+## Progress transport and deployment
 
-The catalog works with an ordinary JSON response. Defining a module line does not deliver live progress. The current development checkout already has an optional event transport from separate work. Phase 1 adds no transport and requires no backend deployment. A producer must report genuine module starts for the same request, support concurrent B/C starts and allow skipped modules. Forward those starts to the active request callback. Never derive them from elapsed time or `moduleTimingsMs`. End, error, cancellation and replacement close that callback to late events. With a JSON-only backend, the user hears the applicable waiting hints and final response.
+This PR adds progress streaming to the Last Meters endpoint and its mobile client. When the client requests `application/x-ndjson`, the backend streams a `module_started` event for each module it enters, followed by a `result` event carrying the final status and body. B and C can start concurrently. Skipped modules produce no events.
+
+Live module prompts require deploying the streaming backend and using a client that reads the stream. With a JSON-only backend, the client can still speak its timed waiting hints and the final response. Only a module-start event triggers a module prompt.

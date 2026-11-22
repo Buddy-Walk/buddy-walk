@@ -71,9 +71,19 @@ function screen(reply: Reply) {
   const spoken: string[] = [];
   const statuses: string[] = [];
   let pendingEffect = false;
+  let focused = true;
+  const blurListeners = new Set<() => void>();
   let stopCount = 0;
   let speaking = false;
   const context = vm.createContext({
+    navigation: {
+      isFocused: () => focused,
+      addListener(event: string, listener: () => void) {
+        assert.equal(event, 'blur');
+        blurListeners.add(listener);
+        return () => blurListeners.delete(listener);
+      },
+    },
     AbortController, Error, console: { error: () => {} },
     getLastMetersVoicePriority, getLastMetersVoiceText, LAST_METERS_STATUS,
     parseLastMetersInput, validPoint, mobileResponseSensorReasons,
@@ -131,6 +141,9 @@ function screen(reply: Reply) {
     flush: () => { if (pendingEffect) { pendingEffect = false; autoSpeak(); } },
     setSpeaking: (value: boolean) => { speaking = value; },
     stopped: () => stopCount,
+    setFocused: (value: boolean) => { focused = value; },
+    blur: () => { focused = false; blurListeners.forEach(listener => listener()); },
+    blurListeners,
   };
 }
 
@@ -610,3 +623,45 @@ for (const reader of [true, false]) {
     assert.deepEqual(s.statuses, [reader ? LAST_METERS_STATUS.new_test_accessible : LAST_METERS_STATUS.new_test]);
   });
 }
+
+test('leaving Main stops active speech and pending progress, even if the old request settles after returning', async t => {
+  const s = waitingScreen(t);
+  const old = s.begin();
+  const signal = s.context.lastMetersAbortRef.current.signal as AbortSignal;
+  old.startModule('preCheck');
+  await s.tick(120);
+  old.startModule('destinationMatch');
+  s.blur();
+  assert.equal(signal.aborted, true);
+  assert.equal(s.context.loading, false);
+  assert.equal(s.blurListeners.size, 0);
+  old.startModule('guidance');
+  await s.tick(10_000);
+  const hint = LAST_METERS_VOICE_PROMPTS.preCheck;
+  assert.deepEqual(s.events, [hint, 'Stopped: ' + hint]);
+
+  s.setFocused(true);
+  const fresh = s.begin();
+  old.answer({ output: 'Late result.' });
+  await old.done;
+  assert.equal(s.context.loading, true);
+  fresh.answer({ output: 'Current result.' });
+  await fresh.done; s.flush(); await nextTurn();
+  assert.deepEqual(s.events, [hint, 'Stopped: ' + hint, 'Current result.']);
+  assert.equal(s.blurListeners.size, 0);
+});
+
+test('progress callbacks and results check focus even before the blur notification arrives', async t => {
+  const s = waitingScreen(t);
+  const run = s.begin();
+  run.startModule('preCheck');
+  s.setFocused(false);
+  await s.tick(120);
+  run.startModule('destinationMatch');
+  await s.tick(10_000);
+  run.answer({ output: 'Off-screen result.' });
+  await run.done; s.flush(); await nextTurn();
+  assert.deepEqual(s.events, []);
+  assert.equal(s.context.aiResponse, '');
+  assert.equal(s.blurListeners.size, 0);
+});

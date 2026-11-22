@@ -1407,7 +1407,8 @@ export default function MainScreen({ navigation }: Props) {
     let pendingModule: LastMetersModule | undefined;
     let stopped = false;
     let stopSpeech: (() => void) | undefined;
-    const isCurrent = () => !stopped && lastMetersAbortRef.current === controller && !controller.signal.aborted;
+    const isCurrent = () => !stopped && lastMetersAbortRef.current === controller &&
+      !controller.signal.aborted && navigation.isFocused();
     let activePriority = 0;
     let lastModuleSpokenAt = -Infinity;
     const play = (event: LastMetersProgressVoiceEvent, parallel?: LastMetersProgressEvent) => {
@@ -1454,8 +1455,13 @@ export default function MainScreen({ navigation }: Props) {
         }
       }, LAST_METERS_PROGRESS_COALESCE_MS);
     };
+    const removeBlurListener = navigation.addListener("blur", () => {
+      if (lastMetersAbortRef.current === controller) cancelLastMetersRequest();
+    });
     const stop = () => {
+      if (stopped) return;
       stopped = true;
+      removeBlurListener();
       clearTimeout(timer);
       clearTimeout(moduleTimer);
       controller.signal.removeEventListener("abort", stop);
@@ -1465,11 +1471,12 @@ export default function MainScreen({ navigation }: Props) {
 
     controller.signal.addEventListener("abort", stop);
     schedule(0);
-    return { stop, onProgress };
+    return { stop, onProgress, isCurrent };
   }
 
   /** Analyze the original capture, then check current sensors only before speaking a precise turn. */
   async function handleLastMetersNavigation(destinationOverride?: string) {
+    if (!navigation.isFocused()) return;
     if (cancelLastMetersRequest()) {
       speak(getLastMetersVoiceText({ type: "cancelled" }), { preferDevice: true });
       return;
@@ -1500,11 +1507,11 @@ export default function MainScreen({ navigation }: Props) {
 
     const controller = new AbortController();
     lastMetersAbortRef.current = controller;
-    const { stop: stopProgress, onProgress } = startLastMetersProgress(controller);
+    const { stop: stopProgress, onProgress, isCurrent } = startLastMetersProgress(controller);
     // Owned by this request, so identical replies to separate requests still speak.
     let responsePresented = false;
     const presentResponse = (event: LastMetersResultVoiceEvent) => {
-      if (responsePresented || controller.signal.aborted || lastMetersAbortRef.current !== controller) return;
+      if (responsePresented || !isCurrent()) return;
       responsePresented = true;
       stopProgress();
       const speechText = getLastMetersVoiceText(event);
@@ -1557,7 +1564,7 @@ export default function MainScreen({ navigation }: Props) {
         onProgress,
       );
 
-      if (controller.signal.aborted || lastMetersAbortRef.current !== controller) return;
+      if (!isCurrent()) return;
       if (mobileResponseSensorReasons(data, makeSensors(), position, captureHeading, loc.coords.accuracy ?? undefined, requestedAt).length) {
         presentResponse({ type: "recapture_required" });
         return;
