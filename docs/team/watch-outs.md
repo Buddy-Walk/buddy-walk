@@ -11,7 +11,7 @@ The personal repo `Justraymond99/buddy_walk` is retired for production. Pushing 
 
 ## Dashboard URL changed
 
-Trials: `/last-meters-tests`, not `/last-mile-tests`.
+Trials and Usage are on the Team console, at `/trials` and `/usage`, not on the API.
 Deploy check: `/api/last-meters/review-status`.
 `POST /api/last-mile` still works for the app.
 

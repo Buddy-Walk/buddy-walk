@@ -12,6 +12,9 @@ Use the `gh` CLI for all operations.
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
 - **Close**: `gh issue close <number> --comment "..."`
+- **Attach a sub-issue**: the API takes the child's numeric id, not its number.
+  `gh api -X POST repos/Buddy-Walk/buddy-walk/issues/<parent>/sub_issues -F sub_issue_id="$(gh api repos/Buddy-Walk/buddy-walk/issues/<child> --jq .id)"`
+- **File issues that reference each other**: create them all first, then edit the real numbers into each body with `gh issue edit <number> --body-file ...`.
 
 Infer the repo from `git remote -v` - `gh` does this automatically when run inside a clone.
 

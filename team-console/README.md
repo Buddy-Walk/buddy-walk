@@ -12,7 +12,7 @@ See ADR 0004 (`docs/adr/0004-team-console-on-cloudflare-workers-behind-access.md
   The app never runs on the bun runtime: dev and production both run on workerd through `@cloudflare/vite-plugin`.
 - Tailwind v4 and shadcn/ui for styling (`bunx shadcn@latest add <component>` adds components).
 - TanStack Query owns server data.
-  Route loaders call `context.queryClient.ensureQueryData(...)` and components read the same query with `useSuspenseQuery`.
+  Route loaders call `context.queryClient.prefetchQuery(...)` and components read the same query with `useQuery`, so a failed load shows inline beside the page's controls.
 
 ## Run
 
@@ -22,25 +22,38 @@ bun run dev
 ```
 
 `bun run dev` runs `vp dev` under `infisical run --env=dev --path=/team-console`, so the dev secrets reach workerd.
-The page lists whether each secret is set, never its value.
-Without Infisical, `vp dev --port 3000` still starts and reports both secrets as missing.
+Without Infisical, `vp dev --port 3000` still starts, but loading data fails because `API_BASE_URL` is not set.
+
+## Local stack
+
+`bun run stack` runs the console against a throwaway mobile/server with seeded Trials, to see a change working.
+It starts mongod with its data in `.stack/`, loads `scripts/seed-trials.ts` and `scripts/seed-usage.ts`, then starts mobile/server and `vp dev`, and stops them all on Ctrl-C.
+The seeds hold one of each case the console handles, including Trials saved in older shapes; add one there when a change needs a new case.
+`.stack/` keeps each process's log, and `.stack/env` holds `API_BASE_URL`, `ADMIN_TOKEN` and `MONGO_URI` for tools run beside the stack.
+The stack blanks the Last Meters API keys so a retry can never spend money, which leaves retries off there.
+It needs `mongod` and `mongoimport` on the PATH and mobile's dependencies (`npm ci` in `mobile/`).
 
 ## Test and check
 
 ```bash
-vp check   # format, lint and type checks
-vp test    # Vitest
+vp check      # format, lint and type checks
+vp test       # Vitest
+bun run e2e   # Playwright, against the local stack
 ```
 
-CI runs both, plus `vp build`, on every PR that touches `team-console/` (`.github/workflows/check.yml`).
+CI runs `vp check`, `vp test` and `vp build` on every PR that touches `team-console/` (`.github/workflows/check.yml`).
 `vp check --fix` formats and applies lint fixes.
-Tests cover plain modules in Node, so the Cloudflare plugin is left out when Vitest runs.
+Vitest covers plain modules in Node, so the Cloudflare plugin is left out when it runs.
+Lint also runs the console's own rules in `lint/plugin.ts`, which have their tests beside them.
+
+`bun run e2e` starts the local stack on port 3100 and runs `e2e/` in Playwright's Chromium (`bunx playwright install chromium`).
+A test also fails on any page or console error it doesn't list in `allowedErrors`, since React reports some crashes only to the console.
 
 ## Secrets
 
 | Name           | What it is                                                        |
 | -------------- | ----------------------------------------------------------------- |
-| `ADMIN_TOKEN`  | Sent to mobile/server as `x-admin-token` from server functions.   |
+| `ADMIN_TOKEN`  | Sent to mobile/server as `x-admin-token`, only from the server.   |
 | `API_BASE_URL` | mobile/server's base URL: local in dev, production when deployed. |
 
 Values live in Infisical, in the `/team-console` folder of the `buddy-walk` project, with `dev` and `prod` environments.
@@ -59,7 +72,7 @@ For an existing Preview, also run `bunx wrangler preview secret bulk --name <bra
 Locally, `infisical run` sets them as process env, and workerd reads them because `wrangler.jsonc` lists them under `secrets.required`.
 `.env.example` lists the names; real env files are gitignored.
 
-Only server functions may read secrets (`import { env } from "cloudflare:workers"`).
+Only server functions and server routes may read secrets (`import { env } from "cloudflare:workers"`).
 The browser never sees `ADMIN_TOKEN`.
 
 After changing `wrangler.jsonc`, run `bun run cf-typegen` to regenerate `worker-configuration.d.ts`.

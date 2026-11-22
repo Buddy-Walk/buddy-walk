@@ -25,4 +25,8 @@ declare module "@tanstack/react-router" {
   interface Register {
     router: ReturnType<typeof getRouter>;
   }
+  interface HistoryState {
+    /** How many Trial details are open on top of the Trials list, so Close can go back to it. */
+    trialDepth?: number;
+  }
 }

@@ -17,3 +17,6 @@ __unconfig*
 
 # The root .gitignore ignores vite.config.ts for the legacy root app.
 !vite.config.ts
+.stack/
+test-results/
+playwright-report/

@@ -3,8 +3,6 @@ import test from "node:test";
 import { LastMetersTestLogController } from "../../server/controllers/lastMetersTestLog";
 import { lastMetersTestLogService } from "../../server/services/lastMetersTestLog";
 import model from "../../server/database/models/lastMetersTestLog";
-import { readFileSync } from "node:fs";
-import vm from "node:vm";
 
 function response() {
   return { code: 200, body: undefined as any, status(code: number) { this.code = code; return this; }, json(body: any) { this.body = body; return this; } };
@@ -43,33 +41,4 @@ test("trial detail opts into saved Street View blobs without changing list behav
   assert.deepEqual(requested, { includeStreetView: true });
   assert.equal(res.body.data.panoramaPhoto, photo);
   assert.equal(res.body.data.destinationPhoto, photo);
-});
-
-test("dashboard renders saved panoramas, decimal headings and missing-image explanations", () => {
-  const html = readFileSync("server/views/lastMetersTests.html", "utf8");
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
-  const helper = script.slice(script.indexOf("function streetViewImagesHtml("), script.indexOf("function renderDetail("));
-  const context = vm.createContext({ esc: (v: any) => String(v),
-    imgSrc: (v: any) => typeof v === "string" && v.startsWith("data:") ? v : "", noPanoramaReason: () => "No outdoor panorama saved." });
-  vm.runInContext(helper, context);
-  const rendered = vm.runInContext('streetViewImagesHtml({panoramaPhoto:"data:image/jpeg;base64,pano",destinationPhoto:"data:image/jpeg;base64,ref",panoramaHeadings:[0,22.5]})', context);
-  assert.match(rendered, /src="data:image\/jpeg;base64,pano"/);
-  assert.match(rendered, /src="data:image\/jpeg;base64,ref"/);
-  assert.match(rendered, /22.5°/);
-  assert.match(rendered, /download="panoramaPhoto.jpg"/);
-  assert.match(vm.runInContext('streetViewImagesHtml({})', context), /No outdoor panorama saved/);
-  assert.match(script, /includeStreetView=true/);
-});
-test("dashboard script parses and excludes replay and legacy status from field metrics", () => {
-  const html = readFileSync("server/views/lastMetersTests.html", "utf8");
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
-  new vm.Script(script);
-  const outcomeFunction = script.slice(script.indexOf("function outcomeOf("), script.indexOf("var SOURCE_LABELS"));
-  const summaryFunction = script.slice(script.indexOf("function renderSummary("), script.indexOf("function saveReview("));
-  const element = { innerHTML: "" };
-  const context = vm.createContext({ document: { getElementById: () => element }, esc: (s: string) => s,
-    weekOf: () => "week", successTable: () => "" });
-  vm.runInContext(outcomeFunction + summaryFunction, context);
-  vm.runInContext('renderSummary([{reviewOutcome:"got_there",runKind:"replay"},{reviewerStatus:"pass"}])', context);
-  assert.match(element.innerHTML, /0 of 1 trials scored/);
 });

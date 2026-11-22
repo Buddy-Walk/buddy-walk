@@ -10,33 +10,101 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TrialsRouteImport } from './routes/trials'
+import { Route as UsageRouteImport } from './routes/usage'
+import { Route as TrialsTrialIdRouteImport } from './routes/trials.$trialId'
+import { Route as ApiTrialsExportDotcsvRouteImport } from './routes/api.trials.export[.]csv'
+import { Route as ApiUsageFileRouteImport } from './routes/api.usage.$file'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TrialsRoute = TrialsRouteImport.update({
+  id: '/trials',
+  path: '/trials',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const UsageRoute = UsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TrialsTrialIdRoute = TrialsTrialIdRouteImport.update({
+  id: '/$trialId',
+  path: '/$trialId',
+  getParentRoute: () => TrialsRoute,
+} as any)
+const ApiTrialsExportDotcsvRoute = ApiTrialsExportDotcsvRouteImport.update({
+  id: '/api/trials/export.csv',
+  path: '/api/trials/export.csv',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiUsageFileRoute = ApiUsageFileRouteImport.update({
+  id: '/api/usage/$file',
+  path: '/api/usage/$file',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/trials': typeof TrialsRouteWithChildren
+  '/usage': typeof UsageRoute
+  '/trials/$trialId': typeof TrialsTrialIdRoute
+  '/api/trials/export.csv': typeof ApiTrialsExportDotcsvRoute
+  '/api/usage/$file': typeof ApiUsageFileRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/trials': typeof TrialsRouteWithChildren
+  '/usage': typeof UsageRoute
+  '/trials/$trialId': typeof TrialsTrialIdRoute
+  '/api/trials/export.csv': typeof ApiTrialsExportDotcsvRoute
+  '/api/usage/$file': typeof ApiUsageFileRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/trials': typeof TrialsRouteWithChildren
+  '/usage': typeof UsageRoute
+  '/trials/$trialId': typeof TrialsTrialIdRoute
+  '/api/trials/export.csv': typeof ApiTrialsExportDotcsvRoute
+  '/api/usage/$file': typeof ApiUsageFileRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/trials'
+    | '/usage'
+    | '/trials/$trialId'
+    | '/api/trials/export.csv'
+    | '/api/usage/$file'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/trials'
+    | '/usage'
+    | '/trials/$trialId'
+    | '/api/trials/export.csv'
+    | '/api/usage/$file'
+  id:
+    | '__root__'
+    | '/'
+    | '/trials'
+    | '/usage'
+    | '/trials/$trialId'
+    | '/api/trials/export.csv'
+    | '/api/usage/$file'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  TrialsRoute: typeof TrialsRouteWithChildren
+  UsageRoute: typeof UsageRoute
+  ApiTrialsExportDotcsvRoute: typeof ApiTrialsExportDotcsvRoute
+  ApiUsageFileRoute: typeof ApiUsageFileRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +116,61 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/trials': {
+      id: '/trials'
+      path: '/trials'
+      fullPath: '/trials'
+      preLoaderRoute: typeof TrialsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/usage': {
+      id: '/usage'
+      path: '/usage'
+      fullPath: '/usage'
+      preLoaderRoute: typeof UsageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/trials/$trialId': {
+      id: '/trials/$trialId'
+      path: '/$trialId'
+      fullPath: '/trials/$trialId'
+      preLoaderRoute: typeof TrialsTrialIdRouteImport
+      parentRoute: typeof TrialsRoute
+    }
+    '/api/trials/export.csv': {
+      id: '/api/trials/export.csv'
+      path: '/api/trials/export.csv'
+      fullPath: '/api/trials/export.csv'
+      preLoaderRoute: typeof ApiTrialsExportDotcsvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/usage/$file': {
+      id: '/api/usage/$file'
+      path: '/api/usage/$file'
+      fullPath: '/api/usage/$file'
+      preLoaderRoute: typeof ApiUsageFileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
+interface TrialsRouteChildren {
+  TrialsTrialIdRoute: typeof TrialsTrialIdRoute
+}
+
+const TrialsRouteChildren: TrialsRouteChildren = {
+  TrialsTrialIdRoute: TrialsTrialIdRoute,
+}
+
+const TrialsRouteWithChildren =
+  TrialsRoute._addFileChildren(TrialsRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  TrialsRoute: TrialsRouteWithChildren,
+  UsageRoute: UsageRoute,
+  ApiTrialsExportDotcsvRoute: ApiTrialsExportDotcsvRoute,
+  ApiUsageFileRoute: ApiUsageFileRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

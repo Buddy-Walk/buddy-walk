@@ -41,7 +41,7 @@ The phone applies `mobileLastMetersGuidance` before and around the server answer
 
 ## Dashboard and retries
 
-Each run is a **Trial**. The team reviews and retries Trials on `/last-meters-tests`.
+Each run is a **Trial**. The team reviews and retries Trials on the Team console, at `/trials`.
 Retries replay the saved row; they must not write a new "live" Mongo retry path from a laptop.
 
 Characterization of every exit: `mobile/src/test/lastMetersExits.test.ts` plus its snapshot.

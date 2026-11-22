@@ -21,6 +21,8 @@ The search shares one 45-second deadline and examines at most three distinct cam
 
 When a door is verified at a camera offset from the user and the current view cannot be matched there, the search may try another camera. If that attempt yields no suitable alternative, the Trial can retain the earlier verified camera and its evidence. A contradictory current photo, compass conflict, expired deadline or service failure prevents a precise turn. The device heading, GPS, movement, confidence and walking-route checks continue to govern guidance.
 
+The vision module builds the labeled photo and panorama request and parses the model reply. The assessment tracks evidence across cameras for one Trial. Both matching and assessment use the same search budget.
+
 ## Trial diagnostics
 
 The existing `entrance_assessment` step records the original camera ID and date, examined cameras, per-camera observations, selected entrance evidence, failure reason and additional request count. The panorama validation audit and per-camera steps retain all attempts. The selected camera's photo, metadata, heading comparison and destination evidence are saved together. The step duration covers matching and fallback after the initial panorama download.

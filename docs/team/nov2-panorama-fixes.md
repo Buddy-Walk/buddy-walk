@@ -57,7 +57,7 @@ PRs #43 and #45 are not on `main` yet. Merge them, or testers still see the old 
 App builds already in testers' hands keep working: `POST /api/last-mile` stays as an alias of `POST /api/last-meters` (ADR 0001).
 Dashboard-only paths were renamed:
 
-- Trials dashboard: `/last-meters-tests?token=...`
+- Trials: now the Team console's `/trials`.
 - Deploy check: `/api/last-meters/review-status`
 
 ## Checking the fixes after a deploy

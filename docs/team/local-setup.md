@@ -2,7 +2,7 @@
 
 ## What you need
 
-- Node 18+
+- Node 22.13+ or 24.3+
 - npm 9+
 - This clone: `https://github.com/Buddy-Walk/buddy-walk`
 - Optional: MongoDB on `127.0.0.1` (without it, the API starts with an in-memory store)
@@ -17,7 +17,7 @@ copy .env.example .env
 ```
 
 Fill at least `OPENAI_API_KEY` and `GOOGLE_MAPS_API_KEY` (or `GOOGLE_API_KEY`) to run Last Meters locally.
-`ADMIN_TOKEN` if you want `/usage` and `/last-meters-tests`.
+`ADMIN_TOKEN` if you want the admin endpoints, such as `/api/last-meters-tests`.
 
 ```
 npm run serve

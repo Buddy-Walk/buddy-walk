@@ -10,7 +10,12 @@ See `docs/agents/issue-tracker.md`.
 ### Triage labels
 
 Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
+Scope labels go alongside them: `live-feedback-preview` on every issue for Live Feedback Preview work.
 See `docs/agents/triage-labels.md`.
+
+### Team console
+
+To see a `team-console/` change working, in a browser or against seeded Trials, run its local stack: `bun run stack` (see `team-console/README.md`).
 
 ### Domain docs
 

@@ -131,6 +131,7 @@ async function runExit(t: TestContext, policy: Policy, world: World, checkTiming
   t.mock.timers.enable({ apis: ["Date"], now: NOW });
   setTestEnv(t, { GOOGLE_MAPS_API_KEY: "test-maps", OPENAI_API_KEY: "test-openai",
     LAST_METERS_OCCLUSION_AWARE: String(world.occlusionAware ?? false) });
+  if (world.occlusionAware === undefined) delete process.env.LAST_METERS_OCCLUSION_AWARE;
   const jpeg = await photoJpeg;
   let metadataRequests = 0;
   t.mock.method(axios, "get", async (url: string) => {
@@ -448,4 +449,22 @@ for (const failure of ["OpenAI", "Google", "fallback Google", "application"] as 
       assert.equal(report.additionalApiRequests, expectedRequests);
     }
   });
+}
+
+for (const policy of ["mobile", "strict"] as const) {
+  for (const flag of [undefined, false]) {
+    test(`${policy} runLastMeters keeps legacy behavior when occlusion flag is ${flag ?? "unset"}`, async t => {
+      const world = verifiedTurnWorld();
+      world.occlusionAware = flag;
+      // A doorway result that would withhold if the experiment were accidentally enabled.
+      world.entranceAssessment = "{}";
+      let guidanceCalls = 0;
+      world.duringGuidance = () => { guidanceCalls++; };
+      const run = await runExit(t, policy, world) as any;
+      assert.equal(guidanceCalls, 1);
+      assert.equal(run.answer.body.warning, undefined);
+      assert.equal(run.trials.length, 1);
+      assert.equal(run.trials[0].steps.some((step: any) => step.name === "entrance_assessment"), false);
+    });
+  }
 }
