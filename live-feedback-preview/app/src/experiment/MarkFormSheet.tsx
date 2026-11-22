@@ -1,7 +1,16 @@
 import { useState } from 'react';
 import { KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { emptyMarkDraft, validateMarkForm, type MarkDraft, type MarkFields, type MarkFormResult } from './markForm';
+import {
+  emptyMarkDraft,
+  markConditions,
+  toggleCondition,
+  validateMarkForm,
+  type ConditionChoice,
+  type MarkDraft,
+  type MarkFields,
+  type MarkFormResult,
+} from './markForm';
 
 type Props = {
   /** The Readings in the marked frame, shown so the tester can see what the app read. */
@@ -10,7 +19,7 @@ type Props = {
   onCancel: () => void;
 };
 
-type ChoiceField = Exclude<keyof MarkDraft, 'distance'>;
+type ChoiceField = Exclude<keyof MarkDraft, 'conditions' | 'otherCondition' | 'distance'>;
 
 const choices: { [Field in ChoiceField]: { label: string; options: { value: NonNullable<MarkDraft[Field]>; label: string }[] } } = {
   targetKind: {
@@ -45,6 +54,19 @@ const choices: { [Field in ChoiceField]: { label: string; options: { value: NonN
 };
 
 const choiceFields = Object.keys(choices) as ChoiceField[];
+
+const conditionLabels: Record<ConditionChoice, string> = {
+  clear: 'Clear',
+  faded: 'Faded',
+  dirty: 'Dirty',
+  damaged: 'Damaged',
+  obstructed: 'Obstructed',
+  glare: 'Glare',
+  dark: 'Dark',
+  other: 'Other',
+};
+
+const conditionOptions = [...markConditions, 'other' as const].map((value) => ({ value, label: conditionLabels[value] }));
 
 /** The form for one Mark. The camera keeps running behind it. */
 export function MarkFormSheet({ readingTexts, onSave, onCancel }: Props) {
@@ -93,6 +115,43 @@ export function MarkFormSheet({ readingTexts, onSave, onCancel }: Props) {
                 {errors[field] && <Text style={styles.error}>{errors[field]}</Text>}
               </View>
             ))}
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Conditions</Text>
+              <View style={styles.options}>
+                {conditionOptions.map((option) => {
+                  const selected = draft.conditions.includes(option.value);
+                  return (
+                    <Pressable
+                      key={option.value}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: selected }}
+                      accessibilityLabel={`Conditions: ${option.label}`}
+                      onPress={() =>
+                        setDraft((current) => ({ ...current, conditions: toggleCondition(current.conditions, option.value) }))
+                      }
+                      style={[styles.option, selected && styles.optionSelected]}
+                    >
+                      <Text style={[styles.optionText, selected && styles.optionTextSelected]}>{option.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {errors.conditions && <Text style={styles.error}>{errors.conditions}</Text>}
+              {draft.conditions.includes('other') && (
+                <>
+                  <TextInput
+                    accessibilityLabel="Other condition"
+                    value={draft.otherCondition}
+                    onChangeText={(otherCondition) => setDraft((current) => ({ ...current, otherCondition }))}
+                    style={[styles.input, styles.otherCondition]}
+                    placeholder="What makes it hard to read"
+                    placeholderTextColor="#888"
+                  />
+                  {errors.otherCondition && <Text style={styles.error}>{errors.otherCondition}</Text>}
+                </>
+              )}
+            </View>
 
             <View style={styles.field}>
               <Text style={styles.label}>Distance in feet</Text>
@@ -186,6 +245,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#666',
+  },
+  otherCondition: {
+    marginTop: 8,
   },
   error: {
     color: '#ff8a80',

@@ -66,7 +66,9 @@ Nothing is read until you tap **Start**.
    The status line says "no compass heading" while there is none, for example when location permission is denied.
    The screen stays on while recording, because a locked phone stops the camera.
 3. Tap **Mark** at a target.
-   The app saves the frame at the tap with its Readings, then asks whether the target is a door number or a sign, its side of the street, whether you can read it yourself, its style, and the distance in feet.
+   The app saves the frame at the tap with its Readings, then asks whether the target is a door number or a sign, its side of the street, whether you can read it yourself, its style, what makes it hard to read, and the distance in feet.
+   Choose every condition that applies, or **Clear** when nothing does.
+   **Other** opens a text box for a condition that isn't listed.
    **Cancel** throws the frame away.
    Nothing is read or logged while the form is open, so no boxes move behind it, and reading starts again when you save or cancel it.
 4. Tap **Stop** to end the session.
@@ -112,7 +114,7 @@ The export turns the log into `session.json`.
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "id": "2026-11-15T14-00-00Z",
   "device": { "model": "iPhone 15", "osVersion": "26.1" },
   "app": { "version": "1.0.0", "build": "1" },
@@ -146,6 +148,8 @@ The export turns the log into `session.json`.
       "side": "same-sidewalk",
       "visibleToTester": true,
       "signStyle": "plain",
+      "conditions": ["faded", "obstructed"],
+      "otherCondition": null,
       "distanceFeet": 12
     }
   ]
@@ -169,6 +173,23 @@ The export turns the log into `session.json`.
 - `targetKind` is `door-number` or `sign`; version 1 sessions store `street-number` for a door number.
   `side` is `same-sidewalk` or `across-street`, and `signStyle` is `plain`, `stylised` or `angled`.
 - `visibleToTester` is whether the tester could read the target themselves.
+- `conditions` is what the tester chose as making the target hard to read, always in this order:
+
+  | Value | Meaning |
+  | --- | --- |
+  | `clear` | Nothing makes it harder to read. Never combined with any other condition. |
+  | `faded` | The lettering is worn or doesn't stand out from its background. |
+  | `dirty` | Grime, rust or peeling paint over the lettering. |
+  | `damaged` | Characters are missing, broken or hanging loose. |
+  | `obstructed` | Partly hidden, for example by a tree, car, pole, person or awning. |
+  | `glare` | Sunlight or a reflection on the target. |
+  | `dark` | In shadow, with bright light behind it, or at dusk or night. |
+
+  `faded`, `dirty` and `damaged` are about the target itself, and `obstructed`, `glare` and `dark` about the moment it was marked.
+- `otherCondition` is what the tester typed in after choosing **Other**, for something not listed, trimmed, or `null` when Other wasn't chosen.
+  It can sit beside any of `conditions` except `clear`, and `conditions` is empty when it is the only one.
+  A condition typed in often enough becomes a new value in a later version, and Marks recorded before that keep it here.
+- Version 1 and 2 Marks have no `conditions` or `otherCondition`.
 - A Mark's frame, `frameFile`, is the first frame read after the tap, a frame or two after it.
   Its `readings` are that frame's Readings, and `markedAt` and `heading` are that frame's too, so `markedAt` matches its Readings' `frameTimestamp`.
 

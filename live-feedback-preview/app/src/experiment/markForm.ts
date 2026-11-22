@@ -5,21 +5,49 @@ export type MarkFields = {
   /** Whether the tester can read the target themselves from where they stand. */
   visibleToTester: boolean;
   signStyle: 'plain' | 'stylised' | 'angled';
+  /** What makes the target hard to read, in the order of `markConditions`. Empty when Other is the only one. */
+  conditions: MarkCondition[];
+  /** The condition the tester typed in for Other, trimmed, or null when Other isn't chosen. */
+  otherCondition: string | null;
   distanceFeet: number;
 };
 
-/** The form as the tester is filling it in: choices not made yet are null, and the distance is as typed. */
+/**
+ * What can make a target hard to read, documented in the app README.
+ * `clear` can't be combined with any other. The three after it are about the target itself,
+ * and the three after those about the moment it was marked.
+ */
+export const markConditions = ['clear', 'faded', 'dirty', 'damaged', 'obstructed', 'glare', 'dark'] as const;
+
+export type MarkCondition = (typeof markConditions)[number];
+
+/** A choice in the form's Conditions field: a listed condition, or Other, which the tester types in. */
+export type ConditionChoice = MarkCondition | 'other';
+
+/**
+ * The form as the tester is filling it in: choices not made yet are null, and the distance is as typed.
+ * `otherCondition` is the Other text box as typed, kept while Other is unchosen.
+ */
 export type MarkDraft = {
-  [Field in Exclude<keyof MarkFields, 'distanceFeet'>]: MarkFields[Field] | null;
-} & { distance: string };
+  [Field in Exclude<keyof MarkFields, 'distanceFeet' | 'conditions' | 'otherCondition'>]: MarkFields[Field] | null;
+} & { conditions: ConditionChoice[]; otherCondition: string; distance: string };
 
 export const emptyMarkDraft: MarkDraft = {
   targetKind: null,
   side: null,
   visibleToTester: null,
   signStyle: null,
+  conditions: [],
+  otherCondition: '',
   distance: '',
 };
+
+/** The conditions chosen after the tester taps one. Clear can't be combined with any other. */
+export function toggleCondition(chosen: ConditionChoice[], tapped: ConditionChoice): ConditionChoice[] {
+  if (chosen.includes(tapped)) return chosen.filter((choice) => choice !== tapped);
+  if (tapped === 'clear') return ['clear'];
+  return [...chosen.filter((choice) => choice !== 'clear'), tapped];
+}
 
 export type MarkFormResult =
   | { ok: true; fields: MarkFields }
@@ -34,6 +62,15 @@ export function validateMarkForm(draft: MarkDraft): MarkFormResult {
   if (draft.side === null) errors.side = 'Choose same sidewalk or across the street.';
   if (draft.visibleToTester === null) errors.visibleToTester = 'Choose whether you can read it yourself.';
   if (draft.signStyle === null) errors.signStyle = 'Choose plain, stylised or angled.';
+  if (draft.conditions.length === 0) errors.conditions = 'Choose what makes it hard to read, or Clear.';
+  // The form keeps Clear on its own (`toggleCondition`), and this keeps any other draft from saving it with more.
+  else if (draft.conditions.includes('clear') && draft.conditions.length > 1) {
+    errors.conditions = 'Clear means nothing makes it hard to read, so choose it on its own.';
+  }
+  const otherChosen = draft.conditions.includes('other');
+  const otherCondition = draft.otherCondition.trim();
+  const otherMissing = otherChosen && otherCondition === '';
+  if (otherMissing) errors.otherCondition = 'Type what makes it hard to read, or unchoose Other.';
 
   const distanceFeet = parseDistance(draft.distance);
   if (draft.distance.trim() === '') errors.distance = 'Type the distance in feet.';
@@ -44,6 +81,8 @@ export function validateMarkForm(draft: MarkDraft): MarkFormResult {
     draft.side === null ||
     draft.visibleToTester === null ||
     draft.signStyle === null ||
+    errors.conditions !== undefined ||
+    otherMissing ||
     distanceFeet === null
   ) {
     return { ok: false, errors };
@@ -55,6 +94,8 @@ export function validateMarkForm(draft: MarkDraft): MarkFormResult {
       side: draft.side,
       visibleToTester: draft.visibleToTester,
       signStyle: draft.signStyle,
+      conditions: markConditions.filter((condition) => draft.conditions.includes(condition)),
+      otherCondition: otherChosen ? otherCondition : null,
       distanceFeet,
     },
   };

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { strFromU8, unzipSync } from 'fflate';
 
 import type { FrameReadings, Reading } from '../readings/Reading';
+import type { SESSION_VERSION, SessionVersion, StoredMark } from './session';
 import { createSessionStore } from './sessionStore';
 import { diskSessionsRoot } from './testing/diskSessionsRoot';
 
@@ -49,7 +50,7 @@ describe('session store', () => {
     recorder.stop();
 
     expect(store.load(recorder.id)).toEqual({
-      version: 2,
+      version: 3,
       id: recorder.id,
       device: { model: 'iPhone 15', osVersion: '26.1' },
       app: { version: '1.0.0', build: '3' },
@@ -153,6 +154,8 @@ describe('session store', () => {
       side: 'same-sidewalk',
       visibleToTester: true,
       signStyle: 'plain',
+      conditions: ['faded', 'obstructed'],
+      otherCondition: 'graffiti over it',
       distanceFeet: 12,
     });
     // No stop: the app is killed.
@@ -167,6 +170,8 @@ describe('session store', () => {
         side: 'same-sidewalk',
         visibleToTester: true,
         signStyle: 'plain',
+        conditions: ['faded', 'obstructed'],
+        otherCondition: 'graffiti over it',
         distanceFeet: 12,
       },
     ]);
@@ -249,6 +254,8 @@ describe('session store', () => {
       side: 'same-sidewalk',
       visibleToTester: true,
       signStyle: 'plain',
+      conditions: ['clear'],
+      otherCondition: null,
       distanceFeet: 10,
     });
     // The tester tapped Mark again, and the app was killed before the form was saved.
@@ -282,36 +289,52 @@ describe('session store', () => {
   });
 
   test('exports a session recorded by version 1 as it was, with street-number for a door number', () => {
-    const root = diskSessionsRoot();
-    const store = createSessionStore(root, manualClock('2026-11-16T10:00:00.000Z'));
-    const id = '2026-11-15T19-56-42Z';
-    const folder = root.folder(id);
-    const mark = {
-      markedAt: '2026-11-15T19:57:00.000Z',
-      frameFile: 'mark-001.jpg',
-      heading,
-      readings: [reading('310', 1000)],
-      targetKind: 'street-number',
-      side: 'same-sidewalk',
-      visibleToTester: true,
-      signStyle: 'plain',
-      distanceFeet: 12,
-    };
-    folder.appendText(
-      'log.jsonl',
-      [
-        { kind: 'started', version: 1, id, startedAt: '2026-11-15T19:56:42.000Z', ...info },
-        { kind: 'mark', ...mark },
-        { kind: 'ended', endedAt: '2026-11-15T19:58:00.000Z', framesProcessed: 0, activeMs: 78_000 },
-      ]
-        .map((entry) => `${JSON.stringify(entry)}\n`)
-        .join(''),
-    );
-    folder.writeBytes('mark-001.jpg', new Uint8Array([0xff, 0xd8, 0xff]));
+    const mark: StoredMark = { ...olderMark, targetKind: 'street-number' };
 
-    const session = JSON.parse(strFromU8(unzipSync(store.exportArchive([id]))[`${id}/session.json`]));
+    const session = exportOlderSession(1, mark);
 
     expect(session.version).toBe(1);
     expect(session.marks).toEqual([mark]);
   });
+
+  test('exports a session recorded by version 2 as it was, with no conditions on its Marks', () => {
+    const session = exportOlderSession(2, olderMark);
+
+    expect(session.version).toBe(2);
+    expect(session.marks).toEqual([olderMark]);
+  });
 });
+
+/** A Mark as versions 1 and 2 stored it, before Marks had conditions. */
+const olderMark: StoredMark = {
+  markedAt: '2026-11-15T19:57:00.000Z',
+  frameFile: 'mark-001.jpg',
+  heading,
+  readings: [reading('310', 1000)],
+  targetKind: 'door-number',
+  side: 'same-sidewalk',
+  visibleToTester: true,
+  signStyle: 'plain',
+  distanceFeet: 12,
+};
+
+/** Writes a session log the way an older version of the app did, holding one Mark, and gives its exported `session.json`. */
+function exportOlderSession(version: Exclude<SessionVersion, typeof SESSION_VERSION>, mark: StoredMark) {
+  const root = diskSessionsRoot();
+  const store = createSessionStore(root, manualClock('2026-11-16T10:00:00.000Z'));
+  const id = '2026-11-15T19-56-42Z';
+  const folder = root.folder(id);
+  folder.appendText(
+    'log.jsonl',
+    [
+      { kind: 'started', version, id, startedAt: '2026-11-15T19:56:42.000Z', ...info },
+      { kind: 'mark', ...mark },
+      { kind: 'ended', endedAt: '2026-11-15T19:58:00.000Z', framesProcessed: 0, activeMs: 78_000 },
+    ]
+      .map((entry) => `${JSON.stringify(entry)}\n`)
+      .join(''),
+  );
+  folder.writeBytes('mark-001.jpg', new Uint8Array([0xff, 0xd8, 0xff]));
+
+  return JSON.parse(strFromU8(unzipSync(store.exportArchive([id]))[`${id}/session.json`]));
+}
