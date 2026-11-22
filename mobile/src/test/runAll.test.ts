@@ -44,7 +44,3 @@ import '../api/companion.test.ts';
 import './mobileGuidance.test.ts';
 import '../utils/safetyGateVoicePrompt.test.ts';
 import './lastMetersVoicePlayback.test.ts';
-import './lastMetersPanoramaBudget.test.ts';
-import './lastMetersEntranceVision.test.ts';
-import './lastMetersEntranceAssessment.test.ts';
-import './lastMetersHistoricalPanoramas.test.ts';
