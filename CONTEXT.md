@@ -15,6 +15,18 @@ A place Buddy Walk has confirmed exists within walking range of the user.
 It is the only kind of destination Buddy Walk will give directions or Last Meters guidance to.
 _Avoid_: Destination lookup result, place match
 
+**Entrance assessment**:
+A Last Meters check that examines the doorway in one selected Street View panorama and in the user's current photo. It records storefront identity and doorway visibility separately for each camera.
+
+**Entrance verification**:
+Confirmation that the verified destination's identifiable door is visible in both sources, that the doorway geometry matches, and that its panorama heading agrees with the mapped entrance. The Trial records this as `entranceVerified`. A storefront sign alone supplies only identity evidence. Older imagery cannot confirm the current entrance. Visibility alone cannot establish that a door is accessible or that a walking route is safe.
+
+**Occlusion**:
+An obstruction, such as scaffolding or a vehicle, that prevents inspection of the likely entrance area in an image. The presence of a door behind it remains unknown.
+
+**Current-view and destination matching**:
+Current-view matching (B) compares the user's photo with panorama views. Destination matching (C) locates the verified business in those views and compares its heading with the map. The device compass supplies the user's heading for a turn. Panorama matching cannot supply a missing or invalid compass heading.
+
 **Last Meters**:
 Guidance that takes a user from where their own map app left them, on the right street near a Verified destination, to that destination's door.
 The current app and Live Feedback Preview are two different ways of giving it.

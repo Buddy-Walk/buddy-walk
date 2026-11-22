@@ -41,7 +41,10 @@ type Vision = "scene" | "currentView" | "destination" | "reference" | "signText"
 /** The app request and what Google and OpenAI answer during one run. */
 interface World {
   /** Opt-in response for the experimental doorway assessment; legacy snapshots omit it. */
-  entranceAssessment?: string;
+  entranceAssessment?: string | Error;
+  streetViewError?: Error;
+  fallbackStreetViewError?: Error;
+  occlusionAware?: boolean;
   request: LastMetersRequestInput;
   /** Nearby Search results; the first is the destination. */
   places: object[];
@@ -126,8 +129,11 @@ function comparable(value: unknown): unknown {
 /** Run one app request against the faked providers and collect everything it answered and saved. */
 async function runExit(t: TestContext, policy: Policy, world: World, checkTimings?: (timings: LastMetersModuleTimings) => void) {
   t.mock.timers.enable({ apis: ["Date"], now: NOW });
-  setTestEnv(t, { GOOGLE_MAPS_API_KEY: "test-maps", OPENAI_API_KEY: "test-openai" });
+  setTestEnv(t, { GOOGLE_MAPS_API_KEY: "test-maps", OPENAI_API_KEY: "test-openai",
+    LAST_METERS_OCCLUSION_AWARE: String(world.occlusionAware ?? false) });
+  if (world.occlusionAware === undefined) delete process.env.LAST_METERS_OCCLUSION_AWARE;
   const jpeg = await photoJpeg;
+  let metadataRequests = 0;
   t.mock.method(axios, "get", async (url: string) => {
     if (url.includes("/place/nearbysearch/")) {
       return { data: world.places.length ? { status: "OK", results: world.places } : { status: "ZERO_RESULTS", results: [] } };
@@ -135,12 +141,18 @@ async function runExit(t: TestContext, policy: Policy, world: World, checkTiming
     if (url.includes("/place/textsearch/")) return { data: { status: "ZERO_RESULTS", results: [] } };
     if (url.includes("/geocode/")) return { data: world.building ? { status: "OK", results: [world.building] } : { status: "ZERO_RESULTS" } };
     if (url.includes("/directions/")) return { data: world.directions };
-    if (url.includes("/streetview/metadata")) return { data: world.panoramaMetadata };
+    if (url.includes("/streetview/metadata")) {
+      metadataRequests++;
+      if (world.fallbackStreetViewError && metadataRequests > 1) throw world.fallbackStreetViewError;
+      if (world.streetViewError) throw world.streetViewError;
+      return { data: world.panoramaMetadata };
+    }
     if (url.includes("/streetview")) return { status: 200, data: jpeg };
     return assert.fail(`Unexpected Google request: ${url}`);
   });
   t.mock.method(OpenAI.Chat.Completions.prototype, "create", async (request: any) => {
     if (request.messages[0].content.startsWith("Assess the entrance")) {
+      if (world.entranceAssessment instanceof Error) throw world.entranceAssessment;
       return { choices: [{ message: { content: world.entranceAssessment ?? "{}" } }] };
     }
     const vision = visionFor(request.messages[0].content);
@@ -376,8 +388,8 @@ test("pre-check errors after classification still save a failed Trial with compl
 
 for (const policy of ["mobile", "strict"] as const) {
   test(`${policy} runLastMeters opt-in verifies the actual door before composing guidance`, async t => {
-    setTestEnv(t, { LAST_METERS_OCCLUSION_AWARE: "true" });
     const world = verifiedTurnWorld();
+    world.occlusionAware = true;
     world.entranceAssessment = JSON.stringify({ storefrontMatches: true, panoramaEntrance: "VISIBLE", photoEntrance: "VISIBLE",
       sameEntrance: true, appearanceChanged: false, entranceHeading: 0, obstruction: "none" });
     let guidanceCalls = 0;
@@ -390,8 +402,8 @@ for (const policy of ["mobile", "strict"] as const) {
   });
 
   test(`${policy} runLastMeters cannot compose a turn from an obstructed storefront`, async t => {
-    setTestEnv(t, { LAST_METERS_OCCLUSION_AWARE: "true" });
     const world = verifiedTurnWorld();
+    world.occlusionAware = true;
     world.entranceAssessment = JSON.stringify({ storefrontMatches: true, panoramaEntrance: "OCCLUDED", photoEntrance: "VISIBLE",
       sameEntrance: false, appearanceChanged: false, entranceHeading: null, obstruction: "scaffolding" });
     world.duringGuidance = () => assert.fail("Unverified entrances must never reach guidance");
@@ -400,16 +412,50 @@ for (const policy of ["mobile", "strict"] as const) {
     assert.equal(run.answer.body.targetHeading, null);
     assert.deepEqual(run.answer.body.safetyReasons, ["entrance_not_visually_confirmed"]);
     const evidence = JSON.parse(run.trials[0].steps.find((s: any) => s.name === "entrance_assessment").response);
-    assert.equal(evidence.historicalStatus, "provider_unavailable");
+    assert.equal(evidence.entranceVerified, false);
+  });
+}
+
+for (const failure of ["OpenAI", "Google", "fallback Google", "application"] as const) {
+  test(`experimental ${failure} failure reaches the service error path and stores a safe diagnostic`, async t => {
+    const world = verifiedTurnWorld();
+    world.occlusionAware = true;
+    world.duringGuidance = () => assert.fail("Guidance after a matching failure");
+    const secret = "https://provider.invalid/photo?key=private-token";
+    const providerError = Object.assign(new Error(secret), { status: 503, code: secret });
+    if (failure === "OpenAI") world.entranceAssessment = providerError;
+    if (failure === "Google") world.streetViewError = providerError;
+    if (failure === "fallback Google") world.fallbackStreetViewError = providerError;
+    if (failure === "application") {
+      const note = LastMetersTrial.prototype.note;
+      t.mock.method(LastMetersTrial.prototype, "note", function (this: LastMetersTrial, facts: Parameters<typeof note>[0]) {
+        if (facts.panoramaPhoto) throw new TypeError(secret);
+        note.call(this, facts);
+      });
+    }
+    const run = await runExit(t, "strict", world) as any;
+    assert.equal(run.answer.status, 502);
+    assert.equal(run.trials.length, 1);
+    assert.equal(run.trials[0].success, false);
+    assert.deepEqual(run.trials[0].safetyReasons, []);
+    assert.match(run.trials[0].error, failure === "application" ? /panorama assembly: unexpected backend error/
+      : failure.includes("Google") ? /panorama download: upstream returned HTTP 503/ : /entrance assessment: upstream returned HTTP 503/);
+    assert.equal(JSON.stringify(run).includes("private-token"), false);
+    if (failure !== "Google") {
+      const step = run.trials[0].steps.find((entry: { name: string }) => entry.name === "entrance_assessment");
+      const report = JSON.parse(step.response);
+      assert.equal(report.entranceVerified, false);
+      const expectedRequests = failure === "fallback Google" ? 2 : failure === "OpenAI" ? 1 : 0;
+      assert.equal(report.additionalApiRequests, expectedRequests);
+    }
   });
 }
 
 for (const policy of ["mobile", "strict"] as const) {
-  for (const flag of [undefined, "false"]) {
+  for (const flag of [undefined, false]) {
     test(`${policy} runLastMeters keeps legacy behavior when occlusion flag is ${flag ?? "unset"}`, async t => {
-      setTestEnv(t, { LAST_METERS_OCCLUSION_AWARE: flag ?? "" });
-      if (flag === undefined) delete process.env.LAST_METERS_OCCLUSION_AWARE;
       const world = verifiedTurnWorld();
+      world.occlusionAware = flag;
       // A doorway result that would withhold if the experiment were accidentally enabled.
       world.entranceAssessment = "{}";
       let guidanceCalls = 0;

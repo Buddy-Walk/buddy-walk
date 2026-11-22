@@ -1,6 +1,7 @@
 import type OpenAI from "openai";
 import { LAST_METERS_HEADINGS } from "../utils/lastMetersNavigation";
 import { getOpenAIClient } from "./openAIClient";
+import { startPanoramaRequest, withinEntranceBudget, type PanoramaSearchBudget } from "./lastMetersPanoramaBudget";
 
 export type EntranceVisibility = "VISIBLE" | "OCCLUDED" | "NOT_VISIBLE" | "UNCERTAIN";
 type Obstruction = "scaffolding" | "barrier" | "vehicle" | "vegetation" | "other" | "none" | "unknown";
@@ -14,7 +15,7 @@ export interface EntranceAssessment {
   obstruction: Obstruction;
 }
 
-export const unknownAssessment = (): EntranceAssessment => ({
+const unknownAssessment = (): EntranceAssessment => ({
   storefrontMatches: false, panoramaEntrance: "UNCERTAIN", photoEntrance: "UNCERTAIN",
   sameEntrance: false, appearanceChanged: false, entranceHeading: null, obstruction: "unknown",
 });
@@ -38,12 +39,12 @@ export function parseEntranceAssessment(text: string): EntranceAssessment {
 }
 
 export function buildEntranceVisionRequest(placeName: string, photo: string,
-  views: { heading: number; base64: string }[], date: string | undefined, historical: boolean): OpenAI.Chat.ChatCompletionCreateParamsNonStreaming {
+  views: { heading: number; base64: string }[], date: string | undefined): OpenAI.Chat.ChatCompletionCreateParamsNonStreaming {
     const content: OpenAI.Chat.ChatCompletionContentPart[] = views.flatMap(view => [
       { type: "text", text: `Panorama view ${view.heading} degrees; capture period ${date ?? "unknown"}.` },
       { type: "image_url", image_url: { url: view.base64, detail: "high" } },
     ]);
-    if (!historical) content.push(
+    content.push(
       { type: "text", text: "CURRENT USER PHOTO. Assess its actual door visibility separately from the Street View images." },
       { type: "image_url", image_url: { url: photo, detail: "high" } },
     );
@@ -58,14 +59,15 @@ export function buildEntranceVisionRequest(placeName: string, photo: string,
           "it never proves a door exists behind it. NOT_VISIBLE means no matching entrance can be found. Use UNCERTAIN for insufficient or contradictory evidence. " +
           "sameEntrance requires visible matching stable doorway geometry in both the panorama and current photo. " +
           "Set appearanceChanged for a relocated storefront, a blocked-up door or incompatible entrance layout. Never infer current access, opening or a safe walking route. " +
-          (historical ? "These are historical images only. Always set photoEntrance to UNCERTAIN and sameEntrance to false. Identify past architecture only." :
-            "Judge panoramaEntrance and photoEntrance independently. A visible historical door cannot make an obstructed current photo VISIBLE.") },
+          "Judge panoramaEntrance and photoEntrance independently. Require current evidence of the same entrance." },
         { role: "user", content }],
       };
 }
 
-export async function requestEntranceVision(request: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
-  signal: AbortSignal, timeout: number): Promise<EntranceAssessment> {
-  const response = await getOpenAIClient().chat.completions.create(request, { signal, timeout, maxRetries: 0 });
+export async function requestEntranceVision(
+  request: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming, budget: PanoramaSearchBudget,
+): Promise<EntranceAssessment> {
+  const response = await withinEntranceBudget(budget, (signal, timeout) =>
+    startPanoramaRequest(budget, () => getOpenAIClient().chat.completions.create(request, { signal, timeout, maxRetries: 0 })));
   return parseEntranceAssessment(response.choices[0]?.message.content ?? "");
 }

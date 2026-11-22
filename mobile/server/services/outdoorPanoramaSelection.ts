@@ -1,6 +1,8 @@
 import axios from "axios";
 import sharp from "sharp";
-import { outdoorPanoramaRejection, OutdoorPanoramaMetadata } from "../utils/outdoorPanorama";
+import { outdoorPanoramaRejection, panoramaIsGone, OutdoorPanoramaMetadata } from "../utils/outdoorPanorama";
+
+import { startPanoramaRequest, panoramaDeadlineReached, PanoramaDeadlineError, type PanoramaSearchBudget } from "./lastMetersPanoramaBudget";
 
 export type SceneVerdict = "outdoor" | "indoor" | "uncertain";
 export interface PanoramaAttempt {
@@ -11,15 +13,10 @@ export interface PanoramaAttempt {
 }
 export type SceneClassifier = (images: string[], timeoutMs: number) => Promise<SceneVerdict>;
 export type PanoramaAudit = (attempt: PanoramaAttempt) => void;
-export interface PanoramaSearchBudget {
-  seen: Set<string>; deadline: number;
-  /** Count started requests, including failures, without logging URLs or keys. */
-  apiRequests?: number;
-  enforceDeadline?: boolean;
+export function noValidatedPanorama(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === "STREET_VIEW_NO_VALIDATED_OUTDOOR_PANORAMA";
 }
-export function countPanoramaRequest(budget?: PanoramaSearchBudget): void {
-  if (budget) budget.apiRequests = (budget.apiRequests ?? 0) + 1;
-}
+
 export interface SelectedPanorama extends OutdoorPanoramaMetadata { date?: string }
 
 /** A search looks at no more than this many distinct panoramas. */
@@ -27,7 +24,7 @@ const MAX_PANORAMAS_SEEN = 3;
 
 /** Whether a search has already looked at enough panoramas or run out of time. */
 export function panoramaSearchSpent(budget: PanoramaSearchBudget): boolean {
-  return budget.seen.size >= MAX_PANORAMAS_SEEN || Date.now() >= budget.deadline;
+  return budget.seen.size >= MAX_PANORAMAS_SEEN || panoramaDeadlineReached(budget);
 }
 
 export function parseSceneVerdict(value: string): SceneVerdict {
@@ -44,7 +41,7 @@ export async function selectOutdoorPanorama(
     throw new Error("Panorama lookup requires valid supported coordinates.");
   }
   const attempts: PanoramaAttempt[] = [];
-  const search = budget ?? { seen: new Set<string>(), deadline: Date.now() + 45_000 };
+  const search = budget ?? { seen: new Set<string>(), deadline: Date.now() + 45_000, apiRequests: 0 };
   const { seen, deadline } = search;
   const remaining = () => Math.max(1, Math.min(10_000, deadline - Date.now()));
   const record = (attempt: PanoramaAttempt) => {
@@ -69,14 +66,17 @@ export async function selectOutdoorPanorama(
     if (panoramaSearchSpent(search)) break;
     let panoId: string | undefined;
     try {
-      countPanoramaRequest(search);
-      const { data: metadata } = await axios.get<SelectedPanorama>(
+      const { data: metadata } = await startPanoramaRequest(search, () => axios.get<SelectedPanorama>(
         "https://maps.googleapis.com/maps/api/streetview/metadata",
         { params: { location: `${probeLat},${probeLng}`, radius: 40, source: "outdoor", key: apiKey }, timeout: remaining() },
-      );
+      ));
       panoId = metadata.pano_id;
       const rejection = outdoorPanoramaRejection(metadata);
-      if (rejection) { record({ panoId, status: "metadata_rejected", reason: rejection }); continue; }
+      if (rejection) {
+        if (budget?.enforceDeadline && !panoramaIsGone(rejection)) throw new Error("Street View metadata request failed.");
+        record({ panoId, status: "metadata_rejected", reason: rejection });
+        continue;
+      }
       if (seen.has(panoId!)) { record({ panoId, status: "duplicate", reason: "Already evaluated this panorama." }); continue; }
       seen.add(panoId!);
       const north = (metadata.location!.lat - lat) * 111_320;
@@ -88,30 +88,31 @@ export async function selectOutdoorPanorama(
       }
       // Four 90-degree views cover the full horizon, unlike narrow matching tiles.
       const images = await Promise.all([0, 90, 180, 270].map(async heading => {
-        countPanoramaRequest(search);
-        const response = await axios.get("https://maps.googleapis.com/maps/api/streetview", {
+        if (budget?.enforceDeadline && panoramaDeadlineReached(search)) throw new PanoramaDeadlineError();
+        const response = await startPanoramaRequest(search, () => axios.get("https://maps.googleapis.com/maps/api/streetview", {
           params: { size: "640x640", pano: panoId, heading, fov: 90, pitch: 0, source: "outdoor", return_error_code: true, key: apiKey },
           responseType: "arraybuffer", timeout: remaining(),
-        });
+        }));
         const bytes = Buffer.from(response.data);
         const info = await sharp(bytes).metadata();
         if ((info.width ?? 0) < 320 || (info.height ?? 0) < 320) throw new Error("Unusable preview");
         return `data:image/jpeg;base64,${bytes.toString("base64")}`;
       }));
-      if (Date.now() >= deadline) break;
-      countPanoramaRequest(search);
-      const verdict = await classify(images, remaining());
-      if (Date.now() >= deadline) break;
+      if (panoramaDeadlineReached(search)) break;
+      const verdict = await startPanoramaRequest(search, () => classify(images, remaining()));
+      if (panoramaDeadlineReached(search)) break;
       const accepted = verdict === "outdoor";
       record({ panoId, status: accepted ? "accepted" : "scene_rejected", distanceMeters,
         reason: accepted ? "Visual check classified the camera surroundings as outdoor." : `Visual check: ${verdict === "indoor" ? "indoor" : "uncertain"}.` });
       if (accepted) return { metadata, attempts };
-    } catch {
+    } catch (error) {
       // Do not persist provider errors containing signed image URLs or API keys.
       record({ panoId, status: "validation_error", reason: "Metadata, preview download, or visual classification failed or timed out." });
+      if (budget?.enforceDeadline) throw error;
     }
   }
-  if (Date.now() >= deadline) record({ status: "timeout", reason: "Outdoor validation reached its 45-second limit." });
+  if (budget?.enforceDeadline && panoramaDeadlineReached(search)) throw new PanoramaDeadlineError();
+  if (panoramaDeadlineReached(search)) record({ status: "timeout", reason: "Outdoor validation reached its 45-second limit." });
   throw Object.assign(new Error("No nearby panorama passed outdoor visual validation."), {
     code: "STREET_VIEW_NO_VALIDATED_OUTDOOR_PANORAMA", attempts,
   });

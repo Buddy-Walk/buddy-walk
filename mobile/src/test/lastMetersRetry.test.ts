@@ -218,6 +218,27 @@ test("an original-panorama retry checks and pins the original's panorama", async
   assert.equal(fake.pipelineCalls[0].options.retry?.panoramaMode, "original");
 });
 
+for (const mode of ["original", "fresh"] as const) {
+  test(`a ${mode} retry can read older historical observations without reusing them as current evidence`, async () => {
+    const response = JSON.stringify({
+      historicalStatus: "historical_entrance_only", entranceVerified: false,
+      historicalObservations: [{ panoId: "historic-door", entranceVerified: false, panoramaEntrance: "VISIBLE" }],
+    });
+    seed("orig", { steps: [{ name: "entrance_assessment", prompt: "Previous assessment",
+      model: "occlusion-assessment-v1", response, success: false }] });
+    const fake = fakeDependencies();
+    await retryLastMetersTest(retryRequest("orig", mode), fake.dependencies);
+
+    const stored = await lastMetersTestLogService.getById("orig");
+    assert.equal(stored?.steps[0].response, response);
+    const [call] = fake.pipelineCalls;
+    assert.deepEqual(call.options.retry?.replayInput, snapshot);
+    assert.equal(call.options.pinnedPanorama?.pano_id, mode === "original" ? "pano-original" : undefined);
+    assert.equal(JSON.stringify(call).includes("historic-door"), false);
+    assert.equal(JSON.stringify(call).includes("entranceVerified"), false);
+  });
+}
+
 test("a retry of a retry replays the original and links to it", async () => {
   seed("orig");
   seed("first-retry", {
