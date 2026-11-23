@@ -6,7 +6,9 @@ import { LastMetersTrial } from "../../server/services/lastMetersTrial";
 import { lastMetersTestLogService } from "../../server/services/lastMetersTestLog";
 import { mobileLastMetersGuidancePolicy, strictLastMetersGuidancePolicy } from "../../server/utils/lastMetersGuidancePolicy";
 import type { VerifiedNearbyDestination } from "../../server/services/verifiedDestination";
-import type { LastMetersRequestInput, ReplayInput } from "../../server/utils/lastMetersReplay";
+import { parseLastMetersRequest, type LastMetersRequestInput, type ReplayInput } from "../../server/utils/lastMetersReplay";
+import lastMetersTestLogModel from "../../server/database/models/lastMetersTestLog";
+import { sensorSafetyReasons } from "../utils/lastMetersSafety";
 
 const NOW = Date.parse("2026-10-27T12:00:00Z");
 const REQUEST: LastMetersRequestInput = {
@@ -260,4 +262,37 @@ test("a failed run answers 502 naming the stage it was in", async t => {
     body: { error: "Last Meters failed during current-view matching: upstream returned HTTP 429." },
   });
   assert.deepEqual({ success: rows[0].success, error: rows[0].error }, { success: false, error: "Rate limited" });
+});
+
+test("withheld Trials retain capture and latest Expo diagnostics through JSON and Mongo schema serialization", async t => {
+  const rows = recordTrials(t);
+  const photo = await largePhoto();
+  for (const accuracy of [0, 1, 2, 3, null, undefined]) {
+    const request = parseLastMetersRequest(JSON.parse(JSON.stringify({
+      destination: REQUEST.destination, lat: REQUEST.lat, lng: REQUEST.lng,
+      heading: REQUEST.deviceHeading, gpsAccuracyMeters: REQUEST.gpsAccuracyMeters,
+      compassAccuracyLevel: REQUEST.compassAccuracyLevel,
+      sensors: {
+        photoCapturedAt: NOW, positionTimestamp: NOW, headingTimestamp: NOW, headingReference: "true",
+        latestPosition: { lat: REQUEST.lat, lng: REQUEST.lng, accuracy: 14, timestamp: NOW },
+        latestHeading: -1, latestHeadingTimestamp: NOW, latestHeadingReference: "true",
+        ...(accuracy === undefined ? {} : { latestHeadingAccuracyLevel: accuracy }),
+      },
+    })))!;
+    const reasons = sensorSafetyReasons(request.sensors, request, request.deviceHeading, request.gpsAccuracyMeters, NOW);
+    assert.deepEqual(reasons, ["current_heading_unavailable"]);
+    const trial = new LastMetersTrial({ request, image: photo, options: {}, policy: strictLastMetersGuidancePolicy });
+    const result = await trial.withhold(reasons);
+    assert.equal(result.kind === "response" && result.body.warning, "turn_withheld");
+    const stored = new lastMetersTestLogModel(rows.at(-1)).toObject();
+    const replay = stored.replayInput!;
+    assert.equal(replay.heading, 90);
+    assert.equal(replay.compassAccuracyLevel, 3);
+    assert.equal(replay.sensors!.latestHeading, -1);
+    assert.equal(replay.sensors!.latestHeadingTimestamp, NOW);
+    assert.equal(replay.sensors!.latestHeadingReference, "true");
+    assert.equal(replay.sensors!.latestHeadingAccuracyLevel, accuracy);
+    assert.equal(Object.hasOwn(replay.sensors!, "latestHeadingAccuracyLevel"), accuracy !== undefined);
+    assert.deepEqual(stored.safetyReasons, ["current_heading_unavailable"]);
+  }
 });

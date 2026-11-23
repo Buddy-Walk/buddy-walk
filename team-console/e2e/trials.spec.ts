@@ -65,6 +65,15 @@ test("a Trial saved in an older shape still shows", async ({ page }) => {
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("Best Buy Express");
   await expect(dialog.getByRole("alert")).toBeHidden();
+  const diagnostics = dialog.locator("section").filter({
+    has: page.getByRole("heading", { name: "Heading & Sensor Diagnostics" }),
+  });
+  await expect(diagnostics.getByText("Latest Heading:", { exact: true }).locator("..")).toHaveText(
+    "Latest Heading: Not recorded",
+  );
+  await expect(
+    diagnostics.getByText("Latest Expo Accuracy:", { exact: true }).locator(".."),
+  ).toHaveText("Latest Expo Accuracy: Not recorded");
 });
 
 test("a Trial's saved Street View images show, with their headings and downloads", async ({
@@ -105,4 +114,30 @@ test("a Trial that doesn't exist says so", async ({ page }) => {
 test("the bare URL opens the Trials list", async ({ page }) => {
   await page.goto("/");
   await expectList(page, "/trials");
+});
+
+test("heading diagnostics keep an invalid latest reading separate from capture and panorama headings", async ({
+  page,
+}) => {
+  await page.goto(`/trials/${SEEDED.unavailableHeading}`);
+  const diagnostics = page
+    .getByRole("dialog")
+    .locator("section")
+    .filter({
+      has: page.getByRole("heading", { name: "Heading & Sensor Diagnostics" }),
+    });
+  for (const [label, value] of [
+    ["Capture Heading", "116°"],
+    ["Capture Expo Accuracy", "3 (High)"],
+    ["Latest Heading", "-1°"],
+    ["Latest Expo Accuracy", "1 (Low)"],
+    ["Heading Reference", "True north"],
+    ["Heading Age (at backend receipt)", "1250 ms"],
+    ["Heading Validity", "Invalid"],
+  ]) {
+    await expect(diagnostics.getByText(`${label}:`, { exact: true }).locator("..")).toHaveText(
+      `${label}: ${value}`,
+    );
+  }
+  await expect(diagnostics).toContainText("current_heading_unavailable");
 });

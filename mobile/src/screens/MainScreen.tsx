@@ -1448,7 +1448,8 @@ export default function MainScreen({ navigation }: Props) {
         return { ...metadata, latestPosition: { lat: latest.coords.latitude, lng: latest.coords.longitude,
           accuracy: latest.coords.accuracy ?? loc?.coords.accuracy ?? -1, timestamp: latest.timestamp },
           latestHeading: headingRef.current ?? -1, latestHeadingTimestamp: headingTimestampRef.current,
-          latestHeadingReference: headingReferenceRef.current };
+          latestHeadingReference: headingReferenceRef.current,
+          latestHeadingAccuracyLevel: headingAccuracyRef.current };
       };
       const position = { lat: loc?.coords.latitude ?? NaN, lng: loc?.coords.longitude ?? NaN };
       const captureHeading = capturedPhotoHeadingRef.current ?? undefined;
