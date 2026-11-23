@@ -6,6 +6,7 @@ import type { PlaceCandidateLog } from "../../utils/nearbyPlaces";
 import type { PanoramaAttempt } from "../../services/outdoorPanoramaSelection";
 import type { ReplayInput } from "../../utils/lastMetersReplay";
 import type { WalkingEvidence } from "../../utils/lastMetersPolicy";
+import type { ConfidenceFusionDiagnostics } from "../../utils/lastMetersNavigation";
 import { LAST_METERS_PATHS, type LastMetersPath } from "../../config/lastMetersPaths";
 
 export const REVIEW_OUTCOMES = ["got_there", "needed_retake", "would_not_get_there"] as const;
@@ -47,7 +48,7 @@ export interface lastMetersTestLogInterface {
   replayInput?: ReplayInput;
   safetyReasons?: string[];
   /** Confidence-fusion provenance (#78). */
-  confidenceFusion?: Record<string, unknown>;
+  confidenceFusion?: ConfidenceFusionDiagnostics;
   walkingEvidence?: WalkingEvidence;
   panoramaTargetHeading?: number;
   confidenceMethod?: "heuristic-not-calibrated";
