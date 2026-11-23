@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sensorSafetyReasons, LastMetersSensors, bearingBetween } from "../utils/lastMetersSafety";
+import {
+  sensorSafetyReasons,
+  LastMetersSensors,
+  bearingBetween,
+  turnedSinceCaptureDiagnostics,
+  TURNED_SINCE_CAPTURE_MAX_DEGREES,
+  angularDifference,
+} from "../utils/lastMetersSafety";
 import { evaluateWalkingLeg, preciseTurnReasons } from "../../server/utils/lastMetersPolicy";
 import { assessReplay, photoHash } from "../../server/utils/lastMetersReplay";
 import { summarizeFieldEvaluation } from "../../server/utils/lastMetersEvaluation";
+import { mobileLastMetersGuidancePolicy } from "../../server/utils/lastMetersGuidancePolicy";
 
 const now = 1_800_000_000_000;
 const origin = { lat: 40.7, lng: -74 };
@@ -27,6 +35,61 @@ test("sensor gate rejects missing, old, future, magnetic, moved and rotated read
     [{ latestHeading: 90 }, "turned_since_capture"],
     [{ latestPosition: { ...target, accuracy: 5, timestamp: now } }, "moved_since_capture"],
   ] as const) assert.ok(sensorSafetyReasons({ ...sensors(), ...patch } as LastMetersSensors, origin, 1, 5, now).includes(reason));
+});
+
+test("turned_since_capture diagnostics instrument headings, ages, and circular delta (#71)", () => {
+  assert.equal(TURNED_SINCE_CAPTURE_MAX_DEGREES, 15, "threshold must not be relaxed without Safety Gate review");
+  const wrap = turnedSinceCaptureDiagnostics(1, sensors(), now);
+  assert.equal(wrap.reason, null);
+  assert.equal(wrap.circularDeltaDegrees, 2);
+  assert.equal(wrap.captureHeadingDegrees, 1);
+  assert.equal(wrap.latestHeadingDegrees, 359);
+  assert.equal(wrap.maxDeltaDegrees, 15);
+
+  const jitter = turnedSinceCaptureDiagnostics(5, { ...sensors(), latestHeading: 10 }, now);
+  assert.equal(jitter.reason, null);
+  assert.equal(jitter.circularDeltaDegrees, 5);
+
+  const boundary = turnedSinceCaptureDiagnostics(0, { ...sensors(), latestHeading: 15 }, now);
+  assert.equal(boundary.reason, null, "exactly 15° still passes (strict > threshold)");
+  assert.equal(boundary.circularDeltaDegrees, 15);
+
+  const rotated = turnedSinceCaptureDiagnostics(0, {
+    ...sensors(), latestHeading: 90, latestHeadingAccuracyLevel: 2,
+  }, now);
+  assert.equal(rotated.reason, "turned_since_capture");
+  assert.equal(rotated.circularDeltaDegrees, 90);
+  assert.ok(rotated.failureKinds.includes("circular_delta_above_max"));
+  assert.equal(rotated.latestHeadingAccuracyLevel, 2);
+  assert.equal(rotated.captureHeadingAgeMs, 0);
+  assert.equal(rotated.latestHeadingAgeMs, 0);
+
+  const stale = turnedSinceCaptureDiagnostics(0, {
+    ...sensors(), latestHeading: 90, latestHeadingTimestamp: now - 16_000,
+  }, now);
+  assert.equal(stale.reason, null, "stale heading is not classified as turned_since_capture");
+  assert.ok(stale.failureKinds.includes("latest_heading_stale"));
+  assert.equal(sensorSafetyReasons({
+    ...sensors(), latestHeading: 90, latestHeadingTimestamp: now - 16_000,
+  }, origin, 0, 5, now).includes("turned_since_capture"), false);
+  assert.ok(sensorSafetyReasons({
+    ...sensors(), latestHeading: 90, latestHeadingTimestamp: now - 16_000,
+  }, origin, 0, 5, now).includes("current_heading_unavailable"));
+
+  assert.equal(angularDifference(359, 1), 2);
+  assert.equal(angularDifference(0, 180), 180);
+});
+
+test("mobile policy rebases onto a validated current heading instead of withholding (#71)", () => {
+  const rotated = { ...sensors(), latestHeading: 90 };
+  const strict = sensorSafetyReasons(rotated, origin, 1, 5, now);
+  assert.ok(strict.includes("turned_since_capture"));
+  const mobile = mobileLastMetersGuidancePolicy.turnSensorReasons(rotated, origin, 1, 5, now, now);
+  assert.equal(mobile.includes("turned_since_capture"), false,
+    "validated true-north latest heading may rebase; other gates still apply");
+  assert.equal(mobileLastMetersGuidancePolicy.guidanceHeading({
+    destination: "McDonald's", lat: origin.lat, lng: origin.lng, deviceHeading: 1, sensors: rotated,
+  }, now), 90);
 });
 test("server checks snapshot at receipt, client checks live sensors before speech", () => {
   assert.deepEqual(sensorSafetyReasons(sensors(), origin, 1, 5, now + 30_000, now), []);
