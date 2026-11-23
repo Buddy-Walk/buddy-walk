@@ -5,7 +5,7 @@ import type { LastMetersTestScenario } from "../../utils/lastMetersNavigation";
 import type { PlaceCandidateLog } from "../../utils/nearbyPlaces";
 import type { PanoramaAttempt } from "../../services/outdoorPanoramaSelection";
 import type { ReplayInput } from "../../utils/lastMetersReplay";
-import type { WalkingEvidence } from "../../utils/lastMetersPolicy";
+import type { OrientationCorroborationDiagnostics, WalkingEvidence } from "../../utils/lastMetersPolicy";
 import { LAST_METERS_PATHS, type LastMetersPath } from "../../config/lastMetersPaths";
 
 export const REVIEW_OUTCOMES = ["got_there", "needed_retake", "would_not_get_there"] as const;
@@ -47,7 +47,7 @@ export interface lastMetersTestLogInterface {
   replayInput?: ReplayInput;
   safetyReasons?: string[];
   /** Orientation corroboration diagnostics (#75). */
-  orientationCorroboration?: Record<string, unknown>;
+  orientationCorroboration?: OrientationCorroborationDiagnostics;
   walkingEvidence?: WalkingEvidence;
   panoramaTargetHeading?: number;
   confidenceMethod?: "heuristic-not-calibrated";
