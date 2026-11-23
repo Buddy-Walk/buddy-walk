@@ -19,6 +19,8 @@ throwaway database under `team-console/.stack/` that is deleted on shutdown.
 
 - `bun` 1.4+ (Team Console packageManager)
 - `mongod` on PATH (local-stack)
+- `mongoimport` on PATH (seed step; often separate from the `mongod` server package)
+- Mobile dependencies: from `mobile/`, run `npm ci` so `mobile/node_modules/.bin/tsx` exists
 - Playwright browsers: `bunx playwright install chromium`
 - From `team-console/`: `bun install`
 
@@ -28,11 +30,15 @@ throwaway database under `team-console/.stack/` that is deleted on shutdown.
 
 ```bash
 cd team-console
-bun scripts/local-stack.ts -- bunx playwright test --reporter=line
+bunx playwright test --reporter=line
 ```
 
+`playwright.config.ts` starts `scripts/local-stack.ts` via `webServer` once.
+Do **not** wrap an outer `local-stack` around Playwright — a second stack exits
+when it sees the first PID.
+
 Artifacts: Playwright output under `team-console/test-results/` (gitignored).
-Stack cleanup: `local-stack` removes `.stack/db` on exit (success or failure).
+Stack cleanup: `local-stack` removes only the `.stack/db` it created.
 
 ### Skill wrapper (records results)
 
@@ -40,9 +46,9 @@ Stack cleanup: `local-stack` removes `.stack/db` on exit (success or failure).
 npx --yes tsx .cursor/skills/verify-team-console/scripts/verify-team-console.ts
 ```
 
-The wrapper checks prerequisites, runs the stack+e2e command when available,
-and writes `docs/engineering/verify-171-results.md`. If `mongod`/`bun` are
-missing, it fails clearly and still documents what was (not) run.
+The wrapper checks prerequisites, runs Playwright (webServer-owned stack) when
+available, and writes `docs/engineering/verify-171-results.md`. It never deletes
+another developer's `.stack/db`. Missing prerequisites are documented as BLOCKED.
 
 ### Lib-level isolation checks (no Mongo)
 

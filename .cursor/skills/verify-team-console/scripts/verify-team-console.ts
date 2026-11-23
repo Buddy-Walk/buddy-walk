@@ -1,17 +1,19 @@
 /**
  * #171 verify-team-console runner.
- * Prefers full local-stack + Playwright; falls back to lib checks when mongod is absent.
+ * Prefers Playwright-owned local-stack startup; falls back to lib checks when mongod is absent.
+ * Never deletes a `.stack/db` this invocation did not create.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
 
 const skillDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const repoRoot = path.resolve(skillDir, "../../..");
 const consoleDir = path.join(repoRoot, "team-console");
 const stackDb = path.join(consoleDir, ".stack", "db");
+const mobileTsx = path.join(repoRoot, "mobile", "node_modules", ".bin", "tsx");
 
 function which(cmd: string): boolean {
   const r = spawnSync(process.platform === "win32" ? "where" : "which", [cmd], {
@@ -29,28 +31,27 @@ function run(cmd: string, args: string[], cwd: string): { ok: boolean; out: stri
 async function libIsolationChecks(): Promise<{ ok: boolean; detail: string }> {
   // Pure fixture/filter isolation without Mongo or browser.
   const { filterTrials, hasFilters } = await import(
-    pathToFileUrl(path.join(consoleDir, "src/lib/trials/filters.ts"))
+    pathToFileURL(path.join(consoleDir, "src/lib/trials/filters.ts")).href
   );
   const { trialFrom } = await import(
-    pathToFileUrl(path.join(consoleDir, "src/lib/trials/fixtures.ts"))
+    pathToFileURL(path.join(consoleDir, "src/lib/trials/fixtures.ts")).href
   );
 
   const a = trialFrom({ _id: "iso-a", destination: "Alpha" });
   const b = trialFrom({ _id: "iso-b", destination: "Beta" });
   const filtered = filterTrials([a, b], { q: "Alpha" } as never);
-  const isolated = filtered.every((t: { _id: string }) => t._id === "iso-a");
+  const isolated =
+    filtered.length === 1 &&
+    filtered.every((t: { _id: string }) => t._id === "iso-a");
   const empty = !hasFilters({} as never);
   return {
     ok: isolated && empty,
     detail: isolated && empty
       ? "filterTrials isolates by query; empty filters reported cleanly"
-      : "lib isolation check failed",
+      : filtered.length === 0
+        ? "lib isolation check failed: empty result must not PASS"
+        : "lib isolation check failed",
   };
-}
-
-function pathToFileUrl(p: string): string {
-  const resolved = path.resolve(p).replace(/\\/g, "/");
-  return `file:///${resolved}`;
 }
 
 async function main() {
@@ -65,9 +66,13 @@ async function main() {
 
   const hasBun = which("bun");
   const hasMongod = which("mongod");
+  const hasMongoimport = which("mongoimport");
+  const hasMobileTsx = existsSync(mobileTsx) || existsSync(`${mobileTsx}.cmd`);
   lines.push("## Prerequisites", "");
   lines.push(`- bun: ${hasBun ? "yes" : "NO"}`);
   lines.push(`- mongod: ${hasMongod ? "yes" : "NO"}`);
+  lines.push(`- mongoimport: ${hasMongoimport ? "yes" : "NO"}`);
+  lines.push(`- mobile/node_modules/.bin/tsx: ${hasMobileTsx ? "yes" : "NO (run npm ci in mobile/)"}`);
   lines.push(`- team-console dir: ${existsSync(consoleDir) ? "yes" : "NO"}`);
   lines.push("");
 
@@ -101,41 +106,49 @@ async function main() {
     detail: "skipped",
   };
 
-  if (!libOnly && hasBun && hasMongod) {
-    const beforeDb = existsSync(stackDb);
+  // Playwright's webServer owns local-stack startup/cleanup — do not wrap another stack here.
+  if (!libOnly && hasBun && hasMongod && hasMongoimport && hasMobileTsx) {
     const result = run(
-      "bun",
-      ["scripts/local-stack.ts", "--", "bunx", "playwright", "test", "--reporter=line"],
+      "bunx",
+      ["playwright", "test", "--reporter=line"],
       consoleDir,
     );
-    const afterDb = existsSync(stackDb);
     e2e = {
       ran: true,
-      ok: result.ok && !afterDb,
+      ok: result.ok,
       detail: [
-        result.ok ? "playwright exit 0" : "playwright failed",
-        `stack db before=${beforeDb} after=${afterDb} (expect after=false for cleanup)`,
+        result.ok ? "playwright exit 0 (webServer-owned stack)" : "playwright failed",
         result.out.slice(-2000),
       ].join("\n"),
     };
   } else if (!libOnly) {
+    const missing = [
+      !hasBun ? "bun" : null,
+      !hasMongod ? "mongod" : null,
+      !hasMongoimport ? "mongoimport" : null,
+      !hasMobileTsx ? "mobile deps (npm ci in mobile/)" : null,
+    ].filter(Boolean);
     e2e = {
       ran: false,
       ok: false,
       detail:
-        "Full journeys BLOCKED on this machine: need bun + mongod. Install mongod and re-run without --lib-only.",
+        `Full journeys BLOCKED: missing ${missing.join(", ")}. Install prerequisites and re-run without --lib-only.`,
     };
   }
 
-  lines.push("## Browser journeys (local-stack + Playwright)", "");
+  lines.push("## Browser journeys (Playwright webServer + local-stack)", "");
   lines.push(`- ran: ${e2e.ran}`);
   lines.push(`- ${e2e.ok ? "PASS" : e2e.ran ? "FAIL" : "BLOCKED"}: ${e2e.detail}`);
   lines.push("");
-
-  // Cleanup probe: ensure we never leave a partial stack db from this script.
+  lines.push(
+    "- Cleanup: this wrapper never deletes `.stack/db`. Playwright/`local-stack` remove only the DB they create.",
+    "",
+  );
   if (existsSync(stackDb) && !e2e.ran) {
-    rmSync(stackDb, { recursive: true, force: true });
-    lines.push("- Removed stray `.stack/db` after blocked run.", "");
+    lines.push(
+      "- Note: `.stack/db` exists but was left untouched (another developer or prior stack may own it).",
+      "",
+    );
   }
 
   const runtimeMs = Math.round(performance.now() - started);
@@ -148,7 +161,7 @@ async function main() {
         ? "PASS"
         : "FAIL"
       : lib.ok && unit.ok
-        ? "PARTIAL — lib PASS; browser journeys BLOCKED (mongod missing)"
+        ? "PARTIAL — lib PASS; browser journeys BLOCKED (prerequisites missing)"
         : "FAIL";
 
   lines.unshift(`**Status:** ${status}`, `**Runtime:** ${runtimeMs} ms`, "");

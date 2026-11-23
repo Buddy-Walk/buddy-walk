@@ -1,14 +1,16 @@
-**Status:** PARTIAL — lib PASS; browser journeys BLOCKED (mongod missing)
-**Runtime:** 12712 ms
+**Status:** PASS (lib-only)
+**Runtime:** 187060 ms
 
 # verify-team-console results (#171)
 
-**Started:** 2026-11-23T14:19:47.959Z
+**Started:** 2026-11-23T21:26:22.326Z
 
 ## Prerequisites
 
 - bun: yes
 - mongod: NO
+- mongoimport: NO
+- mobile/node_modules/.bin/tsx: NO (run npm ci in mobile/)
 - team-console dir: yes
 
 ## Lib isolation
@@ -19,10 +21,12 @@
 
 - PASS:  Test Files  14 passed (14) |       Tests  169 passed (169)
 
-## Browser journeys (local-stack + Playwright)
+## Browser journeys (Playwright webServer + local-stack)
 
 - ran: false
-- BLOCKED: Full journeys BLOCKED on this machine: need bun + mongod. Install mongod and re-run without --lib-only.
+- BLOCKED: skipped
+
+- Cleanup: this wrapper never deletes `.stack/db`. Playwright/`local-stack` remove only the DB they create.
 
 ## Production safety
 
