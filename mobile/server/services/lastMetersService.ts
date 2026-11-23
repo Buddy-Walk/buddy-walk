@@ -116,6 +116,10 @@ export class LastMetersService {
 
       // Capture evaluation time when sensorReasons runs (after walking-route await),
       // not before decideTurn starts — otherwise a slow route lookup understates age.
+      // Mobile policy freezes capture freshness at evaluationTime (receipt); strict
+      // uses the live safetyNow. Diagnostics must use the same clock the gate used.
+      const captureDiagnosticsAt = (liveAt: number) =>
+        guidancePolicy.version ? evaluationTime : liveAt;
       let turnEvaluatedAt = safetyNow();
       const turn = await trial.moduleTimer.time("turnDecision", () => decideTurn(trial, {
         request, entrance, headings, guidanceHeading, turnReasons: guidancePolicy.turnReasons,
@@ -127,7 +131,9 @@ export class LastMetersService {
         },
       }));
       if (turn.kind === "withhold") {
-        return await trial.withhold(turn.reasons, TURN_NOT_VERIFIED_MESSAGE, { evaluatedAt: turnEvaluatedAt });
+        return await trial.withhold(turn.reasons, TURN_NOT_VERIFIED_MESSAGE, {
+          evaluatedAt: captureDiagnosticsAt(turnEvaluatedAt),
+        });
       }
       const { turnHeading, confidence, walkingEvidence } = turn;
 
@@ -141,7 +147,9 @@ export class LastMetersService {
         sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, lateEvaluatedAt, evaluationTime,
       );
       if (lateReasons.length) {
-        return await trial.withhold(lateReasons, RECAPTURE_MESSAGE, { evaluatedAt: lateEvaluatedAt });
+        return await trial.withhold(lateReasons, RECAPTURE_MESSAGE, {
+          evaluatedAt: captureDiagnosticsAt(lateEvaluatedAt),
+        });
       }
       return await trial.answer({
         currentHeading: turnHeading,

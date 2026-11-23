@@ -252,6 +252,44 @@ test("capture GPS freshness diagnostics use the gate evaluation clock, not start
   assert.equal(freshness?.reason, "capture_gps_stale");
 });
 
+test("mobile policy capture-GPS diagnostics stay on the receipt clock, not a later route wait", async t => {
+  const rows = recordTrials(t);
+  const receiptAt = NOW;
+  const afterRouteAt = receiptAt + 2_000;
+  const captureAt = receiptAt - 61_000;
+  const sensors = {
+    photoCapturedAt: captureAt,
+    positionTimestamp: captureAt,
+    headingTimestamp: captureAt,
+    headingReference: "true" as const,
+    latestPosition: { lat: 40.7, lng: -74, accuracy: 5, timestamp: receiptAt },
+    latestHeading: 90,
+    latestHeadingTimestamp: receiptAt,
+    latestHeadingReference: "true" as const,
+  };
+  // Mobile turnSensorReasons freezes capture freshness at snapshotTime (receipt).
+  const gateReasons = mobileLastMetersGuidancePolicy.turnSensorReasons(
+    sensors, { lat: 40.7, lng: -74 }, 90, 5, afterRouteAt, receiptAt,
+  );
+  assert.ok(gateReasons.includes("capture_gps_stale"));
+  const atReceipt = captureGpsFreshnessDiagnostics(sensors, receiptAt);
+  const afterRoute = captureGpsFreshnessDiagnostics(sensors, afterRouteAt);
+  assert.equal(atReceipt.reason, "capture_gps_stale");
+  assert.equal(atReceipt.gpsAgeMs, 61_000);
+  assert.equal(afterRoute.gpsAgeMs, 63_000);
+
+  const trial = new LastMetersTrial({
+    request: { ...REQUEST, sensors },
+    image: "data:image/jpeg;base64,AAAA",
+    options: {},
+    policy: mobileLastMetersGuidancePolicy,
+  });
+  await trial.withhold(["capture_gps_stale"], undefined, { evaluatedAt: receiptAt });
+  const freshness = rows[0].captureGpsFreshness as { reason?: string; gpsAgeMs?: number | null };
+  assert.equal(freshness.reason, "capture_gps_stale");
+  assert.equal(freshness.gpsAgeMs, 61_000, "saved diagnostics must match the mobile gate clock");
+});
+
 test("withholding a turn saves the reasons and words the answer with the guidance policy", async t => {
   const rows = recordTrials(t);
   const trial = new LastMetersTrial({
