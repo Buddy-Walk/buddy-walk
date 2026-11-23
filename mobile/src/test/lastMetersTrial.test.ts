@@ -243,6 +243,10 @@ test("withholding a turn saves the reasons and words the answer with the guidanc
   );
   assert.deepEqual(rows[0].steps, [{ name: "turn_safety_gate", prompt: "Require sufficient evidence before any precise turn.",
     response: "gps_uncertain", model: "deterministic-safety-policy", success: false }]);
+  const gpsAccuracy = rows[0].gpsAccuracy as { unit?: string; reason?: string; distanceMeters?: number | null };
+  assert.equal(gpsAccuracy.unit, "meters");
+  assert.equal(gpsAccuracy.reason, "gps_uncertain");
+  assert.equal(gpsAccuracy.distanceMeters, 48);
 });
 
 test("a failed run answers 502 naming the stage it was in", async t => {
