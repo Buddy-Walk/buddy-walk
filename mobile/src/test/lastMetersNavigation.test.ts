@@ -277,6 +277,10 @@ test("heading_sources_disagree diagnostics cover wrap-around, conflict, and miss
   assert.equal(conflict.compassAccuracyLevel, 3);
   assert.equal(conflict.rawCompassHeadingDegrees, 90);
 
+  const magnetic = headingSourcesDisagreeDiagnostics(90, 180, { compassReference: "magnetic" });
+  assert.equal(magnetic.compassReferenceFrame, "compass_magnetic_snapped");
+  assert.equal(magnetic.reason, "heading_sources_disagree");
+
   // Recorded field scenarios: McDonald’s / Main building / Xi’an — trusted conflict withholds; no compass→panorama leakage.
   for (const [compass, visual] of [[90, 180], [0, 135], [45, 225]] as const) {
     const d = headingSourcesDisagreeDiagnostics(compass, visual);

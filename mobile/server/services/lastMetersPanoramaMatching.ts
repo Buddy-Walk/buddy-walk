@@ -522,9 +522,11 @@ async function matchCurrentView(
       deviceHeading,
       comparison.panoramaMatchedHeading,
       {
-        compassTimestamp: input.request.sensors?.latestHeadingTimestamp ?? input.request.sensors?.headingTimestamp,
+        // deviceHeading is the capture-time compass; pair it with capture headingTimestamp.
+        compassTimestamp: input.request.sensors?.headingTimestamp,
         panoramaMatchTimestamp: Date.now(),
         compassAccuracyLevel: input.request.compassAccuracyLevel,
+        compassReference: input.request.sensors?.headingReference,
       },
     );
     trial.note({

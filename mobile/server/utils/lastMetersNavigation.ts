@@ -214,7 +214,11 @@ export function isLastMetersHeadingAligned(
  */
 export const HEADING_SOURCES_AGREEMENT_MAX_DEGREES = 45;
 
-export type HeadingSourceReferenceFrame = "compass_true_north_snapped" | "panorama_tile_heading";
+export type HeadingSourceReferenceFrame =
+  | "compass_true_north_snapped"
+  | "compass_magnetic_snapped"
+  | "compass_unknown_snapped"
+  | "panorama_tile_heading";
 
 export type HeadingSourcesDisagreeFailureKind =
   | "compass_heading_unavailable"
@@ -253,6 +257,8 @@ export function headingSourcesDisagreeDiagnostics(
     compassTimestamp?: number;
     panoramaMatchTimestamp?: number;
     compassAccuracyLevel?: number | null;
+    /** Reference of the compass sample actually compared (capture headingReference). */
+    compassReference?: "true" | "magnetic" | "unknown";
   },
 ): HeadingSourcesDisagreeDiagnostics {
   const maxAgreementDegrees = options?.agreementToleranceDegrees ?? HEADING_SOURCES_AGREEMENT_MAX_DEGREES;
@@ -278,6 +284,10 @@ export function headingSourcesDisagreeDiagnostics(
   }
 
   const accuracy = options?.compassAccuracyLevel;
+  const compassReferenceFrame: HeadingSourceReferenceFrame =
+    options?.compassReference === "magnetic" ? "compass_magnetic_snapped"
+      : options?.compassReference === "unknown" ? "compass_unknown_snapped"
+        : "compass_true_north_snapped";
   return {
     reason: failureKinds.includes("circular_discrepancy_above_max") ? "heading_sources_disagree" : null,
     rawCompassHeadingDegrees,
@@ -285,7 +295,7 @@ export function headingSourcesDisagreeDiagnostics(
     panoramaMatchedHeadingDegrees,
     circularDiscrepancyDegrees,
     maxAgreementDegrees,
-    compassReferenceFrame: "compass_true_north_snapped",
+    compassReferenceFrame,
     panoramaReferenceFrame: "panorama_tile_heading",
     compassTimestamp: Number.isFinite(options?.compassTimestamp) ? options!.compassTimestamp! : null,
     panoramaMatchTimestamp: Number.isFinite(options?.panoramaMatchTimestamp)
