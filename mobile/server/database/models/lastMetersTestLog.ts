@@ -46,6 +46,8 @@ export interface lastMetersTestLogInterface {
   /** Versioned snapshot of exactly what the pipeline received. */
   replayInput?: ReplayInput;
   safetyReasons?: string[];
+  /** Compass vs visual heading conflict diagnostics (#74). */
+  headingSourcesDisagree?: Record<string, unknown>;
   walkingEvidence?: WalkingEvidence;
   panoramaTargetHeading?: number;
   confidenceMethod?: "heuristic-not-calibrated";
@@ -167,6 +169,7 @@ const LastMetersTestLogSchema = new Schema<lastMetersTestLogInterface>({
   retryDefaultsApplied: [{ type: String }],
   replayInput: Schema.Types.Mixed,
   safetyReasons: [String],
+  headingSourcesDisagree: Schema.Types.Mixed,
   walkingEvidence: Schema.Types.Mixed,
   panoramaTargetHeading: Number,
   confidenceMethod: String,

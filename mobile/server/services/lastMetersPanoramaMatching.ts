@@ -4,6 +4,7 @@ import {
   buildHeadingConflictInstruction,
   buildLastMetersSourceNote,
   compareCompassAndPanoramaHeadings,
+  headingSourcesDisagreeDiagnostics,
   formatLastMetersDistance,
   LAST_METERS_HEADINGS,
   LAST_METERS_PANORAMA_FOV_DEGREES,
@@ -87,7 +88,7 @@ export function startPanoramaSearch(
 
 /** What panorama heading matching needs to know about the user and where they are going. */
 export interface PanoramaMatchingInput {
-  request: Pick<LastMetersRequestInput, "lat" | "lng" | "destination" | "deviceHeading">;
+  request: Pick<LastMetersRequestInput, "lat" | "lng" | "destination" | "deviceHeading" | "compassAccuracyLevel" | "sensors">;
   /** The user's photo. */
   image: string;
   destinationQuery: string;
@@ -517,10 +518,20 @@ async function matchCurrentView(
   }
 
   if (headingComparisonAgrees === false) {
+    const headingSourcesDisagree = headingSourcesDisagreeDiagnostics(
+      deviceHeading,
+      comparison.panoramaMatchedHeading,
+      {
+        compassTimestamp: input.request.sensors?.latestHeadingTimestamp ?? input.request.sensors?.headingTimestamp,
+        panoramaMatchTimestamp: Date.now(),
+        compassAccuracyLevel: input.request.compassAccuracyLevel,
+      },
+    );
     trial.note({
       testScenario: "heading_conflict",
       confidence: { level: "low" },
       safetyReasons: ["heading_sources_disagree"],
+      headingSourcesDisagree,
     });
     const finalOutput =
       buildHeadingConflictInstruction(place.placeName, entrance.distanceMeters) +

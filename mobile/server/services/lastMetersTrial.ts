@@ -13,6 +13,7 @@ import {
   streetViewImageryAgeYears,
   type compareCompassAndPanoramaHeadings,
   type ExactModeGate,
+  type HeadingSourcesDisagreeDiagnostics,
   type LastMetersConfidence,
   type LastMetersTestScenario,
 } from "../utils/lastMetersNavigation";
@@ -88,6 +89,8 @@ export interface TrialFacts {
   confidence?: Pick<LastMetersConfidence, "level"> & Partial<LastMetersConfidence>;
   walkingEvidence: WalkingEvidence;
   safetyReasons: string[];
+  /** Compass vs panorama conflict report (#74); angles/frames only. */
+  headingSourcesDisagree?: HeadingSourcesDisagreeDiagnostics;
 }
 
 /** How a run ended, saved alongside the facts. */
@@ -269,6 +272,7 @@ export class LastMetersTrial {
     return {
       replayInput: this.replayInput,
       safetyReasons: facts.safetyReasons,
+      ...(facts.headingSourcesDisagree ? { headingSourcesDisagree: facts.headingSourcesDisagree } : {}),
       walkingEvidence: facts.walkingEvidence,
       panoramaTargetHeading: facts.panoramaTargetHeading,
       confidenceMethod: "heuristic-not-calibrated",
