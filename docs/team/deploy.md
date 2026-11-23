@@ -65,7 +65,7 @@ Testers are blind and walk with the camera and GPS on, so both SDKs send errors 
 | | OpenAI prompts and answers, Mongo query data, stack-frame variables |
 | | Console output, screenshots, view hierarchy |
 
-Only Render and release app builds send. Local runs, including the Team console stack, send nothing unless `SENTRY_DSN` (API) or `EXPO_PUBLIC_SENTRY_DSN` (app) is set.
+The API sends only on Render (`RENDER` / `RENDER_SERVICE_ID`) or when `SENTRY_DSN` is set on purpose for authorized local testing. Ordinary local runs stay quiet even if `NODE_ENV=production`, because a production-mode laptop run would otherwise use the fallback DSN. Release app builds send when `EXPO_PUBLIC_SENTRY_DSN` is set; local Expo stays quiet without it.
 
 The API sets this with `dataCollection` in `mobile/server/instrument.ts`: SDK v11 collects everything unless told otherwise.
 The app sets `sendDefaultPii: false` in `mobile/src/sentry.ts`.

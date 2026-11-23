@@ -85,6 +85,7 @@ export async function routeQuestion(text: string, lat: number, lng: number) {
     return openAiResponse;
   } catch (e) {
     console.warn("parseUserRequest failed; continuing without tools:", e);
+    Sentry.captureException(e, { tags: { subsystem: "openai", feature: "routing" } });
     return undefined;
   }
 }
