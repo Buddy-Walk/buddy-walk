@@ -16,6 +16,7 @@ import {
   type LastMetersConfidence,
   type LastMetersTestScenario,
 } from "../utils/lastMetersNavigation";
+import type { OrientationCorroborationDiagnostics } from "../utils/lastMetersPolicy";
 import type { lastMetersTestStepInterface } from "../database/models/lastMetersTestLog";
 import type { LatLng } from "./googleMaps";
 import type { DestinationNotVerifiedError, VerifiedNearbyDestination } from "./verifiedDestination";
@@ -88,6 +89,8 @@ export interface TrialFacts {
   confidence?: Pick<LastMetersConfidence, "level"> & Partial<LastMetersConfidence>;
   walkingEvidence: WalkingEvidence;
   safetyReasons: string[];
+  /** Independent-evidence report for orientation (#75). */
+  orientationCorroboration?: OrientationCorroborationDiagnostics;
 }
 
 /** How a run ended, saved alongside the facts. */
@@ -269,6 +272,7 @@ export class LastMetersTrial {
     return {
       replayInput: this.replayInput,
       safetyReasons: facts.safetyReasons,
+      ...(facts.orientationCorroboration ? { orientationCorroboration: facts.orientationCorroboration } : {}),
       walkingEvidence: facts.walkingEvidence,
       panoramaTargetHeading: facts.panoramaTargetHeading,
       confidenceMethod: "heuristic-not-calibrated",

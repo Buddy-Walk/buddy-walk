@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { sensorSafetyReasons, LastMetersSensors, bearingBetween } from "../utils/lastMetersSafety";
-import { evaluateWalkingLeg, preciseTurnReasons } from "../../server/utils/lastMetersPolicy";
+import {
+  evaluateWalkingLeg,
+  preciseTurnReasons,
+  orientationCorroborationDiagnostics,
+  ORIENTATION_CORROBORATION_DECISION_TABLE,
+} from "../../server/utils/lastMetersPolicy";
 import { assessReplay, photoHash } from "../../server/utils/lastMetersReplay";
 import { summarizeFieldEvaluation } from "../../server/utils/lastMetersEvaluation";
 
@@ -53,6 +58,43 @@ test("precise turns require every independent prerequisite", () => {
     { headingAgrees: false }, { compassAccuracy: 2 }, { gpsAccuracy: 21 }, { gpsAccuracy: 14, distanceMeters: 10 },
     { entranceListed: false }, { visualTargetMatched: false }, { walking: { verified: false, reason: "no_route" } },
     { sensorReasons: ["moved_since_capture"] }]) assert.ok(preciseTurnReasons({ ...good, ...patch }).length);
+});
+
+test("orientation corroboration requires independent visual and heading evidence (#75)", () => {
+  assert.equal(ORIENTATION_CORROBORATION_DECISION_TABLE.length, 2);
+  const ok = orientationCorroborationDiagnostics({ photoMatched: true, headingAgrees: true });
+  assert.equal(ok.reason, null);
+  assert.equal(ok.corroborated, true);
+  assert.ok(ok.sources.every(s => s.status === "pass"));
+
+  for (const [photoMatched, headingAgrees, status] of [
+    [false, true, "mismatched"],
+    [true, false, "conflicting"],
+    [true, undefined, "unavailable"],
+  ] as const) {
+    const d = orientationCorroborationDiagnostics({ photoMatched, headingAgrees });
+    assert.equal(d.reason, "orientation_not_corroborated");
+    assert.equal(d.corroborated, false);
+    assert.ok(d.sources.some(s => s.status === status));
+    assert.ok(preciseTurnReasons({
+      confidenceLevel: "high", photoMatched, headingAgrees, compassAccuracy: 3,
+      gpsAccuracy: 5, distanceMeters: 50, entranceListed: true, visualTargetMatched: true,
+      walking: evaluateWalkingLeg(leg(), origin, target), sensorReasons: [],
+    }).includes("orientation_not_corroborated"));
+  }
+
+  const correlated = orientationCorroborationDiagnostics({
+    photoMatched: true, headingAgrees: true, headingDerivedFromPhotoMatchOnly: true,
+  });
+  assert.equal(correlated.reason, "orientation_not_corroborated");
+  assert.ok(correlated.sources.some(s => s.status === "correlated_duplicate"));
+
+  // Interaction: heading conflict and missing panorama both block precise turns even with high confidence label.
+  assert.ok(preciseTurnReasons({
+    confidenceLevel: "high", photoMatched: false, headingAgrees: false, compassAccuracy: 3,
+    gpsAccuracy: 5, distanceMeters: 50, entranceListed: true, visualTargetMatched: true,
+    walking: evaluateWalkingLeg(leg(), origin, target), sensorReasons: ["heading_sources_disagree"],
+  }).includes("orientation_not_corroborated"));
 });
 test("camera-origin bearings are different evidence from user-origin bearings", () => {
   assert.equal(bearingBetween(origin, target), 0);

@@ -1,6 +1,10 @@
 import axios from "axios";
 import { calculateLastMetersConfidence, streetViewImageryAgeYears, type LastMetersConfidence } from "../utils/lastMetersNavigation";
-import { evaluateWalkingLeg, type WalkingEvidence } from "../utils/lastMetersPolicy";
+import {
+  evaluateWalkingLeg,
+  orientationCorroborationDiagnostics,
+  type WalkingEvidence,
+} from "../utils/lastMetersPolicy";
 import type { LastMetersGuidancePolicy } from "../utils/lastMetersGuidancePolicy";
 import type { LastMetersRequestInput } from "../utils/lastMetersReplay";
 import { getGoogleMapsApiKey, type LatLng } from "./googleMaps";
@@ -60,6 +64,21 @@ export async function decideTurn(trial: LastMetersTrial, input: TurnDecisionInpu
     response: `${confidence.level.toUpperCase()}: ${Math.round(confidence.score * 100)}%`,
     model: "deterministic-confidence", success: confidence.level === "high",
     error: confidence.level !== "high" ? confidence.reasons.join(" ") : undefined,
+  });
+  const orientationCorroboration = orientationCorroborationDiagnostics({
+    photoMatched: panoramaMatched,
+    headingAgrees: comparison.agrees,
+  });
+  trial.note({ orientationCorroboration });
+  trial.step({
+    name: "orientation_corroboration",
+    prompt: "Require independent visual match plus compass↔panorama agreement; correlated duplicates do not count.",
+    response: orientationCorroboration.corroborated
+      ? "CORROBORATED"
+      : orientationCorroboration.sources.map(s => `${s.source}:${s.status}`).join("; "),
+    model: "deterministic-orientation-policy",
+    success: orientationCorroboration.corroborated,
+    error: orientationCorroboration.reason ?? undefined,
   });
   const walkingEvidence = await checkWalkingRoute({ lat, lng }, entrance.location);
   trial.note({ walkingEvidence });
