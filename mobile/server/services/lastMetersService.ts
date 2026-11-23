@@ -114,13 +114,17 @@ export class LastMetersService {
       if (matching.kind === "exit") return await matching.respond();
       const headings = matching.value;
 
-      const turnEvaluatedAt = safetyNow();
+      // Capture evaluation time when sensorReasons runs (after walking-route await),
+      // not before decideTurn starts — otherwise a slow route lookup understates age.
+      let turnEvaluatedAt = safetyNow();
       const turn = await trial.moduleTimer.time("turnDecision", () => decideTurn(trial, {
         request, entrance, headings, guidanceHeading, turnReasons: guidancePolicy.turnReasons,
-        sensorReasons: () =>
-          guidancePolicy.turnSensorReasons(
+        sensorReasons: () => {
+          turnEvaluatedAt = safetyNow();
+          return guidancePolicy.turnSensorReasons(
             sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, turnEvaluatedAt, evaluationTime,
-          ),
+          );
+        },
       }));
       if (turn.kind === "withhold") {
         return await trial.withhold(turn.reasons, TURN_NOT_VERIFIED_MESSAGE, { evaluatedAt: turnEvaluatedAt });
