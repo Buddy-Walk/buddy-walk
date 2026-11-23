@@ -1,6 +1,10 @@
 import { createLastMetersModuleTimer } from "../utils/lastMetersTiming";
 import type { textRequestBody } from "../types";
-import { RECAPTURE_MESSAGE } from "../../src/utils/lastMetersSafety";
+import {
+  currentGpsAvailabilityDiagnostics,
+  RECAPTURE_MESSAGE,
+  type CurrentGpsAvailabilityDiagnostics,
+} from "../../src/utils/lastMetersSafety";
 import type { LastMetersGuidancePolicy, LastMetersGuidanceContext } from "../utils/lastMetersGuidancePolicy";
 import type { WalkingEvidence } from "../utils/lastMetersPolicy";
 import {
@@ -88,6 +92,8 @@ export interface TrialFacts {
   confidence?: Pick<LastMetersConfidence, "level"> & Partial<LastMetersConfidence>;
   walkingEvidence: WalkingEvidence;
   safetyReasons: string[];
+  /** Capture vs current GPS availability flags — never coordinate payloads. */
+  currentGpsAvailability?: CurrentGpsAvailabilityDiagnostics;
 }
 
 /** How a run ended, saved alongside the facts. */
@@ -183,7 +189,17 @@ export class LastMetersTrial {
   /** Ends the run without a precise turn, saying why in the guidance policy's words. */
   async withhold(reasons: string[], message = RECAPTURE_MESSAGE): Promise<LastMetersRunResult> {
     const safetyReasons = [...new Set(reasons)];
-    this.note({ safetyReasons });
+    const currentGpsAvailability = safetyReasons.includes("current_gps_unavailable")
+      ? currentGpsAvailabilityDiagnostics(
+          this.request.sensors,
+          { lat: this.request.lat, lng: this.request.lng },
+          this.options.retry?.replayInput.receivedAt ?? this.startedAt,
+        )
+      : undefined;
+    this.note({
+      safetyReasons,
+      ...(currentGpsAvailability ? { currentGpsAvailability } : {}),
+    });
     const output = this.withheldMessage(safetyReasons, message);
     this.step({ name: "turn_safety_gate", prompt: "Require sufficient evidence before any precise turn.",
       response: safetyReasons.join("; "), model: "deterministic-safety-policy", success: false });
@@ -269,6 +285,7 @@ export class LastMetersTrial {
     return {
       replayInput: this.replayInput,
       safetyReasons: facts.safetyReasons,
+      ...(facts.currentGpsAvailability ? { currentGpsAvailability: facts.currentGpsAvailability } : {}),
       walkingEvidence: facts.walkingEvidence,
       panoramaTargetHeading: facts.panoramaTargetHeading,
       confidenceMethod: "heuristic-not-calibrated",
