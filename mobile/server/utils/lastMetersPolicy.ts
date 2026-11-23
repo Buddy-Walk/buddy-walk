@@ -103,12 +103,15 @@ export function preciseTurnReasons(input: {
   compassAccuracy?: number; gpsAccuracy?: number; distanceMeters: number;
   entranceListed: boolean; visualTargetMatched: boolean; walking: WalkingEvidence;
   sensorReasons: string[];
+  /** True when heading agreement was derived only from the photo match — not independent. */
+  headingDerivedFromPhotoMatchOnly?: boolean;
 }): string[] {
   const reasons = [...input.sensorReasons];
   if (input.confidenceLevel !== "high") reasons.push("confidence_not_high");
   if (orientationCorroborationDiagnostics({
     photoMatched: input.photoMatched,
     headingAgrees: input.headingAgrees,
+    headingDerivedFromPhotoMatchOnly: input.headingDerivedFromPhotoMatchOnly,
   }).reason) {
     reasons.push("orientation_not_corroborated");
   }

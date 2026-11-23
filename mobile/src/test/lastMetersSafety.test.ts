@@ -88,6 +88,12 @@ test("orientation corroboration requires independent visual and heading evidence
   });
   assert.equal(correlated.reason, "orientation_not_corroborated");
   assert.ok(correlated.sources.some(s => s.status === "correlated_duplicate"));
+  assert.ok(preciseTurnReasons({
+    confidenceLevel: "high", photoMatched: true, headingAgrees: true,
+    headingDerivedFromPhotoMatchOnly: true, compassAccuracy: 3,
+    gpsAccuracy: 5, distanceMeters: 50, entranceListed: true, visualTargetMatched: true,
+    walking: evaluateWalkingLeg(leg(), origin, target), sensorReasons: [],
+  }).includes("orientation_not_corroborated"), "preciseTurnReasons must forward correlated-duplicate flag");
 
   // Interaction: heading conflict and missing panorama both block precise turns even with high confidence label.
   assert.ok(preciseTurnReasons({
