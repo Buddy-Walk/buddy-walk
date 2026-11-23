@@ -14,6 +14,7 @@ import { matchPanoramaHeadings, startPanoramaSearch } from "./lastMetersPanorama
 import { decideTurn, TURN_NOT_VERIFIED_MESSAGE } from "./lastMetersTurnDecision";
 import { composeGuidance } from "./lastMetersGuidance";
 import type { OcclusionOptions } from "./lastMetersEntranceAssessment";
+import { RECAPTURE_MESSAGE } from "../../src/utils/lastMetersSafety";
 dotenv.config();
 
 export class LastMetersService {
@@ -62,8 +63,6 @@ export class LastMetersService {
     const evaluationTime = retry?.replayInput.receivedAt ?? trial.startedAt;
     const guidanceHeading = guidancePolicy.guidanceHeading(request, evaluationTime);
     const safetyNow = () => evaluationTime + Date.now() - trial.startedAt;
-    const turnSensorReasons = () =>
-      guidancePolicy.turnSensorReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime);
 
     // Keep classification and initial sensor exits outside the main failure handler.
     // Both pre-check stretches accumulate under one business name.
@@ -72,8 +71,16 @@ export class LastMetersService {
         name: "mobile_guidance_policy", prompt: "Analyze the capture before applying turn-only prerequisites.",
         response: guidancePolicy.version, model: "mobile-field-policy", success: true,
       });
-      const initialSensorReasons = guidancePolicy.initialSensorReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow());
-      if (initialSensorReasons.length) return { kind: "exit" as const, respond: () => trial.withhold(initialSensorReasons) };
+      const initialEvaluatedAt = safetyNow();
+      const initialSensorReasons = guidancePolicy.initialSensorReasons(
+        sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, initialEvaluatedAt,
+      );
+      if (initialSensorReasons.length) {
+        return {
+          kind: "exit" as const,
+          respond: () => trial.withhold(initialSensorReasons, RECAPTURE_MESSAGE, { evaluatedAt: initialEvaluatedAt }),
+        };
+      }
 
       logRequest(request, image);
       return classifyInput(trial, request, image);
@@ -107,10 +114,17 @@ export class LastMetersService {
       if (matching.kind === "exit") return await matching.respond();
       const headings = matching.value;
 
+      const turnEvaluatedAt = safetyNow();
       const turn = await trial.moduleTimer.time("turnDecision", () => decideTurn(trial, {
-        request, entrance, headings, guidanceHeading, turnReasons: guidancePolicy.turnReasons, sensorReasons: turnSensorReasons,
+        request, entrance, headings, guidanceHeading, turnReasons: guidancePolicy.turnReasons,
+        sensorReasons: () =>
+          guidancePolicy.turnSensorReasons(
+            sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, turnEvaluatedAt, evaluationTime,
+          ),
       }));
-      if (turn.kind === "withhold") return await trial.withhold(turn.reasons, TURN_NOT_VERIFIED_MESSAGE);
+      if (turn.kind === "withhold") {
+        return await trial.withhold(turn.reasons, TURN_NOT_VERIFIED_MESSAGE, { evaluatedAt: turnEvaluatedAt });
+      }
       const { turnHeading, confidence, walkingEvidence } = turn;
 
       const { turnInstruction, finalOutput } = await trial.moduleTimer.time("guidance", () => composeGuidance(trial, {
@@ -118,8 +132,13 @@ export class LastMetersService {
         reference: headings.reference, panoramaDate: headings.panorama.metadata.date, closedNotice, policy: guidancePolicy,
       }));
 
-      const lateReasons = turnSensorReasons();
-      if (lateReasons.length) return await trial.withhold(lateReasons);
+      const lateEvaluatedAt = safetyNow();
+      const lateReasons = guidancePolicy.turnSensorReasons(
+        sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, lateEvaluatedAt, evaluationTime,
+      );
+      if (lateReasons.length) {
+        return await trial.withhold(lateReasons, RECAPTURE_MESSAGE, { evaluatedAt: lateEvaluatedAt });
+      }
       return await trial.answer({
         currentHeading: turnHeading,
         targetHeading: destinationBearing,

@@ -70,6 +70,15 @@ test("capture GPS freshness diagnostics stay privacy-preserving and keep thresho
   assert.ok(sensorSafetyReasons({
     ...sensors(), photoCapturedAt: now, positionTimestamp: now - 30_000,
   }, origin, 1, 5, now).includes("capture_gps_stale"));
+  // Max-age alone: GPS older than 60s but still within photo alignment.
+  const agedAligned = { ...sensors(), photoCapturedAt: now - 61_000, positionTimestamp: now - 61_000 };
+  assert.ok(sensorSafetyReasons(agedAligned, origin, 1, 5, now).includes("capture_gps_stale"));
+  const agedDiag = captureGpsFreshnessDiagnostics(agedAligned, now);
+  assert.equal(agedDiag.reason, "capture_gps_stale");
+  assert.ok(agedDiag.failureKinds.includes("gps_older_than_max_age"));
+  assert.equal(agedDiag.failureKinds.includes("photo_gps_misaligned"), false);
+  assert.ok((agedDiag.gpsAgeMs ?? 0) > CAPTURE_GPS_MAX_AGE_MS);
+  assert.ok((agedDiag.photoGpsDeltaMs ?? 999) <= CAPTURE_GPS_PHOTO_ALIGNMENT_MS);
 });
 test("Oct 16 style co-occurring stale capture GPS and unavailable current GPS still withhold", () => {
   const reasons = sensorSafetyReasons({

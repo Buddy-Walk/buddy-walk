@@ -186,11 +186,20 @@ export class LastMetersTrial {
     }, testLogId, reviewPanorama?.(testLogId));
   }
 
-  /** Ends the run without a precise turn, saying why in the guidance policy's words. */
-  async withhold(reasons: string[], message = RECAPTURE_MESSAGE): Promise<LastMetersRunResult> {
+  /**
+   * Ends the run without a precise turn, saying why in the guidance policy's words.
+   * `evaluatedAt` must be the same clock the safety gate used when producing
+   * `capture_gps_stale` (safetyNow / replay time), not a later wall clock.
+   */
+  async withhold(
+    reasons: string[],
+    message = RECAPTURE_MESSAGE,
+    options?: { evaluatedAt?: number },
+  ): Promise<LastMetersRunResult> {
     const safetyReasons = [...new Set(reasons)];
+    const evaluatedAt = options?.evaluatedAt ?? this.startedAt;
     const captureGpsFreshness = safetyReasons.includes("capture_gps_stale") && this.request.sensors
-      ? captureGpsFreshnessDiagnostics(this.request.sensors, this.startedAt)
+      ? captureGpsFreshnessDiagnostics(this.request.sensors, evaluatedAt)
       : undefined;
     this.note({
       safetyReasons,
