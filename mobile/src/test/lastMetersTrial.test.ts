@@ -245,6 +245,18 @@ test("withholding a turn saves the reasons and words the answer with the guidanc
     response: "gps_uncertain", model: "deterministic-safety-policy", success: false }]);
 });
 
+test("withholding for missing capture metadata saves field-name diagnostics", async t => {
+  const rows = recordTrials(t);
+  const trial = new LastMetersTrial({
+    request: REQUEST, image: "data:image/jpeg;base64,AAAA", options: {}, policy: mobileLastMetersGuidancePolicy,
+  });
+  const result = await trial.withhold(["capture_metadata_missing"]);
+  assert.equal(result.kind, "response");
+  assert.deepEqual(rows[0].safetyReasons, ["capture_metadata_missing"]);
+  assert.deepEqual(rows[0].captureMetadataMissingFields, ["sensors"]);
+  assert.equal(rows[0].guidancePolicyVersion, mobileLastMetersGuidancePolicy.version);
+});
+
 test("a failed run answers 502 naming the stage it was in", async t => {
   const rows = recordTrials(t);
   t.mock.method(console, "error", () => undefined);
