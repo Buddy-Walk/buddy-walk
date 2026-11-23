@@ -1,6 +1,6 @@
 import { createLastMetersModuleTimer } from "../utils/lastMetersTiming";
 import type { textRequestBody } from "../types";
-import { RECAPTURE_MESSAGE } from "../../src/utils/lastMetersSafety";
+import { missingCaptureMetadataFields, RECAPTURE_MESSAGE } from "../../src/utils/lastMetersSafety";
 import type { LastMetersGuidancePolicy, LastMetersGuidanceContext } from "../utils/lastMetersGuidancePolicy";
 import type { WalkingEvidence } from "../utils/lastMetersPolicy";
 import {
@@ -183,7 +183,20 @@ export class LastMetersTrial {
   /** Ends the run without a precise turn, saying why in the guidance policy's words. */
   async withhold(reasons: string[], message = RECAPTURE_MESSAGE): Promise<LastMetersRunResult> {
     const safetyReasons = [...new Set(reasons)];
-    this.note({ safetyReasons });
+    // Field names only — never coordinates, images, or raw sensor payloads.
+    const captureMetadataMissingFields = safetyReasons.includes("capture_metadata_missing")
+      ? missingCaptureMetadataFields(this.request.sensors)
+      : undefined;
+    this.note({
+      safetyReasons,
+      ...(captureMetadataMissingFields
+        ? {
+            captureMetadataMissingFields,
+            guidancePolicyVersion: this.policy.version,
+            pipelineVersion: LAST_METERS_PIPELINE_VERSION,
+          }
+        : {}),
+    });
     const output = this.withheldMessage(safetyReasons, message);
     this.step({ name: "turn_safety_gate", prompt: "Require sufficient evidence before any precise turn.",
       response: safetyReasons.join("; "), model: "deterministic-safety-policy", success: false });
