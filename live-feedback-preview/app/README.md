@@ -66,9 +66,14 @@ Nothing is read until you tap **Start**.
    The status line says "no compass heading" while there is none, for example when location permission is denied.
    The screen stays on while recording, because a locked phone stops the camera.
 3. Tap **Mark** at a target.
-   The app saves the frame at the tap with its Readings, then asks whether the target is a door number or a sign, its side of the street, whether you can read it yourself, its style, what makes it hard to read, and the distance in feet.
-   Choose every condition that applies, or **Clear** when nothing does.
-   **Other** opens a text box for a condition that isn't listed.
+   The app saves the frame at the tap with its Readings, then shows the frame and asks:
+   - what the target says, as written on it
+   - where it is: tap the target on the frame, and tap again to move the marker
+   - whether the target is a door number or a sign, its side of the street, whether you can read it yourself, and its style
+   - what makes it hard to read: choose every condition that applies, or **Clear** when nothing does.
+     **Other** opens a text box for a condition that isn't listed.
+   - the distance to the target and the distance to the wall straight ahead of you on the target's side of the street, both in feet from the laser measure
+   - any notes, which can be left empty
    **Cancel** throws the frame away.
    Nothing is read or logged while the form is open, so no boxes move behind it, and reading starts again when you save or cancel it.
 4. Tap **Stop** to end the session.
@@ -114,7 +119,7 @@ The export turns the log into `session.json`.
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "id": "2026-11-15T14-00-00Z",
   "device": { "model": "iPhone 15", "osVersion": "26.1" },
   "app": { "version": "1.0.0", "build": "1" },
@@ -144,13 +149,17 @@ The export turns the log into `session.json`.
           "recognitionMs": 40
         }
       ],
+      "targetText": "34",
+      "targetPoint": { "x": 0.5, "y": 0.5 },
       "targetKind": "door-number",
       "side": "same-sidewalk",
       "visibleToTester": true,
       "signStyle": "plain",
       "conditions": ["faded", "obstructed"],
       "otherCondition": null,
-      "distanceFeet": 12
+      "distanceFeet": 12,
+      "wallDistanceFeet": 10.4,
+      "note": null
     }
   ]
 }
@@ -170,8 +179,13 @@ The export turns the log into `session.json`.
 - `heading` is the phone's latest compass heading when the frame's Readings were logged, a few milliseconds after the frame was read.
   It is `null` before the first compass reading or without location permission.
   `trueDegrees` is `null` when iOS can't give true north, and `accuracy` runs from 0 (over 50° uncertainty) to 3 (under 20°).
+- `targetText` is what the target says, as the tester typed it from the target itself, trimmed, such as `1247` or `Joe's Pizza`.
+  For a sign on several lines, it is the line the tester tapped.
+- `targetPoint` is where the tester tapped the target on the Mark's frame, as fractions (0 to 1) of the upright frame's width and height from its top-left corner, like a Reading's `box`.
 - `targetKind` is `door-number` or `sign`; version 1 sessions store `street-number` for a door number.
   `side` is `same-sidewalk` or `across-street`, and `signStyle` is `plain`, `stylised` or `angled`.
+- `signStyle: 'angled'` means the lettering on the sign is set at a slant.
+  It is not the viewing angle, which follows from the two distances.
 - `visibleToTester` is whether the tester could read the target themselves.
 - `conditions` is what the tester chose as making the target hard to read, always in this order:
 
@@ -189,7 +203,15 @@ The export turns the log into `session.json`.
 - `otherCondition` is what the tester typed in after choosing **Other**, for something not listed, trimmed, or `null` when Other wasn't chosen.
   It can sit beside any of `conditions` except `clear`, and `conditions` is empty when it is the only one.
   A condition typed in often enough becomes a new value in a later version, and Marks recorded before that keep it here.
+- `distanceFeet` is the distance from the phone to the target, measured with a laser measure.
+- `wallDistanceFeet` is the distance to the wall straight ahead of the tester, on the target's side of the street, measured with the laser measure.
+  It is never more than `distanceFeet`.
+- The viewing angle isn't stored, because it follows from the two distances: `arccos(wallDistanceFeet / distanceFeet)`.
+  It is 0° when the target is straight ahead, and nears 90° as the target is seen edge-on.
+  For the Mark above, `arccos(10.4 / 12)` is about 30°.
+- `note` is anything else the tester typed about the target or the moment, trimmed, or `null` when left empty.
 - Version 1 and 2 Marks have no `conditions` or `otherCondition`.
+- Version 1 to 3 Marks have no `targetText`, `targetPoint`, `wallDistanceFeet` or `note`, and their `distanceFeet` was judged by eye rather than measured.
 - A Mark's frame, `frameFile`, is the first frame read after the tap, a frame or two after it.
   Its `readings` are that frame's Readings, and `markedAt` and `heading` are that frame's too, so `markedAt` matches its Readings' `frameTimestamp`.
 

@@ -1,25 +1,32 @@
 import { useState } from 'react';
 import { KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { NativeNitroImage, type Image } from 'react-native-nitro-image';
 
+import type { Size } from '../readings/Reading';
+import { containedSize } from '../readings/ReadingsCamera';
 import {
   emptyMarkDraft,
   markConditions,
+  targetPointAt,
   toggleCondition,
   validateMarkForm,
   type ConditionChoice,
   type MarkDraft,
   type MarkFields,
   type MarkFormResult,
+  type TargetPoint,
 } from './markForm';
 
 type Props = {
+  /** The marked frame, upright, for the tester to tap the target on. */
+  frame: Image;
   /** The Readings in the marked frame, shown so the tester can see what the app read. */
   readingTexts: string[];
   onSave: (fields: MarkFields) => void;
   onCancel: () => void;
 };
 
-type ChoiceField = Exclude<keyof MarkDraft, 'conditions' | 'otherCondition' | 'distance'>;
+type ChoiceField = 'targetKind' | 'side' | 'visibleToTester' | 'signStyle';
 
 const choices: { [Field in ChoiceField]: { label: string; options: { value: NonNullable<MarkDraft[Field]>; label: string }[] } } = {
   targetKind: {
@@ -69,7 +76,7 @@ const conditionLabels: Record<ConditionChoice, string> = {
 const conditionOptions = [...markConditions, 'other' as const].map((value) => ({ value, label: conditionLabels[value] }));
 
 /** The form for one Mark. The camera keeps running behind it. */
-export function MarkFormSheet({ readingTexts, onSave, onCancel }: Props) {
+export function MarkFormSheet({ frame, readingTexts, onSave, onCancel }: Props) {
   const [draft, setDraft] = useState<MarkDraft>(emptyMarkDraft);
   const [result, setResult] = useState<MarkFormResult | null>(null);
   const errors = result && !result.ok ? result.errors : {};
@@ -91,6 +98,35 @@ export function MarkFormSheet({ readingTexts, onSave, onCancel }: Props) {
             <Text style={styles.readingTexts}>
               {readingTexts.length > 0 ? `Read: ${readingTexts.join(' · ')}` : 'Nothing read in this frame.'}
             </Text>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>What does it say?</Text>
+              <Text style={styles.hint}>As written on it. For a sign on several lines, the line you tap.</Text>
+              {/* Typed exactly as written, so nothing the keyboard would change is turned on. */}
+              <TextInput
+                accessibilityLabel="What does it say?"
+                value={draft.targetText}
+                onChangeText={(targetText) => setDraft((current) => ({ ...current, targetText }))}
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
+                style={styles.input}
+                placeholder="1247 or Joe's Pizza"
+                placeholderTextColor="#888"
+              />
+              {errors.targetText && <Text style={styles.error}>{errors.targetText}</Text>}
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Where is it?</Text>
+              <Text style={styles.hint}>Tap the target on the frame. Tap again to move it.</Text>
+              <TargetPointPicker
+                frame={frame}
+                point={draft.targetPoint}
+                onChange={(targetPoint) => setDraft((current) => ({ ...current, targetPoint }))}
+              />
+              {errors.targetPoint && <Text style={styles.error}>{errors.targetPoint}</Text>}
+            </View>
 
             {choiceFields.map((field) => (
               <View key={field} style={styles.field}>
@@ -154,17 +190,48 @@ export function MarkFormSheet({ readingTexts, onSave, onCancel }: Props) {
             </View>
 
             <View style={styles.field}>
-              <Text style={styles.label}>Distance in feet</Text>
+              <Text style={styles.label}>Distance to the target in feet</Text>
+              <Text style={styles.hint}>Measured with the laser measure.</Text>
               <TextInput
-                accessibilityLabel="Distance in feet"
+                accessibilityLabel="Distance to the target in feet"
                 keyboardType="decimal-pad"
-                value={draft.distance}
-                onChangeText={(distance) => setDraft((current) => ({ ...current, distance }))}
+                value={draft.targetDistance}
+                onChangeText={(targetDistance) => setDraft((current) => ({ ...current, targetDistance }))}
                 style={styles.input}
                 placeholder="25"
                 placeholderTextColor="#888"
               />
-              {errors.distance && <Text style={styles.error}>{errors.distance}</Text>}
+              {errors.targetDistance && <Text style={styles.error}>{errors.targetDistance}</Text>}
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Distance to the wall in front in feet</Text>
+              <Text style={styles.hint}>
+                Measured with the laser measure to the wall straight ahead of you, on the target's side of the street.
+              </Text>
+              <TextInput
+                accessibilityLabel="Distance to the wall in front in feet"
+                keyboardType="decimal-pad"
+                value={draft.wallDistance}
+                onChangeText={(wallDistance) => setDraft((current) => ({ ...current, wallDistance }))}
+                style={styles.input}
+                placeholder="20"
+                placeholderTextColor="#888"
+              />
+              {errors.wallDistance && <Text style={styles.error}>{errors.wallDistance}</Text>}
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Notes (optional)</Text>
+              <TextInput
+                accessibilityLabel="Notes"
+                multiline
+                value={draft.note}
+                onChangeText={(note) => setDraft((current) => ({ ...current, note }))}
+                style={[styles.input, styles.note]}
+                placeholder="Anything else about the target or this moment"
+                placeholderTextColor="#888"
+              />
             </View>
 
             <View style={styles.actions}>
@@ -179,6 +246,52 @@ export function MarkFormSheet({ readingTexts, onSave, onCancel }: Props) {
         </View>
       </KeyboardAvoidingView>
     </Modal>
+  );
+}
+
+/** The tallest the frame is shown, so the rest of the form stays in reach. */
+const FRAME_MAX_HEIGHT = 360;
+
+const MARKER_SIZE = 28;
+
+/** The Mark's frame, where a tap sets the target point and shows it. */
+function TargetPointPicker({
+  frame,
+  point,
+  onChange,
+}: {
+  frame: Image;
+  point: TargetPoint | null;
+  onChange: (point: TargetPoint) => void;
+}) {
+  const [width, setWidth] = useState<number | null>(null);
+  // Shown at the frame's own aspect ratio, so a tap's place in the view is its place in the frame.
+  const shown: Size | null =
+    width === null ? null : containedSize({ width: frame.width, height: frame.height }, { width, height: FRAME_MAX_HEIGHT });
+
+  return (
+    <View style={styles.frameArea} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
+      {shown && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Frame"
+          accessibilityHint="Tap the target to mark where it is"
+          accessibilityValue={{ text: point ? 'Target marked' : 'No target marked' }}
+          // `locationX` and `locationY` are measured from the view the touch lands on, so the
+          // frame's contents let touches through to this one.
+          onPress={(event) => onChange(targetPointAt({ x: event.nativeEvent.locationX, y: event.nativeEvent.locationY }, shown))}
+          style={shown}
+        >
+          <NativeNitroImage image={frame} resizeMode="stretch" style={StyleSheet.absoluteFill} pointerEvents="none" />
+          {point && (
+            <View
+              pointerEvents="none"
+              style={[styles.marker, { left: point.x * shown.width - MARKER_SIZE / 2, top: point.y * shown.height - MARKER_SIZE / 2 }]}
+            />
+          )}
+        </Pressable>
+      )}
+    </View>
   );
 }
 
@@ -204,6 +317,24 @@ const styles = StyleSheet.create({
     color: '#ccc',
     fontSize: 15,
     marginTop: 4,
+  },
+  hint: {
+    color: '#ccc',
+    fontSize: 14,
+    marginTop: -4,
+    marginBottom: 8,
+  },
+  frameArea: {
+    alignItems: 'center',
+  },
+  marker: {
+    position: 'absolute',
+    width: MARKER_SIZE,
+    height: MARKER_SIZE,
+    borderRadius: MARKER_SIZE / 2,
+    borderWidth: 3,
+    borderColor: '#ffd60a',
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
   },
   field: {
     marginTop: 16,
@@ -248,6 +379,10 @@ const styles = StyleSheet.create({
   },
   otherCondition: {
     marginTop: 8,
+  },
+  note: {
+    minHeight: 72,
+    textAlignVertical: 'top',
   },
   error: {
     color: '#ff8a80',
