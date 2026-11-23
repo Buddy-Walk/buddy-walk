@@ -99,7 +99,9 @@ export function turnedSinceCaptureDiagnostics(
   }
 
   let circularDeltaDegrees: number | null = null;
-  if (capture.degrees !== null && latest.degrees !== null && !failureKinds.includes("latest_heading_stale")) {
+  const headingsUsable =
+    capture.kinds.length === 0 && latest.kinds.length === 0 && !failureKinds.includes("latest_heading_stale");
+  if (headingsUsable && capture.degrees !== null && latest.degrees !== null) {
     circularDeltaDegrees = angularDifference(capture.degrees, latest.degrees);
     if (circularDeltaDegrees > TURNED_SINCE_CAPTURE_MAX_DEGREES) {
       failureKinds.push("circular_delta_above_max");

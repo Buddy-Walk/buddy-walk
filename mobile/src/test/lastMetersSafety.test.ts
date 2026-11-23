@@ -64,6 +64,11 @@ test("turned_since_capture diagnostics instrument headings, ages, and circular d
   assert.equal(rotated.captureHeadingAgeMs, 0);
   assert.equal(rotated.latestHeadingAgeMs, 0);
 
+  const invalidCapture = turnedSinceCaptureDiagnostics(-1, { ...sensors(), latestHeading: 90 }, now);
+  assert.equal(invalidCapture.reason, null, "invalid capture heading is not turned_since_capture");
+  assert.equal(invalidCapture.circularDeltaDegrees, null);
+  assert.ok(invalidCapture.failureKinds.includes("capture_heading_invalid"));
+
   const stale = turnedSinceCaptureDiagnostics(0, {
     ...sensors(), latestHeading: 90, latestHeadingTimestamp: now - 16_000,
   }, now);

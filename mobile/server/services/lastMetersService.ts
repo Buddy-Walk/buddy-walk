@@ -72,8 +72,16 @@ export class LastMetersService {
         name: "mobile_guidance_policy", prompt: "Analyze the capture before applying turn-only prerequisites.",
         response: guidancePolicy.version, model: "mobile-field-policy", success: true,
       });
-      const initialSensorReasons = guidancePolicy.initialSensorReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow());
-      if (initialSensorReasons.length) return { kind: "exit" as const, respond: () => trial.withhold(initialSensorReasons) };
+      const initialEvaluatedAt = safetyNow();
+      const initialSensorReasons = guidancePolicy.initialSensorReasons(
+        sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, initialEvaluatedAt,
+      );
+      if (initialSensorReasons.length) {
+        return {
+          kind: "exit" as const,
+          respond: () => trial.withhold(initialSensorReasons, undefined, { evaluatedAt: initialEvaluatedAt }),
+        };
+      }
 
       logRequest(request, image);
       return classifyInput(trial, request, image);
@@ -110,7 +118,9 @@ export class LastMetersService {
       const turn = await trial.moduleTimer.time("turnDecision", () => decideTurn(trial, {
         request, entrance, headings, guidanceHeading, turnReasons: guidancePolicy.turnReasons, sensorReasons: turnSensorReasons,
       }));
-      if (turn.kind === "withhold") return await trial.withhold(turn.reasons, TURN_NOT_VERIFIED_MESSAGE);
+      if (turn.kind === "withhold") {
+        return await trial.withhold(turn.reasons, TURN_NOT_VERIFIED_MESSAGE, { evaluatedAt: safetyNow() });
+      }
       const { turnHeading, confidence, walkingEvidence } = turn;
 
       const { turnInstruction, finalOutput } = await trial.moduleTimer.time("guidance", () => composeGuidance(trial, {
@@ -118,8 +128,11 @@ export class LastMetersService {
         reference: headings.reference, panoramaDate: headings.panorama.metadata.date, closedNotice, policy: guidancePolicy,
       }));
 
+      const lateEvaluatedAt = safetyNow();
       const lateReasons = turnSensorReasons();
-      if (lateReasons.length) return await trial.withhold(lateReasons);
+      if (lateReasons.length) {
+        return await trial.withhold(lateReasons, undefined, { evaluatedAt: lateEvaluatedAt });
+      }
       return await trial.answer({
         currentHeading: turnHeading,
         targetHeading: destinationBearing,
