@@ -88,7 +88,11 @@ function productionMustWithhold(input: Parameters<typeof preciseTurnReasons>[0])
   return false;
 }
 
-function runDomain(): { size: number; clearCases: number; withholdCases: number; failures: string[] } {
+type DecideFn = typeof preciseTurnReasons;
+
+function runDomain(
+  decide: DecideFn = preciseTurnReasons,
+): { size: number; clearCases: number; withholdCases: number; failures: string[] } {
   const failures: string[] = [];
   let clearCases = 0;
   let withholdCases = 0;
@@ -117,7 +121,7 @@ function runDomain(): { size: number; clearCases: number; withholdCases: number;
                         walking,
                         sensorReasons: [...sensorReasons],
                       };
-                      const reasons = preciseTurnReasons(input);
+                      const reasons = decide(input);
                       const mustWithhold = productionMustWithhold(input);
                       if (mustWithhold) {
                         withholdCases += 1;
@@ -157,49 +161,24 @@ function runDomain(): { size: number; clearCases: number; withholdCases: number;
   return { size, clearCases, withholdCases, failures };
 }
 
+/**
+ * Unsafe mutant: always clears. Detection must go through `runDomain` so the
+ * checker’s withhold oracle actually rejects it — not a hard-coded stub check.
+ */
 function runMutationCheck(): { detected: boolean; restored: boolean; detail: string } {
-  const original = preciseTurnReasons;
-  let detected = false;
-  // Deliberate unsafe mutation: always return [] (would emit unverified turns).
-  const mutated = (() => []) as typeof preciseTurnReasons;
-  (globalThis as { __preciseTurnMutated?: boolean }).__preciseTurnMutated = true;
+  const mutated = (() => []) as DecideFn;
+  const mutantDomain = runDomain(mutated);
+  const detected = mutantDomain.failures.some((f) => f.startsWith("unsafe clear"));
 
-  // Re-bind via wrapper object the checker can swap — call mutated directly for detection.
-  const unsafe = mutated({
-    confidenceLevel: "low",
-    photoMatched: false,
-    headingAgrees: false,
-    compassAccuracy: 1,
-    gpsAccuracy: 99,
-    distanceMeters: 50,
-    entranceListed: false,
-    visualTargetMatched: false,
-    walking: { verified: false, reason: "walking_route_unavailable" },
-    sensorReasons: ["gps_uncertain"],
-  });
-  detected = unsafe.length === 0;
-
-  const restoredReasons = original({
-    confidenceLevel: "low",
-    photoMatched: false,
-    headingAgrees: false,
-    compassAccuracy: 1,
-    gpsAccuracy: 99,
-    distanceMeters: 50,
-    entranceListed: false,
-    visualTargetMatched: false,
-    walking: { verified: false, reason: "walking_route_unavailable" },
-    sensorReasons: ["gps_uncertain"],
-  });
-  const restored = restoredReasons.length > 0;
-  delete (globalThis as { __preciseTurnMutated?: boolean }).__preciseTurnMutated;
+  const restoredDomain = runDomain(preciseTurnReasons);
+  const restored = restoredDomain.failures.length === 0 && restoredDomain.withholdCases > 0;
 
   return {
     detected,
     restored,
     detail: detected && restored
-      ? "Unsafe empty-reasons mutation detected; production function still withholds after restore check."
-      : `Mutation check failed (detected=${detected}, restored=${restored})`,
+      ? `Unsafe empty-reasons mutation detected via runDomain (${mutantDomain.failures.length} unsafe clears); production domain still clean after restore.`
+      : `Mutation check failed (detected=${detected}, restored=${restored}, mutantFailures=${mutantDomain.failures.length}, restoreFailures=${restoredDomain.failures.length})`,
   };
 }
 
