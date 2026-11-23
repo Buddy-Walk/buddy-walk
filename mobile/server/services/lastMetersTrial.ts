@@ -1,6 +1,10 @@
 import { createLastMetersModuleTimer } from "../utils/lastMetersTiming";
 import type { textRequestBody } from "../types";
-import { RECAPTURE_MESSAGE } from "../../src/utils/lastMetersSafety";
+import {
+  gpsAccuracyDiagnostics,
+  RECAPTURE_MESSAGE,
+  type GpsAccuracyDiagnostics,
+} from "../../src/utils/lastMetersSafety";
 import type { LastMetersGuidancePolicy, LastMetersGuidanceContext } from "../utils/lastMetersGuidancePolicy";
 import type { WalkingEvidence } from "../utils/lastMetersPolicy";
 import {
@@ -88,6 +92,8 @@ export interface TrialFacts {
   confidence?: Pick<LastMetersConfidence, "level"> & Partial<LastMetersConfidence>;
   walkingEvidence: WalkingEvidence;
   safetyReasons: string[];
+  /** Ages/ratios only — never lat/lng. Present when gps_uncertain withholds. */
+  gpsAccuracy?: GpsAccuracyDiagnostics;
 }
 
 /** How a run ended, saved alongside the facts. */
@@ -183,7 +189,17 @@ export class LastMetersTrial {
   /** Ends the run without a precise turn, saying why in the guidance policy's words. */
   async withhold(reasons: string[], message = RECAPTURE_MESSAGE): Promise<LastMetersRunResult> {
     const safetyReasons = [...new Set(reasons)];
-    this.note({ safetyReasons });
+    const gpsAccuracy = safetyReasons.includes("gps_uncertain")
+      ? gpsAccuracyDiagnostics(
+          this.request.gpsAccuracyMeters,
+          this.request.sensors?.latestPosition?.accuracy,
+          this.facts.entrance?.distanceMeters,
+        )
+      : undefined;
+    this.note({
+      safetyReasons,
+      ...(gpsAccuracy?.reason ? { gpsAccuracy } : {}),
+    });
     const output = this.withheldMessage(safetyReasons, message);
     this.step({ name: "turn_safety_gate", prompt: "Require sufficient evidence before any precise turn.",
       response: safetyReasons.join("; "), model: "deterministic-safety-policy", success: false });
@@ -269,6 +285,7 @@ export class LastMetersTrial {
     return {
       replayInput: this.replayInput,
       safetyReasons: facts.safetyReasons,
+      ...(facts.gpsAccuracy ? { gpsAccuracy: facts.gpsAccuracy } : {}),
       walkingEvidence: facts.walkingEvidence,
       panoramaTargetHeading: facts.panoramaTargetHeading,
       confidenceMethod: "heuristic-not-calibrated",

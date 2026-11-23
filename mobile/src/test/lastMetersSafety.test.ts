@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sensorSafetyReasons, LastMetersSensors, bearingBetween } from "../utils/lastMetersSafety";
+import {
+  sensorSafetyReasons,
+  gpsAccuracyDiagnostics,
+  GPS_ACCURACY_MAX_METERS,
+  GPS_ACCURACY_BEARING_SIN,
+  LastMetersSensors,
+  bearingBetween,
+} from "../utils/lastMetersSafety";
 import { evaluateWalkingLeg, preciseTurnReasons } from "../../server/utils/lastMetersPolicy";
 import { assessReplay, photoHash } from "../../server/utils/lastMetersReplay";
 import { summarizeFieldEvaluation } from "../../server/utils/lastMetersEvaluation";
@@ -14,6 +21,37 @@ const sensors = (): LastMetersSensors => ({ photoCapturedAt: now, positionTimest
 
 test("fresh true-north sensors support wraparound comparison", () => {
   assert.deepEqual(sensorSafetyReasons(sensors(), origin, 1, 5, now), []);
+});
+test("gps accuracy gate documents Expo meters and keeps the 20 m absolute cap", () => {
+  assert.equal(GPS_ACCURACY_MAX_METERS, 20);
+  assert.equal(gpsAccuracyDiagnostics(5, 5).unit, "meters");
+  assert.equal(gpsAccuracyDiagnostics(5, 5).reason, null);
+  assert.equal(gpsAccuracyDiagnostics(20, 20).reason, null, "boundary 20 m still passes");
+  assert.equal(gpsAccuracyDiagnostics(20.1, 5).reason, "gps_uncertain");
+  assert.ok(gpsAccuracyDiagnostics(20.1, 5).failureKinds.includes("capture_accuracy_above_max"));
+  assert.equal(gpsAccuracyDiagnostics(undefined, 5).reason, "gps_uncertain");
+  assert.ok(gpsAccuracyDiagnostics(undefined, 5).failureKinds.includes("capture_accuracy_missing"));
+  assert.equal(gpsAccuracyDiagnostics(-1, 5).reason, "gps_uncertain");
+  assert.ok(gpsAccuracyDiagnostics(5, -1).failureKinds.includes("latest_accuracy_invalid"));
+  // Chase / Main building style: 22.2 m absolute still withholds without needing distance.
+  assert.ok(sensorSafetyReasons(sensors(), origin, 1, 22.2, now).includes("gps_uncertain"));
+  const chase = gpsAccuracyDiagnostics(22.2, 22.2, 35.9);
+  assert.equal(chase.reason, "gps_uncertain");
+  assert.ok(chase.failureKinds.includes("capture_accuracy_above_max"));
+});
+test("gps accuracy vs distance is additive and never raises the 20 m cap", () => {
+  // Reliable absolute accuracy must not pass solely because distance is large.
+  assert.equal(gpsAccuracyDiagnostics(25, 25, 200).reason, "gps_uncertain");
+  assert.ok(gpsAccuracyDiagnostics(25, 25, 200).failureKinds.includes("capture_accuracy_above_max"));
+  // Close-range: accuracy within 20 m but too large vs distance still withholds.
+  const close = gpsAccuracyDiagnostics(14, 14, 10);
+  assert.equal(close.reason, "gps_uncertain");
+  assert.ok(close.failureKinds.includes("accuracy_vs_distance_too_large"));
+  assert.ok((close.accuracyDistanceRatio ?? 0) > GPS_ACCURACY_BEARING_SIN);
+  assert.ok(sensorSafetyReasons(sensors(), origin, 1, 14, now, now, 10).includes("gps_uncertain"));
+  // Adequate evidence at range: absolute and relative both OK.
+  assert.equal(gpsAccuracyDiagnostics(5, 5, 50).reason, null);
+  assert.deepEqual(sensorSafetyReasons(sensors(), origin, 1, 5, now, now, 50), []);
 });
 test("sensor gate rejects missing, old, future, magnetic, moved and rotated readings", () => {
   assert.deepEqual(sensorSafetyReasons(undefined, origin, 1, 5, now), ["capture_metadata_missing"]);
@@ -35,6 +73,21 @@ test("server checks snapshot at receipt, client checks live sensors before speec
 });
 const leg = () => ({ start_location: origin, end_location: target, distance: { value: 50 },
   steps: [{ travel_mode: "WALKING", start_location: origin, end_location: target }] });
+test("gps_uncertain co-occurs with movement and bearing gates without dropping either", () => {
+  const moved = sensorSafetyReasons({
+    ...sensors(),
+    latestPosition: { ...target, accuracy: 22.2, timestamp: now },
+  }, origin, 1, 22.2, now);
+  assert.ok(moved.includes("gps_uncertain"));
+  assert.ok(moved.includes("moved_since_capture"));
+  const bearing = preciseTurnReasons({
+    confidenceLevel: "high", photoMatched: true, headingAgrees: true, compassAccuracy: 3,
+    gpsAccuracy: 22.2, distanceMeters: 35.9, entranceListed: true, visualTargetMatched: true,
+    walking: evaluateWalkingLeg(leg(), origin, target), sensorReasons: ["gps_uncertain"],
+  });
+  assert.ok(bearing.includes("gps_uncertain"));
+  assert.ok(bearing.includes("bearing_uncertainty_too_large"));
+});
 test("walking route requires matching endpoints and consistent walking geometry", () => {
   assert.equal(evaluateWalkingLeg(leg(), origin, target).verified, true);
   assert.match(evaluateWalkingLeg(leg(), origin, target).reason, /not_accessibility_verified/);

@@ -62,8 +62,11 @@ export class LastMetersService {
     const evaluationTime = retry?.replayInput.receivedAt ?? trial.startedAt;
     const guidanceHeading = guidancePolicy.guidanceHeading(request, evaluationTime);
     const safetyNow = () => evaluationTime + Date.now() - trial.startedAt;
-    const turnSensorReasons = () =>
-      guidancePolicy.turnSensorReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime);
+    // Optional 7th arg: entrance distance enables additive accuracy-vs-distance withhold.
+    const turnSensorReasons = (distanceMeters?: number) =>
+      guidancePolicy.turnSensorReasons(
+        sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime, distanceMeters,
+      );
 
     // Keep classification and initial sensor exits outside the main failure handler.
     // Both pre-check stretches accumulate under one business name.
@@ -108,7 +111,8 @@ export class LastMetersService {
       const headings = matching.value;
 
       const turn = await trial.moduleTimer.time("turnDecision", () => decideTurn(trial, {
-        request, entrance, headings, guidanceHeading, turnReasons: guidancePolicy.turnReasons, sensorReasons: turnSensorReasons,
+        request, entrance, headings, guidanceHeading, turnReasons: guidancePolicy.turnReasons,
+        sensorReasons: () => turnSensorReasons(entrance.distanceMeters),
       }));
       if (turn.kind === "withhold") return await trial.withhold(turn.reasons, TURN_NOT_VERIFIED_MESSAGE);
       const { turnHeading, confidence, walkingEvidence } = turn;
@@ -118,7 +122,7 @@ export class LastMetersService {
         reference: headings.reference, panoramaDate: headings.panorama.metadata.date, closedNotice, policy: guidancePolicy,
       }));
 
-      const lateReasons = turnSensorReasons();
+      const lateReasons = turnSensorReasons(entrance.distanceMeters);
       if (lateReasons.length) return await trial.withhold(lateReasons);
       return await trial.answer({
         currentHeading: turnHeading,

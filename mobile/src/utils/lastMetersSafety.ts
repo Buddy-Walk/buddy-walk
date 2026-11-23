@@ -10,6 +10,99 @@ export interface LastMetersSensors {
   latestHeadingReference: "true" | "magnetic" | "unknown";
 }
 
+/**
+ * Expo / Geolocation `coords.accuracy` is a horizontal accuracy radius in **meters**
+ * (OS confidence circle). Passed through as `gpsAccuracyMeters` with no unit conversion.
+ * Do not relax without a Safety Gate review.
+ */
+export const GPS_ACCURACY_MAX_METERS = 20;
+
+/**
+ * Same angular budget as `bearing_uncertainty_too_large` in preciseTurnReasons:
+ * GPS radius must not subtend more than ±22.5° at the target distance.
+ * Used only to add withhold pressure when distance is known — never to raise the 20 m cap.
+ */
+export const GPS_ACCURACY_BEARING_SIN = Math.sin((22.5 * Math.PI) / 180);
+
+export type GpsAccuracyFailureKind =
+  | "capture_accuracy_missing"
+  | "capture_accuracy_invalid"
+  | "capture_accuracy_above_max"
+  | "latest_accuracy_missing"
+  | "latest_accuracy_invalid"
+  | "latest_accuracy_above_max"
+  | "accuracy_vs_distance_too_large";
+
+export interface GpsAccuracyDiagnostics {
+  reason: "gps_uncertain" | null;
+  /** Documented: Expo horizontal accuracy meters. */
+  unit: "meters";
+  maxAccuracyMeters: number;
+  captureAccuracyMeters: number | null;
+  latestAccuracyMeters: number | null;
+  /** Target distance when known; null when the sensor gate has no destination range yet. */
+  distanceMeters: number | null;
+  /** captureAccuracy / distance when both finite and distance > 0. */
+  accuracyDistanceRatio: number | null;
+  bearingBudgetSin: number;
+  failureKinds: GpsAccuracyFailureKind[];
+}
+
+function accuracyFailures(
+  value: number | undefined,
+  which: "capture" | "latest",
+): { meters: number | null; kinds: GpsAccuracyFailureKind[] } {
+  const missing = `${which}_accuracy_missing` as GpsAccuracyFailureKind;
+  const invalid = `${which}_accuracy_invalid` as GpsAccuracyFailureKind;
+  const above = `${which}_accuracy_above_max` as GpsAccuracyFailureKind;
+  if (value === undefined || value === null || (typeof value === "number" && Number.isNaN(value))) {
+    return { meters: null, kinds: [missing] };
+  }
+  if (!Number.isFinite(value) || value < 0) {
+    return { meters: Number.isFinite(value) ? value : null, kinds: [invalid] };
+  }
+  if (value > GPS_ACCURACY_MAX_METERS) {
+    return { meters: value, kinds: [above] };
+  }
+  return { meters: value, kinds: [] };
+}
+
+/**
+ * Absolute 20 m cap is unchanged. When `distanceMeters` is provided and positive,
+ * also require accuracy/distance ≤ sin(22.5°) — strictly additive withhold, never a raise of the cap.
+ */
+export function gpsAccuracyDiagnostics(
+  accuracy: number | undefined,
+  latestAccuracy: number | undefined,
+  distanceMeters?: number,
+): GpsAccuracyDiagnostics {
+  const capture = accuracyFailures(accuracy, "capture");
+  const latest = accuracyFailures(latestAccuracy, "latest");
+  const failureKinds = [...capture.kinds, ...latest.kinds];
+  const distance =
+    typeof distanceMeters === "number" && Number.isFinite(distanceMeters) && distanceMeters > 0
+      ? distanceMeters
+      : null;
+  let accuracyDistanceRatio: number | null = null;
+  if (distance !== null && capture.meters !== null && capture.kinds.length === 0) {
+    accuracyDistanceRatio = capture.meters / distance;
+    if (accuracyDistanceRatio > GPS_ACCURACY_BEARING_SIN) {
+      failureKinds.push("accuracy_vs_distance_too_large");
+    }
+  }
+  return {
+    reason: failureKinds.length ? "gps_uncertain" : null,
+    unit: "meters",
+    maxAccuracyMeters: GPS_ACCURACY_MAX_METERS,
+    captureAccuracyMeters: capture.meters,
+    latestAccuracyMeters: latest.meters,
+    distanceMeters: distance,
+    accuracyDistanceRatio,
+    bearingBudgetSin: GPS_ACCURACY_BEARING_SIN,
+    failureKinds: [...new Set(failureKinds)],
+  };
+}
+
 export function validPoint(point: { lat: number; lng: number }): boolean {
   return Number.isFinite(point?.lat) && Math.abs(point.lat) <= 90 &&
     Number.isFinite(point?.lng) && Math.abs(point.lng) <= 180;
@@ -36,6 +129,8 @@ export function angularDifference(a: number, b: number): number {
 export function sensorSafetyReasons(
   sensors: LastMetersSensors | undefined, position: { lat: number; lng: number },
   heading: number | undefined, accuracy: number | undefined, now = Date.now(), snapshotTime = now,
+  /** When known (e.g. entrance distance), applies the additive distance-relative accuracy check. */
+  distanceMeters?: number,
 ): string[] {
   if (!sensors) return ["capture_metadata_missing"];
   const reasons: string[] = [];
@@ -50,7 +145,9 @@ export function sensorSafetyReasons(
   const latest = sensors.latestPosition;
   if (!validPoint(position) || !latest || !validPoint(latest) || !fresh(latest.timestamp, 15_000, snapshotTime)) reasons.push("current_gps_unavailable");
   else if (distanceBetween(position, latest) > 5) reasons.push("moved_since_capture");
-  if (!Number.isFinite(accuracy) || accuracy! < 0 || accuracy! > 20 || !Number.isFinite(latest?.accuracy) || latest.accuracy < 0 || latest.accuracy > 20) reasons.push("gps_uncertain");
+  if (gpsAccuracyDiagnostics(accuracy, latest?.accuracy, distanceMeters).reason) {
+    reasons.push("gps_uncertain");
+  }
   return reasons;
 }
 

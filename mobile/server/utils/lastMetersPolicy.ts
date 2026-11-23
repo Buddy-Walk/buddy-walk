@@ -1,4 +1,11 @@
-import { angularDifference, bearingBetween, distanceBetween, validPoint } from "../../src/utils/lastMetersSafety";
+import {
+  angularDifference,
+  bearingBetween,
+  distanceBetween,
+  GPS_ACCURACY_BEARING_SIN,
+  GPS_ACCURACY_MAX_METERS,
+  validPoint,
+} from "../../src/utils/lastMetersSafety";
 
 export interface WalkingEvidence { verified: boolean; reason: string; firstBearing?: number; distanceMeters?: number }
 
@@ -30,7 +37,10 @@ export function preciseTurnReasons(input: {
   if (!input.visualTargetMatched) reasons.push("destination_not_visually_verified");
   if (!input.entranceListed) reasons.push("entrance_not_listed");
   if (!input.walking.verified) reasons.push(input.walking.reason);
-  if (!Number.isFinite(input.gpsAccuracy) || input.gpsAccuracy! < 0 || input.gpsAccuracy! > 20 ||
-    !Number.isFinite(input.distanceMeters) || input.distanceMeters <= 0 || input.gpsAccuracy! / input.distanceMeters > Math.sin(22.5 * Math.PI / 180)) reasons.push("bearing_uncertainty_too_large");
+  if (!Number.isFinite(input.gpsAccuracy) || input.gpsAccuracy! < 0 || input.gpsAccuracy! > GPS_ACCURACY_MAX_METERS ||
+    !Number.isFinite(input.distanceMeters) || input.distanceMeters <= 0 ||
+    input.gpsAccuracy! / input.distanceMeters > GPS_ACCURACY_BEARING_SIN) {
+    reasons.push("bearing_uncertainty_too_large");
+  }
   return [...new Set(reasons)];
 }
