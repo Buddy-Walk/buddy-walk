@@ -37,6 +37,12 @@ export type LastMetersConfidenceLevel = "high" | "medium" | "low";
 
 /** Highest score allowed when compass and panorama disagree; always "low". */
 export const LAST_METERS_HEADING_CONFLICT_MAX_SCORE = 0.5;
+/** Score ≥ this is "high". Do not lower without a Safety Gate review. */
+export const LAST_METERS_CONFIDENCE_HIGH_THRESHOLD = 0.75;
+export const LAST_METERS_CONFIDENCE_MEDIUM_THRESHOLD = 0.55;
+export const LAST_METERS_CONFIDENCE_BASE_SCORE = 0.15;
+export const LAST_METERS_CONFIDENCE_COMBINATION_RULE =
+  "additive_independent_evidence_with_heading_conflict_cap";
 
 /**
  * Below this distance (or the GPS accuracy, if larger) the bearing from the
@@ -56,10 +62,49 @@ export interface LastMetersConfidenceInput {
   panoramaAgeYears?: number;
 }
 
+export type ConfidenceComponentId =
+  | "base"
+  | "gps_accuracy"
+  | "panorama_current_view"
+  | "compass_panorama_agreement"
+  | "compass_calibration"
+  | "destination_visual"
+  | "destination_reference"
+  | "panorama_age"
+  | "heading_conflict_cap";
+
+export interface ConfidenceFusionComponent {
+  id: ConfidenceComponentId;
+  /** Provenance label for Trial / diagnostics. */
+  provenance: string;
+  delta: number;
+  /** Independent evidence slot; correlated signals share a slot and must not stack. */
+  evidenceSlot: string;
+  status: "applied" | "skipped" | "capped" | "unavailable" | "conflict";
+}
+
+export interface ConfidenceFusionDiagnostics {
+  reason: "confidence_not_high" | null;
+  combinationRule: typeof LAST_METERS_CONFIDENCE_COMBINATION_RULE;
+  baseScore: number;
+  highThreshold: number;
+  mediumThreshold: number;
+  headingConflictMaxScore: number;
+  components: ConfidenceFusionComponent[];
+  /** Evidence slots that contributed a positive delta (no double-count). */
+  independentSlotsApplied: string[];
+  rawScoreBeforeCap: number;
+  finalScore: number;
+  level: LastMetersConfidenceLevel;
+  hardGateHints: Array<"heading_sources_disagree" | "orientation_not_corroborated" | "bearing_uncertainty_too_large">;
+}
+
 export interface LastMetersConfidence {
   score: number;
   level: LastMetersConfidenceLevel;
   reasons: string[];
+  /** Provenance for #78; optional for older callers that only read score/level/reasons. */
+  fusion?: ConfidenceFusionDiagnostics;
 }
 
 /**
@@ -71,33 +116,72 @@ export function calculateLastMetersConfidence(
   input: LastMetersConfidenceInput
 ): LastMetersConfidence {
   const reasons: string[] = [];
+  const components: ConfidenceFusionComponent[] = [{
+    id: "base",
+    provenance: "heuristic_floor",
+    delta: LAST_METERS_CONFIDENCE_BASE_SCORE,
+    evidenceSlot: "base",
+    status: "applied",
+  }];
   // The score starts low: a high-confidence result needs corroboration from
   // several sources, not merely a verified map destination.
-  let score = 0.15;
+  let score = LAST_METERS_CONFIDENCE_BASE_SCORE;
+  const appliedSlots = new Set<string>(["base"]);
+
+  const applyPositive = (
+    id: ConfidenceComponentId,
+    provenance: string,
+    slot: string,
+    delta: number,
+  ) => {
+    if (appliedSlots.has(slot)) {
+      components.push({ id, provenance, delta: 0, evidenceSlot: slot, status: "skipped" });
+      return;
+    }
+    appliedSlots.add(slot);
+    score += delta;
+    components.push({ id, provenance, delta, evidenceSlot: slot, status: "applied" });
+  };
 
   if (input.gpsAccuracyMeters === undefined) {
     reasons.push("Phone GPS accuracy was not available.");
+    components.push({
+      id: "gps_accuracy", provenance: "device_gps_accuracy_meters", delta: 0,
+      evidenceSlot: "gps", status: "unavailable",
+    });
   } else if (input.gpsAccuracyMeters <= 15) {
-    score += 0.2;
+    applyPositive("gps_accuracy", "device_gps_accuracy_meters", "gps", 0.2);
   } else if (input.gpsAccuracyMeters <= 40) {
-    score += 0.12;
+    applyPositive("gps_accuracy", "device_gps_accuracy_meters", "gps", 0.12);
   } else {
-    score += 0.03;
+    applyPositive("gps_accuracy", "device_gps_accuracy_meters", "gps", 0.03);
     reasons.push(`Phone GPS accuracy is about ${Math.round(input.gpsAccuracyMeters)} meters.`);
   }
 
   if (input.panoramaCurrentViewMatched) {
-    score += 0.2;
+    applyPositive("panorama_current_view", "panorama_current_view_match", "panorama_view", 0.2);
   } else {
     reasons.push("The user photo did not independently match the panorama.");
+    components.push({
+      id: "panorama_current_view", provenance: "panorama_current_view_match", delta: 0,
+      evidenceSlot: "panorama_view", status: "unavailable",
+    });
   }
 
   if (input.compassPanoramaAgrees === true) {
-    score += 0.15;
+    applyPositive("compass_panorama_agreement", "compass_vs_panorama_heading", "heading_cross_check", 0.15);
   } else if (input.compassPanoramaAgrees === false) {
     reasons.push("Compass and panorama headings disagree.");
+    components.push({
+      id: "compass_panorama_agreement", provenance: "compass_vs_panorama_heading", delta: 0,
+      evidenceSlot: "heading_cross_check", status: "conflict",
+    });
   } else {
     reasons.push("Compass and panorama headings could not be compared.");
+    components.push({
+      id: "compass_panorama_agreement", provenance: "compass_vs_panorama_heading", delta: 0,
+      evidenceSlot: "heading_cross_check", status: "unavailable",
+    });
   }
 
   if (
@@ -106,15 +190,24 @@ export function calculateLastMetersConfidence(
   ) {
     score -= 0.05;
     reasons.push("Phone compass calibration is not high.");
+    components.push({
+      id: "compass_calibration", provenance: "expo_compass_accuracy_level", delta: -0.05,
+      evidenceSlot: "compass_calibration", status: "applied",
+    });
   }
 
+  // Destination visual and Street View reference share one evidence slot — never stack both.
   if (input.destinationVisuallyMatched) {
-    score += 0.2;
+    applyPositive("destination_visual", "destination_visually_matched", "destination", 0.2);
   } else if (input.destinationReferenceVerified) {
-    score += 0.12;
+    applyPositive("destination_reference", "destination_street_view_reference", "destination", 0.12);
     reasons.push("Destination was verified with a separate Street View reference.");
   } else {
     reasons.push("Destination was not visually verified.");
+    components.push({
+      id: "destination_visual", provenance: "destination_visually_matched", delta: 0,
+      evidenceSlot: "destination", status: "unavailable",
+    });
   }
 
   if (
@@ -125,19 +218,58 @@ export function calculateLastMetersConfidence(
     reasons.push(
       `Street View imagery is about ${Math.floor(input.panoramaAgeYears)} years old.`
     );
+    components.push({
+      id: "panorama_age", provenance: "street_view_imagery_age_years", delta: -0.05,
+      evidenceSlot: "panorama_age", status: "applied",
+    });
   }
 
+  const rawScoreBeforeCap = score;
   // One wrong heading source means the turn itself may be wrong, so no amount
   // of other agreement can make the result trustworthy.
   if (input.compassPanoramaAgrees === false) {
     score = Math.min(score, LAST_METERS_HEADING_CONFLICT_MAX_SCORE);
+    components.push({
+      id: "heading_conflict_cap",
+      provenance: "LAST_METERS_HEADING_CONFLICT_MAX_SCORE",
+      delta: score - rawScoreBeforeCap,
+      evidenceSlot: "heading_conflict_cap",
+      status: "capped",
+    });
   }
 
   const boundedScore = Math.max(0, Math.min(1, score));
+  const level: LastMetersConfidenceLevel =
+    boundedScore >= LAST_METERS_CONFIDENCE_HIGH_THRESHOLD ? "high"
+      : boundedScore >= LAST_METERS_CONFIDENCE_MEDIUM_THRESHOLD ? "medium"
+        : "low";
+
+  const hardGateHints: ConfidenceFusionDiagnostics["hardGateHints"] = [];
+  if (input.compassPanoramaAgrees === false) hardGateHints.push("heading_sources_disagree");
+  if (!input.panoramaCurrentViewMatched || input.compassPanoramaAgrees !== true) {
+    hardGateHints.push("orientation_not_corroborated");
+  }
+
+  const fusion: ConfidenceFusionDiagnostics = {
+    reason: level === "high" ? null : "confidence_not_high",
+    combinationRule: LAST_METERS_CONFIDENCE_COMBINATION_RULE,
+    baseScore: LAST_METERS_CONFIDENCE_BASE_SCORE,
+    highThreshold: LAST_METERS_CONFIDENCE_HIGH_THRESHOLD,
+    mediumThreshold: LAST_METERS_CONFIDENCE_MEDIUM_THRESHOLD,
+    headingConflictMaxScore: LAST_METERS_HEADING_CONFLICT_MAX_SCORE,
+    components,
+    independentSlotsApplied: [...appliedSlots].filter(slot => slot !== "base"),
+    rawScoreBeforeCap,
+    finalScore: boundedScore,
+    level,
+    hardGateHints,
+  };
+
   return {
     score: boundedScore,
-    level: boundedScore >= 0.75 ? "high" : boundedScore >= 0.55 ? "medium" : "low",
+    level,
     reasons,
+    fusion,
   };
 }
 

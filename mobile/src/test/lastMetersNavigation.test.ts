@@ -16,6 +16,8 @@ import {
   isDestinationBearingReliable,
   isLastMetersHeadingAligned,
   LAST_METERS_HEADING_CONFLICT_MAX_SCORE,
+  LAST_METERS_CONFIDENCE_HIGH_THRESHOLD,
+  LAST_METERS_CONFIDENCE_COMBINATION_RULE,
   lastMetersHeadingDifference,
   LAST_METERS_HEADINGS,
   LAST_METERS_PANORAMA_FOV_DEGREES,
@@ -266,6 +268,52 @@ test("confidence fusion rewards independent agreement and flags weak localizatio
   });
   assert.equal(weak.level, "low");
   assert.ok(weak.reasons.length >= 3);
+});
+
+test("confidence fusion provenance logs components, rule, threshold, and hard-gate hints (#78)", () => {
+  assert.equal(LAST_METERS_CONFIDENCE_HIGH_THRESHOLD, 0.75);
+  assert.equal(LAST_METERS_CONFIDENCE_COMBINATION_RULE, "additive_independent_evidence_with_heading_conflict_cap");
+
+  const strong = calculateLastMetersConfidence({
+    gpsAccuracyMeters: 8,
+    panoramaCurrentViewMatched: true,
+    compassPanoramaAgrees: true,
+    destinationVisuallyMatched: true,
+    destinationReferenceVerified: false,
+  });
+  assert.ok(strong.fusion);
+  assert.equal(strong.fusion!.reason, null);
+  assert.equal(strong.fusion!.level, "high");
+  assert.equal(strong.fusion!.highThreshold, 0.75);
+  assert.ok(strong.fusion!.components.some(c => c.id === "gps_accuracy" && c.status === "applied"));
+  assert.ok(strong.fusion!.independentSlotsApplied.includes("heading_cross_check"));
+
+  // Visual + reference share one destination slot — must not double-count.
+  const bothDest = calculateLastMetersConfidence({
+    gpsAccuracyMeters: 8,
+    panoramaCurrentViewMatched: true,
+    compassPanoramaAgrees: true,
+    destinationVisuallyMatched: true,
+    destinationReferenceVerified: true,
+  });
+  const destApplied = bothDest.fusion!.components.filter(
+    c => c.evidenceSlot === "destination" && c.status === "applied",
+  );
+  assert.equal(destApplied.length, 1);
+  assert.equal(destApplied[0].id, "destination_visual");
+
+  const conflict = calculateLastMetersConfidence({
+    gpsAccuracyMeters: 8,
+    panoramaCurrentViewMatched: true,
+    compassPanoramaAgrees: false,
+    destinationVisuallyMatched: true,
+    destinationReferenceVerified: true,
+  });
+  assert.equal(conflict.fusion!.reason, "confidence_not_high");
+  assert.ok(conflict.score <= LAST_METERS_HEADING_CONFLICT_MAX_SCORE);
+  assert.ok(conflict.fusion!.hardGateHints.includes("heading_sources_disagree"));
+  assert.ok(conflict.fusion!.hardGateHints.includes("orientation_not_corroborated"));
+  assert.ok(conflict.fusion!.components.some(c => c.id === "heading_conflict_cap" && c.status === "capped"));
 });
 
 test("verified panorama target preserves precise front-to-behind guidance", () => {

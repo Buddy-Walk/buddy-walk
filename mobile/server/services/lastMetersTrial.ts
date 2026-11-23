@@ -12,6 +12,7 @@ import {
 import {
   streetViewImageryAgeYears,
   type compareCompassAndPanoramaHeadings,
+  type ConfidenceFusionDiagnostics,
   type ExactModeGate,
   type LastMetersConfidence,
   type LastMetersTestScenario,
@@ -88,6 +89,8 @@ export interface TrialFacts {
   confidence?: Pick<LastMetersConfidence, "level"> & Partial<LastMetersConfidence>;
   walkingEvidence: WalkingEvidence;
   safetyReasons: string[];
+  /** Confidence-fusion provenance (#78). */
+  confidenceFusion?: ConfidenceFusionDiagnostics;
 }
 
 /** How a run ended, saved alongside the facts. */
@@ -269,6 +272,7 @@ export class LastMetersTrial {
     return {
       replayInput: this.replayInput,
       safetyReasons: facts.safetyReasons,
+      ...(facts.confidenceFusion ? { confidenceFusion: facts.confidenceFusion } : {}),
       walkingEvidence: facts.walkingEvidence,
       panoramaTargetHeading: facts.panoramaTargetHeading,
       confidenceMethod: "heuristic-not-calibrated",
