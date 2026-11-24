@@ -19,6 +19,7 @@ import './lastMetersTestRow.test.ts';
 import './lastMetersReplayInput.test.ts';
 import './lastMetersRetry.test.ts';
 import './lastMetersRoutes.test.ts';
+import './httpFailurePaths.test.ts';
 import './questionService.test.ts';
 import './questionRequest.test.ts';
 import './questionReply.test.ts';
