@@ -2741,6 +2741,9 @@ exports[`Last Meters exit: first sensor check withholds the turn (strict policy)
       "safetyReasons": [
         "capture_metadata_missing"
       ],
+      "captureMetadataMissingFields": [
+        "sensors"
+      ],
       "walkingEvidence": {
         "verified": false,
         "reason": "walking_route_not_checked"
@@ -3222,6 +3225,22 @@ exports[`Last Meters exit: heading_sources_disagree (mobile policy) 1`] = `
       "safetyReasons": [
         "heading_sources_disagree"
       ],
+      "headingSourcesDisagree": {
+        "reason": "heading_sources_disagree",
+        "rawCompassHeadingDegrees": 90,
+        "compassHeadingDegrees": 90,
+        "panoramaMatchedHeadingDegrees": 270,
+        "circularDiscrepancyDegrees": 180,
+        "maxAgreementDegrees": 45,
+        "compassReferenceFrame": "compass_true_north_snapped",
+        "panoramaReferenceFrame": "panorama_tile_heading",
+        "compassTimestamp": 1793102400000,
+        "panoramaMatchTimestamp": 1793102400000,
+        "compassAccuracyLevel": 3,
+        "failureKinds": [
+          "circular_discrepancy_above_max"
+        ]
+      },
       "walkingEvidence": {
         "verified": false,
         "reason": "walking_route_not_checked"
@@ -3443,6 +3462,22 @@ exports[`Last Meters exit: heading_sources_disagree (strict policy) 1`] = `
       "safetyReasons": [
         "heading_sources_disagree"
       ],
+      "headingSourcesDisagree": {
+        "reason": "heading_sources_disagree",
+        "rawCompassHeadingDegrees": 90,
+        "compassHeadingDegrees": 90,
+        "panoramaMatchedHeadingDegrees": 270,
+        "circularDiscrepancyDegrees": 180,
+        "maxAgreementDegrees": 45,
+        "compassReferenceFrame": "compass_true_north_snapped",
+        "panoramaReferenceFrame": "panorama_tile_heading",
+        "compassTimestamp": 1793102400000,
+        "panoramaMatchTimestamp": 1793102400000,
+        "compassAccuracyLevel": 3,
+        "failureKinds": [
+          "circular_discrepancy_above_max"
+        ]
+      },
       "walkingEvidence": {
         "verified": false,
         "reason": "walking_route_not_checked"
@@ -3663,6 +3698,93 @@ exports[`Last Meters exit: late sensor check withholds the turn (strict policy) 
         "capture_gps_stale",
         "capture_heading_stale"
       ],
+      "captureGpsFreshness": {
+        "reason": "capture_gps_stale",
+        "photoClockDomain": "unix_ms",
+        "gpsClockDomain": "unix_ms",
+        "gpsAgeMs": 70000,
+        "photoGpsDeltaMs": 0,
+        "maxAgeMs": 60000,
+        "photoAlignmentMs": 10000,
+        "skewToleranceMs": 2000,
+        "failureKinds": [
+          "gps_older_than_max_age"
+        ]
+      },
+      "orientationCorroboration": {
+        "reason": null,
+        "decisionTableVersion": "1",
+        "sources": [
+          {
+            "source": "panorama_current_view_match",
+            "role": "independent_visual",
+            "status": "pass",
+            "required": true
+          },
+          {
+            "source": "compass_vs_panorama_heading",
+            "role": "independent_sensor_cross_check",
+            "status": "pass",
+            "required": true
+          }
+        ],
+        "corroborated": true
+      },
+      "confidenceFusion": {
+        "reason": null,
+        "combinationRule": "additive_independent_evidence_with_heading_conflict_cap",
+        "baseScore": 0.15,
+        "highThreshold": 0.75,
+        "mediumThreshold": 0.55,
+        "headingConflictMaxScore": 0.5,
+        "components": [
+          {
+            "id": "base",
+            "provenance": "heuristic_floor",
+            "delta": 0.15,
+            "evidenceSlot": "base",
+            "status": "applied"
+          },
+          {
+            "id": "gps_accuracy",
+            "provenance": "device_gps_accuracy_meters",
+            "delta": 0.2,
+            "evidenceSlot": "gps",
+            "status": "applied"
+          },
+          {
+            "id": "panorama_current_view",
+            "provenance": "panorama_current_view_match",
+            "delta": 0.2,
+            "evidenceSlot": "panorama_view",
+            "status": "applied"
+          },
+          {
+            "id": "compass_panorama_agreement",
+            "provenance": "compass_vs_panorama_heading",
+            "delta": 0.15,
+            "evidenceSlot": "heading_cross_check",
+            "status": "applied"
+          },
+          {
+            "id": "destination_visual",
+            "provenance": "destination_visually_matched",
+            "delta": 0.2,
+            "evidenceSlot": "destination",
+            "status": "applied"
+          }
+        ],
+        "independentSlotsApplied": [
+          "gps",
+          "panorama_view",
+          "heading_cross_check",
+          "destination"
+        ],
+        "rawScoreBeforeCap": 0.9000000000000001,
+        "finalScore": 0.9000000000000001,
+        "level": "high",
+        "hardGateHints": []
+      },
       "walkingEvidence": {
         "verified": true,
         "reason": "walking_route_consistent_not_accessibility_verified",
@@ -3833,9 +3955,16 @@ exports[`Last Meters exit: late sensor check withholds the turn (strict policy) 
         },
         {
           "name": "confidence_fusion",
-          "prompt": "Score independent evidence before the turn safety gate; this is a heuristic, not a calibrated probability.",
-          "response": "HIGH: 90%",
+          "prompt": "Score independent evidence before the turn safety gate; heuristic additive fusion with heading-conflict cap — not a calibrated probability.",
+          "response": "HIGH: 90% (rule=additive_independent_evidence_with_heading_conflict_cap; high≥0.75; slots=gps,panorama_view,heading_cross_check,destination; hints=none)",
           "model": "deterministic-confidence",
+          "success": true
+        },
+        {
+          "name": "orientation_corroboration",
+          "prompt": "Require independent visual match plus compass↔panorama agreement; correlated duplicates do not count.",
+          "response": "CORROBORATED",
+          "model": "deterministic-orientation-policy",
           "success": true
         },
         {
@@ -4277,6 +4406,80 @@ exports[`Last Meters exit: precise turn (mobile policy) 1`] = `
         "photoRepresentation": "stored-compressed"
       },
       "safetyReasons": [],
+      "orientationCorroboration": {
+        "reason": null,
+        "decisionTableVersion": "1",
+        "sources": [
+          {
+            "source": "panorama_current_view_match",
+            "role": "independent_visual",
+            "status": "pass",
+            "required": true
+          },
+          {
+            "source": "compass_vs_panorama_heading",
+            "role": "independent_sensor_cross_check",
+            "status": "pass",
+            "required": true
+          }
+        ],
+        "corroborated": true
+      },
+      "confidenceFusion": {
+        "reason": null,
+        "combinationRule": "additive_independent_evidence_with_heading_conflict_cap",
+        "baseScore": 0.15,
+        "highThreshold": 0.75,
+        "mediumThreshold": 0.55,
+        "headingConflictMaxScore": 0.5,
+        "components": [
+          {
+            "id": "base",
+            "provenance": "heuristic_floor",
+            "delta": 0.15,
+            "evidenceSlot": "base",
+            "status": "applied"
+          },
+          {
+            "id": "gps_accuracy",
+            "provenance": "device_gps_accuracy_meters",
+            "delta": 0.2,
+            "evidenceSlot": "gps",
+            "status": "applied"
+          },
+          {
+            "id": "panorama_current_view",
+            "provenance": "panorama_current_view_match",
+            "delta": 0.2,
+            "evidenceSlot": "panorama_view",
+            "status": "applied"
+          },
+          {
+            "id": "compass_panorama_agreement",
+            "provenance": "compass_vs_panorama_heading",
+            "delta": 0.15,
+            "evidenceSlot": "heading_cross_check",
+            "status": "applied"
+          },
+          {
+            "id": "destination_visual",
+            "provenance": "destination_visually_matched",
+            "delta": 0.2,
+            "evidenceSlot": "destination",
+            "status": "applied"
+          }
+        ],
+        "independentSlotsApplied": [
+          "gps",
+          "panorama_view",
+          "heading_cross_check",
+          "destination"
+        ],
+        "rawScoreBeforeCap": 0.9000000000000001,
+        "finalScore": 0.9000000000000001,
+        "level": "high",
+        "hardGateHints": []
+      },
       "walkingEvidence": {
         "verified": true,
         "reason": "walking_route_consistent_not_accessibility_verified",
@@ -4454,9 +4657,16 @@ exports[`Last Meters exit: precise turn (mobile policy) 1`] = `
         },
         {
           "name": "confidence_fusion",
-          "prompt": "Score independent evidence before the turn safety gate; this is a heuristic, not a calibrated probability.",
-          "response": "HIGH: 90%",
+          "prompt": "Score independent evidence before the turn safety gate; heuristic additive fusion with heading-conflict cap — not a calibrated probability.",
+          "response": "HIGH: 90% (rule=additive_independent_evidence_with_heading_conflict_cap; high≥0.75; slots=gps,panorama_view,heading_cross_check,destination; hints=none)",
           "model": "deterministic-confidence",
+          "success": true
+        },
+        {
+          "name": "orientation_corroboration",
+          "prompt": "Require independent visual match plus compass↔panorama agreement; correlated duplicates do not count.",
+          "response": "CORROBORATED",
+          "model": "deterministic-orientation-policy",
           "success": true
         },
         {
@@ -4528,6 +4738,80 @@ exports[`Last Meters exit: precise turn (strict policy) 1`] = `
         "photoRepresentation": "stored-compressed"
       },
       "safetyReasons": [],
+      "orientationCorroboration": {
+        "reason": null,
+        "decisionTableVersion": "1",
+        "sources": [
+          {
+            "source": "panorama_current_view_match",
+            "role": "independent_visual",
+            "status": "pass",
+            "required": true
+          },
+          {
+            "source": "compass_vs_panorama_heading",
+            "role": "independent_sensor_cross_check",
+            "status": "pass",
+            "required": true
+          }
+        ],
+        "corroborated": true
+      },
+      "confidenceFusion": {
+        "reason": null,
+        "combinationRule": "additive_independent_evidence_with_heading_conflict_cap",
+        "baseScore": 0.15,
+        "highThreshold": 0.75,
+        "mediumThreshold": 0.55,
+        "headingConflictMaxScore": 0.5,
+        "components": [
+          {
+            "id": "base",
+            "provenance": "heuristic_floor",
+            "delta": 0.15,
+            "evidenceSlot": "base",
+            "status": "applied"
+          },
+          {
+            "id": "gps_accuracy",
+            "provenance": "device_gps_accuracy_meters",
+            "delta": 0.2,
+            "evidenceSlot": "gps",
+            "status": "applied"
+          },
+          {
+            "id": "panorama_current_view",
+            "provenance": "panorama_current_view_match",
+            "delta": 0.2,
+            "evidenceSlot": "panorama_view",
+            "status": "applied"
+          },
+          {
+            "id": "compass_panorama_agreement",
+            "provenance": "compass_vs_panorama_heading",
+            "delta": 0.15,
+            "evidenceSlot": "heading_cross_check",
+            "status": "applied"
+          },
+          {
+            "id": "destination_visual",
+            "provenance": "destination_visually_matched",
+            "delta": 0.2,
+            "evidenceSlot": "destination",
+            "status": "applied"
+          }
+        ],
+        "independentSlotsApplied": [
+          "gps",
+          "panorama_view",
+          "heading_cross_check",
+          "destination"
+        ],
+        "rawScoreBeforeCap": 0.9000000000000001,
+        "finalScore": 0.9000000000000001,
+        "level": "high",
+        "hardGateHints": []
+      },
       "walkingEvidence": {
         "verified": true,
         "reason": "walking_route_consistent_not_accessibility_verified",
@@ -4698,9 +4982,16 @@ exports[`Last Meters exit: precise turn (strict policy) 1`] = `
         },
         {
           "name": "confidence_fusion",
-          "prompt": "Score independent evidence before the turn safety gate; this is a heuristic, not a calibrated probability.",
-          "response": "HIGH: 90%",
+          "prompt": "Score independent evidence before the turn safety gate; heuristic additive fusion with heading-conflict cap — not a calibrated probability.",
+          "response": "HIGH: 90% (rule=additive_independent_evidence_with_heading_conflict_cap; high≥0.75; slots=gps,panorama_view,heading_cross_check,destination; hints=none)",
           "model": "deterministic-confidence",
+          "success": true
+        },
+        {
+          "name": "orientation_corroboration",
+          "prompt": "Require independent visual match plus compass↔panorama agreement; correlated duplicates do not count.",
+          "response": "CORROBORATED",
+          "model": "deterministic-orientation-policy",
           "success": true
         },
         {
@@ -4954,6 +5245,80 @@ exports[`Last Meters exit: turn checks withhold the turn (mobile policy) 1`] = `
       "safetyReasons": [
         "orientation_not_corroborated"
       ],
+      "orientationCorroboration": {
+        "reason": "orientation_not_corroborated",
+        "decisionTableVersion": "1",
+        "sources": [
+          {
+            "source": "panorama_current_view_match",
+            "role": "independent_visual",
+            "status": "mismatched",
+            "required": true
+          },
+          {
+            "source": "compass_vs_panorama_heading",
+            "role": "independent_sensor_cross_check",
+            "status": "unavailable",
+            "required": true
+          }
+        ],
+        "corroborated": false
+      },
+      "confidenceFusion": {
+        "reason": "confidence_not_high",
+        "combinationRule": "additive_independent_evidence_with_heading_conflict_cap",
+        "baseScore": 0.15,
+        "highThreshold": 0.75,
+        "mediumThreshold": 0.55,
+        "headingConflictMaxScore": 0.5,
+        "components": [
+          {
+            "id": "base",
+            "provenance": "heuristic_floor",
+            "delta": 0.15,
+            "evidenceSlot": "base",
+            "status": "applied"
+          },
+          {
+            "id": "gps_accuracy",
+            "provenance": "device_gps_accuracy_meters",
+            "delta": 0.2,
+            "evidenceSlot": "gps",
+            "status": "applied"
+          },
+          {
+            "id": "panorama_current_view",
+            "provenance": "panorama_current_view_match",
+            "delta": 0,
+            "evidenceSlot": "panorama_view",
+            "status": "unavailable"
+          },
+          {
+            "id": "compass_panorama_agreement",
+            "provenance": "compass_vs_panorama_heading",
+            "delta": 0,
+            "evidenceSlot": "heading_cross_check",
+            "status": "unavailable"
+          },
+          {
+            "id": "destination_visual",
+            "provenance": "destination_visually_matched",
+            "delta": 0.2,
+            "evidenceSlot": "destination",
+            "status": "applied"
+          }
+        ],
+        "independentSlotsApplied": [
+          "gps",
+          "destination"
+        ],
+        "rawScoreBeforeCap": 0.55,
+        "finalScore": 0.55,
+        "level": "medium",
+        "hardGateHints": [
+          "orientation_not_corroborated"
+        ]
+      },
       "walkingEvidence": {
         "verified": true,
         "reason": "walking_route_consistent_not_accessibility_verified",
@@ -5132,11 +5497,19 @@ exports[`Last Meters exit: turn checks withhold the turn (mobile policy) 1`] = `
         },
         {
           "name": "confidence_fusion",
-          "prompt": "Score independent evidence before the turn safety gate; this is a heuristic, not a calibrated probability.",
-          "response": "MEDIUM: 55%",
+          "prompt": "Score independent evidence before the turn safety gate; heuristic additive fusion with heading-conflict cap — not a calibrated probability.",
+          "response": "MEDIUM: 55% (rule=additive_independent_evidence_with_heading_conflict_cap; high≥0.75; slots=gps,destination; hints=orientation_not_corroborated)",
           "model": "deterministic-confidence",
           "success": false,
           "error": "The user photo did not independently match the panorama. Compass and panorama headings could not be compared."
+        },
+        {
+          "name": "orientation_corroboration",
+          "prompt": "Require independent visual match plus compass↔panorama agreement; correlated duplicates do not count.",
+          "response": "panorama_current_view_match:mismatched; compass_vs_panorama_heading:unavailable",
+          "model": "deterministic-orientation-policy",
+          "success": false,
+          "error": "orientation_not_corroborated"
         },
         {
           "name": "turn_safety_gate",
@@ -5210,6 +5583,80 @@ exports[`Last Meters exit: turn checks withhold the turn (strict policy) 1`] = `
         "confidence_not_high",
         "orientation_not_corroborated"
       ],
+      "orientationCorroboration": {
+        "reason": "orientation_not_corroborated",
+        "decisionTableVersion": "1",
+        "sources": [
+          {
+            "source": "panorama_current_view_match",
+            "role": "independent_visual",
+            "status": "mismatched",
+            "required": true
+          },
+          {
+            "source": "compass_vs_panorama_heading",
+            "role": "independent_sensor_cross_check",
+            "status": "unavailable",
+            "required": true
+          }
+        ],
+        "corroborated": false
+      },
+      "confidenceFusion": {
+        "reason": "confidence_not_high",
+        "combinationRule": "additive_independent_evidence_with_heading_conflict_cap",
+        "baseScore": 0.15,
+        "highThreshold": 0.75,
+        "mediumThreshold": 0.55,
+        "headingConflictMaxScore": 0.5,
+        "components": [
+          {
+            "id": "base",
+            "provenance": "heuristic_floor",
+            "delta": 0.15,
+            "evidenceSlot": "base",
+            "status": "applied"
+          },
+          {
+            "id": "gps_accuracy",
+            "provenance": "device_gps_accuracy_meters",
+            "delta": 0.2,
+            "evidenceSlot": "gps",
+            "status": "applied"
+          },
+          {
+            "id": "panorama_current_view",
+            "provenance": "panorama_current_view_match",
+            "delta": 0,
+            "evidenceSlot": "panorama_view",
+            "status": "unavailable"
+          },
+          {
+            "id": "compass_panorama_agreement",
+            "provenance": "compass_vs_panorama_heading",
+            "delta": 0,
+            "evidenceSlot": "heading_cross_check",
+            "status": "unavailable"
+          },
+          {
+            "id": "destination_visual",
+            "provenance": "destination_visually_matched",
+            "delta": 0.2,
+            "evidenceSlot": "destination",
+            "status": "applied"
+          }
+        ],
+        "independentSlotsApplied": [
+          "gps",
+          "destination"
+        ],
+        "rawScoreBeforeCap": 0.55,
+        "finalScore": 0.55,
+        "level": "medium",
+        "hardGateHints": [
+          "orientation_not_corroborated"
+        ]
+      },
       "walkingEvidence": {
         "verified": true,
         "reason": "walking_route_consistent_not_accessibility_verified",
@@ -5381,11 +5828,19 @@ exports[`Last Meters exit: turn checks withhold the turn (strict policy) 1`] = `
         },
         {
           "name": "confidence_fusion",
-          "prompt": "Score independent evidence before the turn safety gate; this is a heuristic, not a calibrated probability.",
-          "response": "MEDIUM: 55%",
+          "prompt": "Score independent evidence before the turn safety gate; heuristic additive fusion with heading-conflict cap — not a calibrated probability.",
+          "response": "MEDIUM: 55% (rule=additive_independent_evidence_with_heading_conflict_cap; high≥0.75; slots=gps,destination; hints=orientation_not_corroborated)",
           "model": "deterministic-confidence",
           "success": false,
           "error": "The user photo did not independently match the panorama. Compass and panorama headings could not be compared."
+        },
+        {
+          "name": "orientation_corroboration",
+          "prompt": "Require independent visual match plus compass↔panorama agreement; correlated duplicates do not count.",
+          "response": "panorama_current_view_match:mismatched; compass_vs_panorama_heading:unavailable",
+          "model": "deterministic-orientation-policy",
+          "success": false,
+          "error": "orientation_not_corroborated"
         },
         {
           "name": "turn_safety_gate",

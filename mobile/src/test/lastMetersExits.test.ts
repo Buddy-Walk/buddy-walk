@@ -40,6 +40,8 @@ type Vision = "scene" | "currentView" | "destination" | "reference" | "signText"
 
 /** The app request and what Google and OpenAI answer during one run. */
 interface World {
+  /** Opt-in response for the experimental doorway assessment; legacy snapshots omit it. */
+  entranceAssessment?: string;
   request: LastMetersRequestInput;
   /** Nearby Search results; the first is the destination. */
   places: object[];
@@ -122,7 +124,10 @@ function comparable(value: unknown): unknown {
 }
 
 /** Run one app request against the faked providers and collect everything it answered and saved. */
-async function runExit(t: TestContext, policy: Policy, world: World, checkTimings?: (timings: LastMetersModuleTimings) => void) {
+async function runExit(
+  t: TestContext, policy: Policy, world: World, checkTimings?: (timings: LastMetersModuleTimings) => void,
+  onModule?: (module: keyof LastMetersModuleTimings) => void,
+) {
   t.mock.timers.enable({ apis: ["Date"], now: NOW });
   setTestEnv(t, { GOOGLE_MAPS_API_KEY: "test-maps", OPENAI_API_KEY: "test-openai" });
   const jpeg = await photoJpeg;
@@ -138,6 +143,9 @@ async function runExit(t: TestContext, policy: Policy, world: World, checkTiming
     return assert.fail(`Unexpected Google request: ${url}`);
   });
   t.mock.method(OpenAI.Chat.Completions.prototype, "create", async (request: any) => {
+    if (request.messages[0].content.startsWith("Assess the entrance")) {
+      return { choices: [{ message: { content: world.entranceAssessment ?? "{}" } }] };
+    }
     const vision = visionFor(request.messages[0].content);
     if (vision === "landmarks") world.duringGuidance?.(t);
     const answer = world.vision[vision];
@@ -160,7 +168,9 @@ async function runExit(t: TestContext, policy: Policy, world: World, checkTiming
   });
 
   const result = await services[policy]().runLastMeters(
-    world.request, `data:image/jpeg;base64,${jpeg.toString("base64")}`, { requestPath: "/api/last-meters" },
+    world.request, `data:image/jpeg;base64,${jpeg.toString("base64")}`, {
+      requestPath: "/api/last-meters", onProgress: onModule ? event => onModule(event.module) : undefined,
+    },
   );
   if (result.kind === "response") await result.reviewPanorama;
   // The review promise is not part of the answer, and JSON leaves out undefined.
@@ -367,4 +377,74 @@ test("pre-check errors after classification still save a failed Trial with compl
   }) as { answer: { status: number } };
   assert.equal(result.answer.status, 502);
   assert.ok(recorded);
+});
+
+for (const policy of ["mobile", "strict"] as const) {
+  test(`${policy} runLastMeters opt-in verifies the actual door before composing guidance`, async t => {
+    setTestEnv(t, { LAST_METERS_OCCLUSION_AWARE: "true" });
+    const world = verifiedTurnWorld();
+    world.entranceAssessment = JSON.stringify({ storefrontMatches: true, panoramaEntrance: "VISIBLE", photoEntrance: "VISIBLE",
+      sameEntrance: true, appearanceChanged: false, entranceHeading: 0, obstruction: "none" });
+    let guidanceCalls = 0;
+    world.duringGuidance = () => { guidanceCalls++; };
+    const run = await runExit(t, policy, world) as any;
+    assert.equal(guidanceCalls, 1);
+    assert.equal(run.answer.body.warning, undefined);
+    const evidence = run.trials[0].steps.find((s: any) => s.name === "entrance_assessment");
+    assert.equal(JSON.parse(evidence.response).entranceVerified, true);
+  });
+
+  test(`${policy} runLastMeters cannot compose a turn from an obstructed storefront`, async t => {
+    setTestEnv(t, { LAST_METERS_OCCLUSION_AWARE: "true" });
+    const world = verifiedTurnWorld();
+    world.entranceAssessment = JSON.stringify({ storefrontMatches: true, panoramaEntrance: "OCCLUDED", photoEntrance: "VISIBLE",
+      sameEntrance: false, appearanceChanged: false, entranceHeading: null, obstruction: "scaffolding" });
+    world.duringGuidance = () => assert.fail("Unverified entrances must never reach guidance");
+    const run = await runExit(t, policy, world) as any;
+    assert.equal(run.answer.body.warning, "turn_withheld");
+    assert.equal(run.answer.body.targetHeading, null);
+    assert.deepEqual(run.answer.body.safetyReasons, ["entrance_not_visually_confirmed"]);
+    const evidence = JSON.parse(run.trials[0].steps.find((s: any) => s.name === "entrance_assessment").response);
+    assert.equal(evidence.historicalStatus, "provider_unavailable");
+  });
+}
+
+for (const policy of ["mobile", "strict"] as const) {
+  for (const flag of [undefined, "false"]) {
+    test(`${policy} runLastMeters keeps legacy behavior when occlusion flag is ${flag ?? "unset"}`, async t => {
+      setTestEnv(t, { LAST_METERS_OCCLUSION_AWARE: flag ?? "" });
+      if (flag === undefined) delete process.env.LAST_METERS_OCCLUSION_AWARE;
+      const world = verifiedTurnWorld();
+      // A doorway result that would withhold if the experiment were accidentally enabled.
+      world.entranceAssessment = "{}";
+      let guidanceCalls = 0;
+      world.duringGuidance = () => { guidanceCalls++; };
+      const run = await runExit(t, policy, world) as any;
+      assert.equal(guidanceCalls, 1);
+      assert.equal(run.answer.body.warning, undefined);
+      assert.equal(run.trials.length, 1);
+      assert.equal(run.trials[0].steps.some((step: any) => step.name === "entrance_assessment"), false);
+    });
+  }
+}
+
+test("the real pipeline emits one progress event per timed module, including parallel matches", async t => {
+  setTestEnv(t, { LAST_METERS_OCCLUSION_AWARE: "false" });
+  const modules: string[] = [];
+  const expected = ["preCheck", "destinationMatch", "currentViewMatch", "turnDecision", "guidance"];
+  const world = verifiedTurnWorld();
+  world.duringGuidance = () => assert.deepEqual(modules, expected);
+  await runExit(t, "strict", world, timings => {
+    assert.deepEqual(new Set(Object.keys(timings)), new Set(expected));
+  }, module => modules.push(module));
+  assert.deepEqual(modules, expected);
+});
+
+test("early safety exit announces only Step 0", async t => {
+  const modules: string[] = [];
+  const world = verifiedTurnWorld();
+  world.request.sensors = undefined;
+  await runExit(t, "strict", world, timings => assert.deepEqual(Object.keys(timings), ["preCheck"]),
+    module => modules.push(module));
+  assert.deepEqual(modules, ["preCheck"]);
 });

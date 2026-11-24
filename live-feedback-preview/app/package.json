@@ -1,0 +1,53 @@
+{
+  "name": "live-feedback-preview-app",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "private": true,
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "expo": "~58.0.25",
+    "expo-application": "~58.1.2",
+    "expo-constants": "~58.0.16",
+    "expo-dev-client": "~58.0.20",
+    "expo-device": "~58.0.5",
+    "expo-file-system": "~58.0.13",
+    "expo-keep-awake": "~58.0.4",
+    "expo-location": "~58.0.22",
+    "expo-sharing": "~58.0.23",
+    "expo-status-bar": "~58.0.5",
+    "fflate": "^0.8.3",
+    "react": "19.3.0",
+    "react-native": "0.88.1",
+    "react-native-nitro-image": "^0.15.2",
+    "react-native-nitro-modules": "^0.37.2",
+    "react-native-safe-area-context": "~5.11.1",
+    "react-native-vision-camera": "5.2.4",
+    "react-native-vision-camera-ocr-plus": "2.1.2",
+    "react-native-vision-camera-worklets": "5.2.4",
+    "react-native-worklets": "0.13.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.29.13",
+    "@types/babel__core": "^7.20.5",
+    "@types/bun": "^1.4.4",
+    "@types/react": "~19.3.0",
+    "babel-preset-expo": "~58.0.0",
+    "typescript": "~6.0.3"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "bun",
+      "version": "1.4.4",
+      "onFail": "download"
+    }
+  },
+  "patchedDependencies": {
+    "react-native-vision-camera-ocr-plus@2.1.2": "patches/react-native-vision-camera-ocr-plus@2.1.2.patch",
+    "react-native-vision-camera@5.2.4": "patches/react-native-vision-camera@5.2.4.patch"
+  }
+}

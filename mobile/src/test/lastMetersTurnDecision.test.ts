@@ -87,7 +87,10 @@ test("decideTurn goes ahead from the compared heading when every turn check pass
   const row = await saved();
   assert.deepEqual(
     row.steps.map((step: any) => [step.name, step.response, step.success, step.error]),
-    [["confidence_fusion", "HIGH: 90%", true, undefined]],
+    [
+      ["confidence_fusion", "HIGH: 90% (rule=additive_independent_evidence_with_heading_conflict_cap; high≥0.75; slots=gps,panorama_view,heading_cross_check,destination; hints=none)", true, undefined],
+      ["orientation_corroboration", "CORROBORATED", true, undefined],
+    ],
   );
   assert.deepEqual(
     { confidenceLevel: row.confidenceLevel, confidenceScore: Math.round(row.confidenceScore * 100), walkingVerified: row.walkingEvidence.verified, currentHeading: row.currentHeading },
@@ -113,9 +116,28 @@ test("decideTurn withholds the turn when compass and panorama disagree, logging 
   const row = await saved();
   assert.deepEqual(
     row.steps.map((step: any) => [step.name, step.success, step.error]),
-    [["confidence_fusion", false, "Compass and panorama headings disagree."]],
+    [
+      ["confidence_fusion", false, "Compass and panorama headings disagree."],
+      ["orientation_corroboration", false, "orientation_not_corroborated"],
+    ],
   );
   assert.equal(row.confidenceLevel, "low");
+});
+
+test("decideTurn withholds when heading agreement is photo-match-only (correlated duplicate)", async t => {
+  const { decision, saved } = await decide(t, {
+    headingDerivedFromPhotoMatchOnly: true,
+  });
+
+  assert.deepEqual(decision, { kind: "withhold", reasons: ["orientation_not_corroborated"] });
+  const row = await saved();
+  assert.equal(row.orientationCorroboration?.corroborated, false);
+  assert.ok(
+    row.orientationCorroboration?.sources?.some(
+      (s: { status: string }) => s.status === "correlated_duplicate",
+    ),
+    "orientation diagnostics must mark the heading source as correlated_duplicate",
+  );
 });
 
 test("decideTurn turns from the guidance policy's heading when it has one", async t => {
@@ -136,4 +158,53 @@ test("decideTurn judges the sensors after the walking route lookup and withholds
 
   assert.equal(routeLookupsBeforeSensors, 1);
   assert.deepEqual(decision, { kind: "withhold", reasons: ["turned_since_capture"] });
+});
+
+test("an unverified experimental door blocks a turn even if sign confidence and the policy allow it", async t => {
+  const { decision } = await decide(t, {
+    headings: { ...HEADINGS, entranceVerified: false, signTextMatched: true },
+    turnReasons: () => [],
+  });
+  assert.deepEqual(decision, { kind: "withhold", reasons: ["entrance_not_visually_confirmed"] });
+});
+
+test("a verified experimental entrance still obeys GPS, orientation and movement gates", async t => {
+  const { decision } = await decide(t, {
+    headings: { ...HEADINGS, entranceVerified: true },
+    sensorReasons: () => ["gps_uncertain", "moved_since_capture", "turned_since_capture"],
+  });
+  assert.equal(decision.kind, "withhold");
+  if (decision.kind === "withhold") {
+    for (const reason of ["gps_uncertain", "moved_since_capture", "turned_since_capture"]) assert.ok(decision.reasons.includes(reason));
+  }
+});
+
+test("sensorReasons runs after the walking-route lookup so freshness uses the later clock", async t => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOW });
+  setTestEnv(t, { GOOGLE_MAPS_API_KEY: "test-maps" });
+  t.mock.method(axios, "get", async (url: string) => {
+    if (!url.includes("/directions/")) return assert.fail(`Unexpected Google request: ${url}`);
+    // Simulate a slow Directions response before sensorReasons runs.
+    t.mock.timers.tick(2_000);
+    return { data: ROUTE };
+  });
+  t.mock.method(lastMetersTestLogService, "record", async () => "trial-1");
+  const trial = new LastMetersTrial({
+    request: REQUEST, image: "data:image/jpeg;base64,AAAA",
+    options: {}, policy: strictLastMetersGuidancePolicy,
+  });
+  let sensorReasonsAt = 0;
+  const decision = await decideTurn(trial, {
+    request: REQUEST,
+    entrance: { source: "geocoding_entrance", location: NEAR, distanceMeters: 50 },
+    headings: HEADINGS,
+    guidanceHeading: undefined,
+    turnReasons: strictLastMetersGuidancePolicy.turnReasons,
+    sensorReasons: () => {
+      sensorReasonsAt = Date.now();
+      return [];
+    },
+  });
+  assert.equal(decision.kind, "go_ahead");
+  assert.equal(sensorReasonsAt, NOW + 2_000, "freshness clock must include the route-lookup wait");
 });

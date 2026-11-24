@@ -1,4 +1,11 @@
-import { angularDifference, bearingBetween, distanceBetween, validPoint } from "../../src/utils/lastMetersSafety";
+import {
+  angularDifference,
+  bearingBetween,
+  distanceBetween,
+  GPS_ACCURACY_BEARING_SIN,
+  GPS_ACCURACY_MAX_METERS,
+  validPoint,
+} from "../../src/utils/lastMetersSafety";
 
 export interface WalkingEvidence { verified: boolean; reason: string; firstBearing?: number; distanceMeters?: number }
 
@@ -17,20 +24,112 @@ export function evaluateWalkingLeg(leg: any, origin: { lat: number; lng: number 
   return { verified: true, reason: "walking_route_consistent_not_accessibility_verified", firstBearing, distanceMeters: leg.distance.value };
 }
 
+/**
+ * Minimum independent evidence for orientation corroboration (#75).
+ * Both rows are required. Duplicating the same panorama match does not count twice.
+ */
+export const ORIENTATION_CORROBORATION_DECISION_TABLE = [
+  {
+    source: "panorama_current_view_match",
+    role: "independent_visual",
+    required: true,
+    passesWhen: "photoMatched === true",
+  },
+  {
+    source: "compass_vs_panorama_heading",
+    role: "independent_sensor_cross_check",
+    required: true,
+    passesWhen: "headingAgrees === true",
+  },
+] as const;
+
+export type OrientationSourceStatus = "pass" | "unavailable" | "conflicting" | "mismatched" | "correlated_duplicate";
+
+export interface OrientationCorroborationSourceReport {
+  source: (typeof ORIENTATION_CORROBORATION_DECISION_TABLE)[number]["source"];
+  role: (typeof ORIENTATION_CORROBORATION_DECISION_TABLE)[number]["role"];
+  status: OrientationSourceStatus;
+  required: true;
+}
+
+export interface OrientationCorroborationDiagnostics {
+  reason: "orientation_not_corroborated" | null;
+  decisionTableVersion: "1";
+  sources: OrientationCorroborationSourceReport[];
+  /** True only when every required independent source passes. */
+  corroborated: boolean;
+}
+
+/**
+ * Report whether independent visual + heading cross-check corroborate orientation.
+ * Correlated duplicates (e.g. counting photo match as both signals) are rejected.
+ */
+export function orientationCorroborationDiagnostics(input: {
+  photoMatched: boolean;
+  headingAgrees: boolean | undefined;
+  /** When true, caller attempted to reuse photo match as heading evidence — not independent. */
+  headingDerivedFromPhotoMatchOnly?: boolean;
+}): OrientationCorroborationDiagnostics {
+  const photoStatus: OrientationSourceStatus = input.photoMatched ? "pass" : "mismatched";
+  let headingStatus: OrientationSourceStatus;
+  if (input.headingDerivedFromPhotoMatchOnly) {
+    headingStatus = "correlated_duplicate";
+  } else if (input.headingAgrees === true) {
+    headingStatus = "pass";
+  } else if (input.headingAgrees === false) {
+    headingStatus = "conflicting";
+  } else {
+    headingStatus = "unavailable";
+  }
+
+  const sources: OrientationCorroborationSourceReport[] = [
+    {
+      source: "panorama_current_view_match",
+      role: "independent_visual",
+      status: photoStatus,
+      required: true,
+    },
+    {
+      source: "compass_vs_panorama_heading",
+      role: "independent_sensor_cross_check",
+      status: headingStatus,
+      required: true,
+    },
+  ];
+  const corroborated = sources.every(source => source.status === "pass");
+  return {
+    reason: corroborated ? null : "orientation_not_corroborated",
+    decisionTableVersion: "1",
+    sources,
+    corroborated,
+  };
+}
+
 export function preciseTurnReasons(input: {
   confidenceLevel: string; photoMatched: boolean; headingAgrees: boolean | undefined;
   compassAccuracy?: number; gpsAccuracy?: number; distanceMeters: number;
   entranceListed: boolean; visualTargetMatched: boolean; walking: WalkingEvidence;
   sensorReasons: string[];
+  /** True when heading agreement was derived only from the photo match — not independent. */
+  headingDerivedFromPhotoMatchOnly?: boolean;
 }): string[] {
   const reasons = [...input.sensorReasons];
   if (input.confidenceLevel !== "high") reasons.push("confidence_not_high");
-  if (!input.photoMatched || input.headingAgrees !== true) reasons.push("orientation_not_corroborated");
+  if (orientationCorroborationDiagnostics({
+    photoMatched: input.photoMatched,
+    headingAgrees: input.headingAgrees,
+    headingDerivedFromPhotoMatchOnly: input.headingDerivedFromPhotoMatchOnly,
+  }).reason) {
+    reasons.push("orientation_not_corroborated");
+  }
   if (input.compassAccuracy !== 3) reasons.push("compass_not_high_accuracy");
   if (!input.visualTargetMatched) reasons.push("destination_not_visually_verified");
   if (!input.entranceListed) reasons.push("entrance_not_listed");
   if (!input.walking.verified) reasons.push(input.walking.reason);
-  if (!Number.isFinite(input.gpsAccuracy) || input.gpsAccuracy! < 0 || input.gpsAccuracy! > 20 ||
-    !Number.isFinite(input.distanceMeters) || input.distanceMeters <= 0 || input.gpsAccuracy! / input.distanceMeters > Math.sin(22.5 * Math.PI / 180)) reasons.push("bearing_uncertainty_too_large");
+  if (!Number.isFinite(input.gpsAccuracy) || input.gpsAccuracy! < 0 || input.gpsAccuracy! > GPS_ACCURACY_MAX_METERS ||
+    !Number.isFinite(input.distanceMeters) || input.distanceMeters <= 0 ||
+    input.gpsAccuracy! / input.distanceMeters > GPS_ACCURACY_BEARING_SIN) {
+    reasons.push("bearing_uncertainty_too_large");
+  }
   return [...new Set(reasons)];
 }

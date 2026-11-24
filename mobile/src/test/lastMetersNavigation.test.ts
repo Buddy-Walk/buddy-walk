@@ -13,9 +13,13 @@ import {
   buildLastMetersTurnInstruction,
   calculateLastMetersConfidence,
   compareCompassAndPanoramaHeadings,
+  headingSourcesDisagreeDiagnostics,
+  HEADING_SOURCES_AGREEMENT_MAX_DEGREES,
   isDestinationBearingReliable,
   isLastMetersHeadingAligned,
   LAST_METERS_HEADING_CONFLICT_MAX_SCORE,
+  LAST_METERS_CONFIDENCE_HIGH_THRESHOLD,
+  LAST_METERS_CONFIDENCE_COMBINATION_RULE,
   lastMetersHeadingDifference,
   LAST_METERS_HEADINGS,
   LAST_METERS_PANORAMA_FOV_DEGREES,
@@ -246,6 +250,57 @@ test("panorama heading is comparison-only and never replaces the compass", () =>
   });
 });
 
+test("heading_sources_disagree diagnostics cover wrap-around, conflict, and missing sources (#74)", () => {
+  assert.equal(HEADING_SOURCES_AGREEMENT_MAX_DEGREES, 45);
+
+  const wrap = headingSourcesDisagreeDiagnostics(359, 0);
+  assert.equal(wrap.reason, null, "359° vs 0° tile must not disagree after snap");
+  assert.equal(wrap.circularDiscrepancyDegrees, 0);
+  assert.equal(wrap.compassHeadingDegrees, 0);
+
+  const nearWrap = headingSourcesDisagreeDiagnostics(1, 0);
+  assert.equal(nearWrap.reason, null);
+  assert.equal(nearWrap.circularDiscrepancyDegrees, 0);
+
+  const boundary = headingSourcesDisagreeDiagnostics(0, 45);
+  assert.equal(boundary.reason, null, "exactly 45° still agrees");
+  assert.equal(boundary.circularDiscrepancyDegrees, 45);
+
+  const conflict = headingSourcesDisagreeDiagnostics(90, 180, {
+    compassTimestamp: 1_800_000_000_000,
+    panoramaMatchTimestamp: 1_800_000_000_100,
+    compassAccuracyLevel: 3,
+  });
+  assert.equal(conflict.reason, "heading_sources_disagree");
+  assert.equal(conflict.circularDiscrepancyDegrees, 90);
+  assert.ok(conflict.failureKinds.includes("circular_discrepancy_above_max"));
+  assert.equal(conflict.compassReferenceFrame, "compass_true_north_snapped");
+  assert.equal(conflict.panoramaReferenceFrame, "panorama_tile_heading");
+  assert.equal(conflict.compassAccuracyLevel, 3);
+  assert.equal(conflict.rawCompassHeadingDegrees, 90);
+
+  const magnetic = headingSourcesDisagreeDiagnostics(90, 180, { compassReference: "magnetic" });
+  assert.equal(magnetic.compassReferenceFrame, "compass_magnetic_snapped");
+  assert.equal(magnetic.reason, "heading_sources_disagree");
+
+  // Recorded field scenarios: McDonald’s / Main building / Xi’an — trusted conflict withholds; no compass→panorama leakage.
+  for (const [compass, visual] of [[90, 180], [0, 135], [45, 225]] as const) {
+    const d = headingSourcesDisagreeDiagnostics(compass, visual);
+    assert.equal(d.reason, "heading_sources_disagree");
+    assert.equal(compareCompassAndPanoramaHeadings(compass, visual).authoritativeHeading, d.compassHeadingDegrees,
+      "panorama must never become authoritative on conflict");
+  }
+
+  const missingCompass = headingSourcesDisagreeDiagnostics(undefined, 90);
+  assert.equal(missingCompass.reason, null);
+  assert.ok(missingCompass.failureKinds.includes("compass_heading_unavailable"));
+  assert.equal(compareCompassAndPanoramaHeadings(undefined, 90).agrees, undefined);
+
+  const missingPanorama = headingSourcesDisagreeDiagnostics(90, null);
+  assert.equal(missingPanorama.reason, null);
+  assert.ok(missingPanorama.failureKinds.includes("panorama_heading_unavailable"));
+});
+
 test("confidence fusion rewards independent agreement and flags weak localization", () => {
   const strong = calculateLastMetersConfidence({
     gpsAccuracyMeters: 8,
@@ -266,6 +321,52 @@ test("confidence fusion rewards independent agreement and flags weak localizatio
   });
   assert.equal(weak.level, "low");
   assert.ok(weak.reasons.length >= 3);
+});
+
+test("confidence fusion provenance logs components, rule, threshold, and hard-gate hints (#78)", () => {
+  assert.equal(LAST_METERS_CONFIDENCE_HIGH_THRESHOLD, 0.75);
+  assert.equal(LAST_METERS_CONFIDENCE_COMBINATION_RULE, "additive_independent_evidence_with_heading_conflict_cap");
+
+  const strong = calculateLastMetersConfidence({
+    gpsAccuracyMeters: 8,
+    panoramaCurrentViewMatched: true,
+    compassPanoramaAgrees: true,
+    destinationVisuallyMatched: true,
+    destinationReferenceVerified: false,
+  });
+  assert.ok(strong.fusion);
+  assert.equal(strong.fusion!.reason, null);
+  assert.equal(strong.fusion!.level, "high");
+  assert.equal(strong.fusion!.highThreshold, 0.75);
+  assert.ok(strong.fusion!.components.some(c => c.id === "gps_accuracy" && c.status === "applied"));
+  assert.ok(strong.fusion!.independentSlotsApplied.includes("heading_cross_check"));
+
+  // Visual + reference share one destination slot — must not double-count.
+  const bothDest = calculateLastMetersConfidence({
+    gpsAccuracyMeters: 8,
+    panoramaCurrentViewMatched: true,
+    compassPanoramaAgrees: true,
+    destinationVisuallyMatched: true,
+    destinationReferenceVerified: true,
+  });
+  const destApplied = bothDest.fusion!.components.filter(
+    c => c.evidenceSlot === "destination" && c.status === "applied",
+  );
+  assert.equal(destApplied.length, 1);
+  assert.equal(destApplied[0].id, "destination_visual");
+
+  const conflict = calculateLastMetersConfidence({
+    gpsAccuracyMeters: 8,
+    panoramaCurrentViewMatched: true,
+    compassPanoramaAgrees: false,
+    destinationVisuallyMatched: true,
+    destinationReferenceVerified: true,
+  });
+  assert.equal(conflict.fusion!.reason, "confidence_not_high");
+  assert.ok(conflict.score <= LAST_METERS_HEADING_CONFLICT_MAX_SCORE);
+  assert.ok(conflict.fusion!.hardGateHints.includes("heading_sources_disagree"));
+  assert.ok(conflict.fusion!.hardGateHints.includes("orientation_not_corroborated"));
+  assert.ok(conflict.fusion!.components.some(c => c.id === "heading_conflict_cap" && c.status === "capped"));
 });
 
 test("verified panorama target preserves precise front-to-behind guidance", () => {
