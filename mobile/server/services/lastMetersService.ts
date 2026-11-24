@@ -1,5 +1,6 @@
 import { textRequestBody, AppContext } from "../types";
 import dotenv from "dotenv";
+import type { LastMetersProgressEvent } from "../../src/utils/lastMetersProgress";
 import { strictLastMetersGuidancePolicy, type LastMetersGuidancePolicy } from "../utils/lastMetersGuidancePolicy";
 import type { LastMetersRequestInput, ReplayInput } from "../utils/lastMetersReplay";
 import type { RetryPanoramaMode } from "../database/models/lastMetersTestLog";
@@ -14,6 +15,7 @@ import { matchPanoramaHeadings, startPanoramaSearch } from "./lastMetersPanorama
 import { decideTurn, TURN_NOT_VERIFIED_MESSAGE } from "./lastMetersTurnDecision";
 import { composeGuidance } from "./lastMetersGuidance";
 import type { OcclusionOptions } from "./lastMetersEntranceAssessment";
+import { RECAPTURE_MESSAGE } from "../../src/utils/lastMetersSafety";
 dotenv.config();
 
 export class LastMetersService {
@@ -34,12 +36,17 @@ export class LastMetersService {
     request: LastMetersRequestInput,
     image: string,
     requestPath: LastMetersPath,
+    progress?: {
+      onProgress: (event: LastMetersProgressEvent) => void;
+      respond: (status: number, body: Record<string, unknown>) => void;
+    },
   ) {
-    const result = await this.runLastMeters(request, image, { requestPath });
+    const result = await this.runLastMeters(request, image, { requestPath, onProgress: progress?.onProgress });
     if (result.kind === "question") {
-      return this.questionService.textRequest(ctx, result.textRequest);
+      return this.questionService.textRequest(ctx, result.textRequest, progress?.respond);
     }
-    ctx.res.status(result.status).json(result.body);
+    if (progress) progress.respond(result.status, result.body);
+    else ctx.res.status(result.status).json(result.body);
   }
 
   /**
@@ -62,8 +69,6 @@ export class LastMetersService {
     const evaluationTime = retry?.replayInput.receivedAt ?? trial.startedAt;
     const guidanceHeading = guidancePolicy.guidanceHeading(request, evaluationTime);
     const safetyNow = () => evaluationTime + Date.now() - trial.startedAt;
-    const turnSensorReasons = () =>
-      guidancePolicy.turnSensorReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime);
 
     // Keep classification and initial sensor exits outside the main failure handler.
     // Both pre-check stretches accumulate under one business name.
@@ -72,8 +77,16 @@ export class LastMetersService {
         name: "mobile_guidance_policy", prompt: "Analyze the capture before applying turn-only prerequisites.",
         response: guidancePolicy.version, model: "mobile-field-policy", success: true,
       });
-      const initialSensorReasons = guidancePolicy.initialSensorReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow());
-      if (initialSensorReasons.length) return { kind: "exit" as const, respond: () => trial.withhold(initialSensorReasons) };
+      const initialEvaluatedAt = safetyNow();
+      const initialSensorReasons = guidancePolicy.initialSensorReasons(
+        sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, initialEvaluatedAt,
+      );
+      if (initialSensorReasons.length) {
+        return {
+          kind: "exit" as const,
+          respond: () => trial.withhold(initialSensorReasons, RECAPTURE_MESSAGE, { evaluatedAt: initialEvaluatedAt }),
+        };
+      }
 
       logRequest(request, image);
       return classifyInput(trial, request, image);
@@ -107,10 +120,28 @@ export class LastMetersService {
       if (matching.kind === "exit") return await matching.respond();
       const headings = matching.value;
 
+      // Capture evaluation time when sensorReasons runs (after walking-route await),
+      // not before decideTurn starts — otherwise a slow route lookup understates age.
+      // Mobile policy freezes capture freshness at evaluationTime (receipt); strict
+      // uses the live safetyNow. Diagnostics must use the same clock the gate used.
+      const captureDiagnosticsAt = (liveAt: number) =>
+        guidancePolicy.version ? evaluationTime : liveAt;
+      let turnEvaluatedAt = safetyNow();
       const turn = await trial.moduleTimer.time("turnDecision", () => decideTurn(trial, {
-        request, entrance, headings, guidanceHeading, turnReasons: guidancePolicy.turnReasons, sensorReasons: turnSensorReasons,
+        request, entrance, headings, guidanceHeading, turnReasons: guidancePolicy.turnReasons,
+        sensorReasons: () => {
+          turnEvaluatedAt = safetyNow();
+          return guidancePolicy.turnSensorReasons(
+            sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, turnEvaluatedAt, evaluationTime,
+            entrance.distanceMeters,
+          );
+        },
       }));
-      if (turn.kind === "withhold") return await trial.withhold(turn.reasons, TURN_NOT_VERIFIED_MESSAGE);
+      if (turn.kind === "withhold") {
+        return await trial.withhold(turn.reasons, TURN_NOT_VERIFIED_MESSAGE, {
+          evaluatedAt: captureDiagnosticsAt(turnEvaluatedAt),
+        });
+      }
       const { turnHeading, confidence, walkingEvidence } = turn;
 
       const { turnInstruction, finalOutput } = await trial.moduleTimer.time("guidance", () => composeGuidance(trial, {
@@ -118,8 +149,16 @@ export class LastMetersService {
         reference: headings.reference, panoramaDate: headings.panorama.metadata.date, closedNotice, policy: guidancePolicy,
       }));
 
-      const lateReasons = turnSensorReasons();
-      if (lateReasons.length) return await trial.withhold(lateReasons);
+      const lateEvaluatedAt = safetyNow();
+      const lateReasons = guidancePolicy.turnSensorReasons(
+        sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, lateEvaluatedAt, evaluationTime,
+        entrance.distanceMeters,
+      );
+      if (lateReasons.length) {
+        return await trial.withhold(lateReasons, RECAPTURE_MESSAGE, {
+          evaluatedAt: captureDiagnosticsAt(lateEvaluatedAt),
+        });
+      }
       return await trial.answer({
         currentHeading: turnHeading,
         targetHeading: destinationBearing,
@@ -149,6 +188,8 @@ function logRequest(request: LastMetersRequestInput, image: string): void {
 }
 
 export interface LastMetersRunOptions {
+  /** Optional request-scoped observer, used only by the streaming HTTP response. */
+  onProgress?: (event: LastMetersProgressEvent) => void;
   /** Experimental, internal configuration; never populated from the request body. */
   occlusion?: OcclusionOptions;
   /**

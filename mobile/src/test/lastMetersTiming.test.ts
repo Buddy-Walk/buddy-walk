@@ -66,3 +66,18 @@ test("Mongo writes business names, never dashboard labels, and allows rows witho
   assert.deepEqual(row.toObject().moduleTimingsMs, timings);
   assert.equal(new lastMetersTestLogModel({}).toObject().moduleTimingsMs?.currentViewMatch, undefined);
 });
+
+test("progress is emitted before work, observer errors do not change timings, and finish stops events", async () => {
+  let clock = 0;
+  const events: string[] = [];
+  const timer = createLastMetersModuleTimer(() => clock, module => {
+    events.push(module);
+    clock += 100;
+    throw new Error("progress observer failure");
+  });
+  await timer.time("preCheck", async () => { assert.deepEqual(events, ["preCheck"]); clock += 5; });
+  await timer.time("preCheck", async () => { clock += 10; });
+  assert.deepEqual(timer.finish(), { preCheck: 15 });
+  await timer.time("guidance", async () => undefined);
+  assert.deepEqual(events, ["preCheck"]);
+});

@@ -31,9 +31,14 @@ export class OpenAIQuestionService {
   }
 
   /** Answers a Question and sends the answer. */
-  async textRequest(ctx: AppContext, content: textRequestBody) {
+  async textRequest(
+    ctx: AppContext,
+    content: textRequestBody,
+    respond?: (status: number, body: QuestionResult["body"]) => void,
+  ) {
     const { status, body } = await this.answerQuestion(content);
-    ctx.res.status(status).json(body);
+    if (respond) respond(status, body);
+    else ctx.res.status(status).json(body);
   }
 
   /** Answers a Question. Returns the answer instead of sending it, and leaves `content` as it was. */
