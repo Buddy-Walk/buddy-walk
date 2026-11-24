@@ -14,6 +14,7 @@ import { matchPanoramaHeadings, startPanoramaSearch } from "./lastMetersPanorama
 import { decideTurn, TURN_NOT_VERIFIED_MESSAGE } from "./lastMetersTurnDecision";
 import { composeGuidance } from "./lastMetersGuidance";
 import type { OcclusionOptions } from "./lastMetersEntranceAssessment";
+import { RECAPTURE_MESSAGE } from "../../src/utils/lastMetersSafety";
 dotenv.config();
 
 export class LastMetersService {
@@ -62,8 +63,6 @@ export class LastMetersService {
     const evaluationTime = retry?.replayInput.receivedAt ?? trial.startedAt;
     const guidanceHeading = guidancePolicy.guidanceHeading(request, evaluationTime);
     const safetyNow = () => evaluationTime + Date.now() - trial.startedAt;
-    const turnSensorReasons = () =>
-      guidancePolicy.turnSensorReasons(sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, safetyNow(), evaluationTime);
 
     // Keep classification and initial sensor exits outside the main failure handler.
     // Both pre-check stretches accumulate under one business name.
@@ -79,7 +78,7 @@ export class LastMetersService {
       if (initialSensorReasons.length) {
         return {
           kind: "exit" as const,
-          respond: () => trial.withhold(initialSensorReasons, undefined, { evaluatedAt: initialEvaluatedAt }),
+          respond: () => trial.withhold(initialSensorReasons, RECAPTURE_MESSAGE, { evaluatedAt: initialEvaluatedAt }),
         };
       }
 
@@ -115,11 +114,27 @@ export class LastMetersService {
       if (matching.kind === "exit") return await matching.respond();
       const headings = matching.value;
 
+      // Capture evaluation time when sensorReasons runs (after walking-route await),
+      // not before decideTurn starts — otherwise a slow route lookup understates age.
+      // Mobile policy freezes capture freshness at evaluationTime (receipt); strict
+      // uses the live safetyNow. Diagnostics must use the same clock the gate used.
+      const captureDiagnosticsAt = (liveAt: number) =>
+        guidancePolicy.version ? evaluationTime : liveAt;
+      let turnEvaluatedAt = safetyNow();
       const turn = await trial.moduleTimer.time("turnDecision", () => decideTurn(trial, {
-        request, entrance, headings, guidanceHeading, turnReasons: guidancePolicy.turnReasons, sensorReasons: turnSensorReasons,
+        request, entrance, headings, guidanceHeading, turnReasons: guidancePolicy.turnReasons,
+        sensorReasons: () => {
+          turnEvaluatedAt = safetyNow();
+          return guidancePolicy.turnSensorReasons(
+            sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, turnEvaluatedAt, evaluationTime,
+            entrance.distanceMeters,
+          );
+        },
       }));
       if (turn.kind === "withhold") {
-        return await trial.withhold(turn.reasons, TURN_NOT_VERIFIED_MESSAGE, { evaluatedAt: safetyNow() });
+        return await trial.withhold(turn.reasons, TURN_NOT_VERIFIED_MESSAGE, {
+          evaluatedAt: captureDiagnosticsAt(turnEvaluatedAt),
+        });
       }
       const { turnHeading, confidence, walkingEvidence } = turn;
 
@@ -129,9 +144,14 @@ export class LastMetersService {
       }));
 
       const lateEvaluatedAt = safetyNow();
-      const lateReasons = turnSensorReasons();
+      const lateReasons = guidancePolicy.turnSensorReasons(
+        sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, lateEvaluatedAt, evaluationTime,
+        entrance.distanceMeters,
+      );
       if (lateReasons.length) {
-        return await trial.withhold(lateReasons, undefined, { evaluatedAt: lateEvaluatedAt });
+        return await trial.withhold(lateReasons, RECAPTURE_MESSAGE, {
+          evaluatedAt: captureDiagnosticsAt(lateEvaluatedAt),
+        });
       }
       return await trial.answer({
         currentHeading: turnHeading,

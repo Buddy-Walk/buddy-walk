@@ -114,8 +114,13 @@ export const mobileLastMetersGuidancePolicy: LastMetersGuidancePolicy = {
   /** Sensor quality limits the final turn, rather than preventing photo and destination analysis. */
   initialSensorReasons: () => [],
   /** Judge the submitted snapshot at receipt; API processing time cannot age its sensors afterward. */
-  turnSensorReasons: (sensors, position, heading, accuracy, now = Date.now(), snapshotTime = now) => {
-    const reasons = mobileTurnSensorReasons(sensors, position, heading, accuracy, snapshotTime, snapshotTime);
+  turnSensorReasons: (
+    sensors, position, heading, accuracy, now = Date.now(), snapshotTime = now, distanceMeters?,
+  ) => {
+    // Forward entrance distance so mobile and shared policy share the accuracy-vs-distance gate (#72/#175).
+    const reasons = mobileTurnSensorReasons(
+      sensors, position, heading, accuracy, snapshotTime, snapshotTime, distanceMeters,
+    );
     const currentHeadingValid = sensors?.latestHeadingReference === "true" &&
       !reasons.includes("current_heading_unavailable");
     // A rotation before submission is supported by rebasing the turn onto that real current reading.

@@ -1,3 +1,5 @@
+import { GPS_ACCURACY_MAX_METERS } from "../../src/utils/lastMetersSafety";
+
 export const LAST_METERS_HEADINGS = [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180, 202.5, 225, 247.5, 270, 292.5, 315, 337.5] as const;
 export const LAST_METERS_PANORAMA_FOV_DEGREES = 22.5;
 export const LAST_METERS_EXACT_RADIUS_METERS = 250;
@@ -326,7 +328,8 @@ export function resolveExactModeGate(
   }
   const accuracyKnown = typeof gpsAccuracyMeters === "number" && Number.isFinite(gpsAccuracyMeters) && gpsAccuracyMeters >= 0;
   const allowanceMeters = 0;
-  const exact = accuracyKnown && gpsAccuracyMeters <= 20 && distanceMeters + gpsAccuracyMeters <= LAST_METERS_EXACT_RADIUS_METERS;
+  const exact = accuracyKnown && gpsAccuracyMeters <= GPS_ACCURACY_MAX_METERS &&
+    distanceMeters + gpsAccuracyMeters <= LAST_METERS_EXACT_RADIUS_METERS;
   return {
     exact,
     allowanceMeters,

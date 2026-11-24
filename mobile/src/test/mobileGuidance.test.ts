@@ -6,9 +6,13 @@ import sharp from "sharp";
 import { MobileLastMetersService, mobileReviewPanoramaStatus } from "../../server/services/mobileLastMeters";
 import { lastMetersTestLogService } from "../../server/services/lastMetersTestLog";
 import { buildReplayInput, type LastMetersRequestInput } from "../../server/utils/lastMetersReplay";
-import { mobileLastMetersGuidancePolicy } from "../../server/utils/lastMetersGuidancePolicy";
+import {
+  mobileLastMetersGuidancePolicy,
+  strictLastMetersGuidancePolicy,
+} from "../../server/utils/lastMetersGuidancePolicy";
 import { preciseTurnReasons } from "../../server/utils/lastMetersPolicy";
 import { mobileResponseSensorReasons, mobileTurnSensorReasons } from "../utils/mobileLastMetersGuidance";
+import { sensorSafetyReasons } from "../utils/lastMetersSafety";
 import { setTestEnv } from "./testEnv";
 
 /** Produce a valid request without assuming Google's optional entrance listing exists. */
@@ -215,6 +219,27 @@ test("mobile turn reasons ignore GPS cone noise when the photo and compass alrea
   assert.equal(mobileLastMetersGuidancePolicy.turnReasons(input).includes("bearing_uncertainty_too_large"), false);
   assert.ok(mobileLastMetersGuidancePolicy.turnReasons({ ...input, photoMatched: false })
     .includes("bearing_uncertainty_too_large"));
+});
+
+test("mobile turnSensorReasons forwards entrance distance for accuracy-vs-distance gate (#175)", () => {
+  const now = 1_800_000_000_000;
+  const request = capture(now);
+  const sensors = structuredClone(request.sensors!);
+  // 14 m accuracy at 10 m distance exceeds sin(22.5°) — shared and mobile must both withhold.
+  sensors.latestPosition.accuracy = 14;
+  const args = [sensors, request, request.deviceHeading, 14, now, now, 10] as const;
+  const strict = strictLastMetersGuidancePolicy.turnSensorReasons(...args);
+  const mobile = mobileLastMetersGuidancePolicy.turnSensorReasons(...args);
+  const direct = sensorSafetyReasons(...args);
+  assert.ok(direct.includes("gps_uncertain"), "sensor gate withholds on accuracy vs distance");
+  assert.ok(strict.includes("gps_uncertain"), "shared policy withholds on accuracy vs distance");
+  assert.ok(mobile.includes("gps_uncertain"), "mobile policy must forward distanceMeters");
+  assert.equal(
+    mobileLastMetersGuidancePolicy.turnSensorReasons(sensors, request, request.deviceHeading, 14, now, now, 50)
+      .includes("gps_uncertain"),
+    false,
+    "50 m entrance distance keeps 14 m accuracy under the bearing budget",
+  );
 });
 
 test("mobile status identifies the new field policy and configured provider capability", t => {
