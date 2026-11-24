@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   sensorSafetyReasons,
+  missingCaptureMetadataFields,
   currentGpsAvailabilityDiagnostics,
   CURRENT_GPS_MAX_AGE_MS,
   LastMetersSensors,
@@ -33,6 +34,31 @@ test("sensor gate rejects missing, old, future, magnetic, moved and rotated read
     [{ latestHeading: 90 }, "turned_since_capture"],
     [{ latestPosition: { ...target, accuracy: 5, timestamp: now } }, "moved_since_capture"],
   ] as const) assert.ok(sensorSafetyReasons({ ...sensors(), ...patch } as LastMetersSensors, origin, 1, 5, now).includes(reason));
+});
+test("capture_metadata_missing names absent required fields without coordinates", () => {
+  assert.deepEqual(missingCaptureMetadataFields(undefined), ["sensors"]);
+  assert.deepEqual(missingCaptureMetadataFields(sensors()), []);
+  assert.deepEqual(
+    missingCaptureMetadataFields({ ...sensors(), photoCapturedAt: 0, positionTimestamp: 0 }),
+    ["photoCapturedAt", "positionTimestamp"],
+  );
+  assert.deepEqual(
+    sensorSafetyReasons({ ...sensors(), headingTimestamp: 0 } as LastMetersSensors, origin, 1, 5, now),
+    ["capture_metadata_missing"],
+  );
+  assert.deepEqual(
+    sensorSafetyReasons({ ...sensors(), photoCapturedAt: Number.NaN } as LastMetersSensors, origin, 1, 5, now),
+    ["capture_metadata_missing"],
+  );
+});
+test("live GPS loss with intact capture metadata is not capture_metadata_missing", () => {
+  const reasons = sensorSafetyReasons({
+    ...sensors(),
+    latestPosition: { lat: Number.NaN, lng: Number.NaN, accuracy: -1, timestamp: Number.NaN },
+  }, origin, 1, 5, now);
+  assert.equal(reasons.includes("capture_metadata_missing"), false);
+  assert.ok(reasons.includes("current_gps_unavailable"));
+  assert.ok(reasons.includes("gps_uncertain"));
 });
 test("server checks snapshot at receipt, client checks live sensors before speech", () => {
   assert.deepEqual(sensorSafetyReasons(sensors(), origin, 1, 5, now + 30_000, now), []);
@@ -77,6 +103,16 @@ test("Oct 16 style missing current GPS with capture accuracy still blocks precis
 });
 const leg = () => ({ start_location: origin, end_location: target, distance: { value: 50 },
   steps: [{ travel_mode: "WALKING", start_location: origin, end_location: target }] });
+test("complete capture metadata clears this gate while other gates can still withhold", () => {
+  assert.deepEqual(sensorSafetyReasons(sensors(), origin, 1, 5, now), []);
+  assert.ok(
+    preciseTurnReasons({
+      confidenceLevel: "low", photoMatched: true, headingAgrees: true, compassAccuracy: 3,
+      gpsAccuracy: 5, distanceMeters: 50, entranceListed: true, visualTargetMatched: true,
+      walking: evaluateWalkingLeg(leg(), origin, target), sensorReasons: [],
+    }).includes("confidence_not_high"),
+  );
+});
 test("walking route requires matching endpoints and consistent walking geometry", () => {
   assert.equal(evaluateWalkingLeg(leg(), origin, target).verified, true);
   assert.match(evaluateWalkingLeg(leg(), origin, target).reason, /not_accessibility_verified/);

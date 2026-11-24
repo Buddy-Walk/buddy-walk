@@ -2,6 +2,7 @@ import { createLastMetersModuleTimer } from "../utils/lastMetersTiming";
 import type { textRequestBody } from "../types";
 import {
   currentGpsAvailabilityDiagnostics,
+  missingCaptureMetadataFields,
   RECAPTURE_MESSAGE,
   type CurrentGpsAvailabilityDiagnostics,
 } from "../../src/utils/lastMetersSafety";
@@ -92,6 +93,10 @@ export interface TrialFacts {
   confidence?: Pick<LastMetersConfidence, "level"> & Partial<LastMetersConfidence>;
   walkingEvidence: WalkingEvidence;
   safetyReasons: string[];
+  /** Field names only when capture_metadata_missing fires; never coordinates or payloads. */
+  captureMetadataMissingFields?: string[];
+  /** Guidance policy version noted alongside metadata diagnostics. */
+  guidancePolicyVersion?: string;
   /** Capture vs current GPS availability flags — never coordinate payloads. */
   currentGpsAvailability?: CurrentGpsAvailabilityDiagnostics;
 }
@@ -189,6 +194,10 @@ export class LastMetersTrial {
   /** Ends the run without a precise turn, saying why in the guidance policy's words. */
   async withhold(reasons: string[], message = RECAPTURE_MESSAGE): Promise<LastMetersRunResult> {
     const safetyReasons = [...new Set(reasons)];
+    // Field names / availability flags only — never coordinates, images, or raw sensor payloads.
+    const captureMetadataMissingFields = safetyReasons.includes("capture_metadata_missing")
+      ? missingCaptureMetadataFields(this.request.sensors)
+      : undefined;
     const currentGpsAvailability = safetyReasons.includes("current_gps_unavailable")
       ? currentGpsAvailabilityDiagnostics(
           this.request.sensors,
@@ -198,6 +207,12 @@ export class LastMetersTrial {
       : undefined;
     this.note({
       safetyReasons,
+      ...(captureMetadataMissingFields
+        ? {
+            captureMetadataMissingFields,
+            guidancePolicyVersion: this.policy.version,
+          }
+        : {}),
       ...(currentGpsAvailability ? { currentGpsAvailability } : {}),
     });
     const output = this.withheldMessage(safetyReasons, message);
@@ -285,6 +300,12 @@ export class LastMetersTrial {
     return {
       replayInput: this.replayInput,
       safetyReasons: facts.safetyReasons,
+      ...(facts.captureMetadataMissingFields
+        ? { captureMetadataMissingFields: facts.captureMetadataMissingFields }
+        : {}),
+      ...(facts.guidancePolicyVersion
+        ? { guidancePolicyVersion: facts.guidancePolicyVersion }
+        : {}),
       ...(facts.currentGpsAvailability ? { currentGpsAvailability: facts.currentGpsAvailability } : {}),
       walkingEvidence: facts.walkingEvidence,
       panoramaTargetHeading: facts.panoramaTargetHeading,

@@ -46,6 +46,10 @@ export interface lastMetersTestLogInterface {
   /** Versioned snapshot of exactly what the pipeline received. */
   replayInput?: ReplayInput;
   safetyReasons?: string[];
+  /** Privacy-preserving names of missing capture metadata fields. */
+  captureMetadataMissingFields?: string[];
+  /** Mobile guidance policy version when capture-metadata diagnostics were noted. */
+  guidancePolicyVersion?: string;
   /** Privacy-preserving current-GPS availability diagnostics. */
   currentGpsAvailability?: {
     reason: "current_gps_unavailable" | null;
@@ -179,6 +183,8 @@ const LastMetersTestLogSchema = new Schema<lastMetersTestLogInterface>({
   retryDefaultsApplied: [{ type: String }],
   replayInput: Schema.Types.Mixed,
   safetyReasons: [String],
+  captureMetadataMissingFields: [String],
+  guidancePolicyVersion: String,
   currentGpsAvailability: Schema.Types.Mixed,
   walkingEvidence: Schema.Types.Mixed,
   panoramaTargetHeading: Number,
