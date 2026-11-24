@@ -213,7 +213,7 @@ function reportFrameFailure(error: string) {
 }
 
 /** The largest size with the frame's aspect ratio that fits in the container. */
-function containedSize(frame: Size, container: Size): Size {
+export function containedSize(frame: Size, container: Size): Size {
   const scale = Math.min(container.width / frame.width, container.height / frame.height);
   return { width: frame.width * scale, height: frame.height * scale };
 }

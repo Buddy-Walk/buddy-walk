@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import type { Image } from 'react-native-nitro-image';
+
 import type { FrameReadings, Reading } from '../readings/Reading';
 import { ReadingsCamera, type ReadingsCameraRef } from '../readings/ReadingsCamera';
 import { fileSystemSessionsRoot } from './fileSystemSessionsRoot';
@@ -20,8 +22,11 @@ const RECENT_READINGS = 8;
 
 const KEEP_AWAKE_TAG = 'experiment-session';
 
-/** A Mark whose frame is saved and whose form is still open. */
-type OpenMark = Omit<Mark, keyof MarkFields>;
+/**
+ * A Mark whose frame is saved and whose form is still open.
+ * `frame` is that frame as an image, for the form to show, and isn't part of the Mark.
+ */
+type OpenMark = { mark: Omit<Mark, keyof MarkFields>; frame: Image };
 
 /**
  * The first experiment's screen (#106): live Readings over the camera, experiment sessions, and Marks.
@@ -109,7 +114,10 @@ export function ExperimentScreen() {
       const headingAtFrame = heading.current;
       const jpeg = await snapshot.image.toEncodedImageDataAsync('jpg', 90);
       const frameFile = recorder.saveMarkFrame(new Uint8Array(jpeg.buffer));
-      setOpenMark({ markedAt, frameFile, heading: headingAtFrame, readings: snapshot.frame.readings });
+      setOpenMark({
+        mark: { markedAt, frameFile, heading: headingAtFrame, readings: snapshot.frame.readings },
+        frame: snapshot.image,
+      });
     } catch (error) {
       Alert.alert('Could not capture the frame', String(error));
     } finally {
@@ -119,12 +127,12 @@ export function ExperimentScreen() {
 
   function saveMark(fields: MarkFields) {
     if (!recorder || !openMark) return;
-    recorder.addMark({ ...openMark, ...fields });
+    recorder.addMark({ ...openMark.mark, ...fields });
     setOpenMark(null);
   }
 
   function cancelMark() {
-    if (recorder && openMark) recorder.discardMarkFrame(openMark.frameFile);
+    if (recorder && openMark) recorder.discardMarkFrame(openMark.mark.frameFile);
     setOpenMark(null);
   }
 
@@ -208,7 +216,12 @@ export function ExperimentScreen() {
       </View>
 
       {openMark && (
-        <MarkFormSheet readingTexts={openMark.readings.map((reading) => reading.text)} onSave={saveMark} onCancel={cancelMark} />
+        <MarkFormSheet
+          frame={openMark.frame}
+          readingTexts={openMark.mark.readings.map((reading) => reading.text)}
+          onSave={saveMark}
+          onCancel={cancelMark}
+        />
       )}
       {showingSessions && <PastSessions store={store} onClose={() => setShowingSessions(false)} />}
     </SafeAreaView>

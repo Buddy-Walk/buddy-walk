@@ -50,7 +50,7 @@ describe('session store', () => {
     recorder.stop();
 
     expect(store.load(recorder.id)).toEqual({
-      version: 3,
+      version: 4,
       id: recorder.id,
       device: { model: 'iPhone 15', osVersion: '26.1' },
       app: { version: '1.0.0', build: '3' },
@@ -150,6 +150,8 @@ describe('session store', () => {
       frameFile,
       heading,
       readings: [reading('34', 5000)],
+      targetText: '1247',
+      targetPoint: { x: 0.42, y: 0.3 },
       targetKind: 'door-number',
       side: 'same-sidewalk',
       visibleToTester: true,
@@ -157,6 +159,8 @@ describe('session store', () => {
       conditions: ['faded', 'obstructed'],
       otherCondition: 'graffiti over it',
       distanceFeet: 12,
+      wallDistanceFeet: 9.5,
+      note: 'a van parked in front for a moment',
     });
     // No stop: the app is killed.
 
@@ -166,6 +170,8 @@ describe('session store', () => {
         frameFile: 'mark-001.jpg',
         heading,
         readings: [reading('34', 5000)],
+        targetText: '1247',
+        targetPoint: { x: 0.42, y: 0.3 },
         targetKind: 'door-number',
         side: 'same-sidewalk',
         visibleToTester: true,
@@ -173,6 +179,8 @@ describe('session store', () => {
         conditions: ['faded', 'obstructed'],
         otherCondition: 'graffiti over it',
         distanceFeet: 12,
+        wallDistanceFeet: 9.5,
+        note: 'a van parked in front for a moment',
       },
     ]);
   });
@@ -250,6 +258,8 @@ describe('session store', () => {
       frameFile,
       heading,
       readings: [reading('34', 1000)],
+      targetText: '34',
+      targetPoint: { x: 0.5, y: 0.5 },
       targetKind: 'door-number',
       side: 'same-sidewalk',
       visibleToTester: true,
@@ -257,6 +267,8 @@ describe('session store', () => {
       conditions: ['clear'],
       otherCondition: null,
       distanceFeet: 10,
+      wallDistanceFeet: 10,
+      note: null,
     });
     // The tester tapped Mark again, and the app was killed before the form was saved.
     recorder.saveMarkFrame(new Uint8Array([9]));
@@ -303,9 +315,18 @@ describe('session store', () => {
     expect(session.version).toBe(2);
     expect(session.marks).toEqual([olderMark]);
   });
+
+  test('exports a session recorded by version 3 as it was, with no target text, point, wall distance or note on its Marks', () => {
+    const mark: StoredMark = { ...olderMark, conditions: ['faded'], otherCondition: null };
+
+    const session = exportOlderSession(3, mark);
+
+    expect(session.version).toBe(3);
+    expect(session.marks).toEqual([mark]);
+  });
 });
 
-/** A Mark as versions 1 and 2 stored it, before Marks had conditions. */
+/** A Mark as versions 1 and 2 stored it, before Marks had conditions or anything about the target's text, point or angle. */
 const olderMark: StoredMark = {
   markedAt: '2026-11-15T19:57:00.000Z',
   frameFile: 'mark-001.jpg',

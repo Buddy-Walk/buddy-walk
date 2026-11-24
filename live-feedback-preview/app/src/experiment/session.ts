@@ -9,9 +9,9 @@ import type { MarkFields } from './markForm';
  * Bump `SESSION_VERSION` whenever the shape changes.
  * Sessions keep the version they were recorded in, so one on the phone from an older version exports as it was.
  */
-export const SESSION_VERSION = 3;
+export const SESSION_VERSION = 4;
 
-export type SessionVersion = 1 | 2 | typeof SESSION_VERSION;
+export type SessionVersion = 1 | 2 | 3 | typeof SESSION_VERSION;
 
 export type ExperimentSession = {
   version: SessionVersion;
@@ -53,10 +53,14 @@ export type Mark = MarkFields & {
 /**
  * A Mark as a session holds it.
  * Version 1 sessions stored a door number's `targetKind` as `street-number`,
- * and version 1 and 2 Marks have no `conditions` or `otherCondition`.
+ * version 1 and 2 Marks have no `conditions` or `otherCondition`,
+ * and version 1 to 3 Marks have no `targetText`, `targetPoint`, `wallDistanceFeet` or `note`.
  */
-export type StoredMark = Omit<Mark, 'targetKind' | 'conditions' | 'otherCondition'> & {
+export type StoredMark = Omit<Mark, 'targetKind' | AddedMarkField> & {
   targetKind: Mark['targetKind'] | 'street-number';
-} & Partial<Pick<Mark, 'conditions' | 'otherCondition'>>;
+} & Partial<Pick<Mark, AddedMarkField>>;
+
+/** Mark fields that older versions don't have. */
+type AddedMarkField = 'conditions' | 'otherCondition' | 'targetText' | 'targetPoint' | 'wallDistanceFeet' | 'note';
 
 export type SessionInfo = Pick<ExperimentSession, 'device' | 'app'>;
