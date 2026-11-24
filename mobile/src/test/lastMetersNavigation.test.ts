@@ -13,6 +13,8 @@ import {
   buildLastMetersTurnInstruction,
   calculateLastMetersConfidence,
   compareCompassAndPanoramaHeadings,
+  headingSourcesDisagreeDiagnostics,
+  HEADING_SOURCES_AGREEMENT_MAX_DEGREES,
   isDestinationBearingReliable,
   isLastMetersHeadingAligned,
   LAST_METERS_HEADING_CONFLICT_MAX_SCORE,
@@ -244,6 +246,57 @@ test("panorama heading is comparison-only and never replaces the compass", () =>
     differenceDegrees: undefined,
     agrees: undefined,
   });
+});
+
+test("heading_sources_disagree diagnostics cover wrap-around, conflict, and missing sources (#74)", () => {
+  assert.equal(HEADING_SOURCES_AGREEMENT_MAX_DEGREES, 45);
+
+  const wrap = headingSourcesDisagreeDiagnostics(359, 0);
+  assert.equal(wrap.reason, null, "359° vs 0° tile must not disagree after snap");
+  assert.equal(wrap.circularDiscrepancyDegrees, 0);
+  assert.equal(wrap.compassHeadingDegrees, 0);
+
+  const nearWrap = headingSourcesDisagreeDiagnostics(1, 0);
+  assert.equal(nearWrap.reason, null);
+  assert.equal(nearWrap.circularDiscrepancyDegrees, 0);
+
+  const boundary = headingSourcesDisagreeDiagnostics(0, 45);
+  assert.equal(boundary.reason, null, "exactly 45° still agrees");
+  assert.equal(boundary.circularDiscrepancyDegrees, 45);
+
+  const conflict = headingSourcesDisagreeDiagnostics(90, 180, {
+    compassTimestamp: 1_800_000_000_000,
+    panoramaMatchTimestamp: 1_800_000_000_100,
+    compassAccuracyLevel: 3,
+  });
+  assert.equal(conflict.reason, "heading_sources_disagree");
+  assert.equal(conflict.circularDiscrepancyDegrees, 90);
+  assert.ok(conflict.failureKinds.includes("circular_discrepancy_above_max"));
+  assert.equal(conflict.compassReferenceFrame, "compass_true_north_snapped");
+  assert.equal(conflict.panoramaReferenceFrame, "panorama_tile_heading");
+  assert.equal(conflict.compassAccuracyLevel, 3);
+  assert.equal(conflict.rawCompassHeadingDegrees, 90);
+
+  const magnetic = headingSourcesDisagreeDiagnostics(90, 180, { compassReference: "magnetic" });
+  assert.equal(magnetic.compassReferenceFrame, "compass_magnetic_snapped");
+  assert.equal(magnetic.reason, "heading_sources_disagree");
+
+  // Recorded field scenarios: McDonald’s / Main building / Xi’an — trusted conflict withholds; no compass→panorama leakage.
+  for (const [compass, visual] of [[90, 180], [0, 135], [45, 225]] as const) {
+    const d = headingSourcesDisagreeDiagnostics(compass, visual);
+    assert.equal(d.reason, "heading_sources_disagree");
+    assert.equal(compareCompassAndPanoramaHeadings(compass, visual).authoritativeHeading, d.compassHeadingDegrees,
+      "panorama must never become authoritative on conflict");
+  }
+
+  const missingCompass = headingSourcesDisagreeDiagnostics(undefined, 90);
+  assert.equal(missingCompass.reason, null);
+  assert.ok(missingCompass.failureKinds.includes("compass_heading_unavailable"));
+  assert.equal(compareCompassAndPanoramaHeadings(undefined, 90).agrees, undefined);
+
+  const missingPanorama = headingSourcesDisagreeDiagnostics(90, null);
+  assert.equal(missingPanorama.reason, null);
+  assert.ok(missingPanorama.failureKinds.includes("panorama_heading_unavailable"));
 });
 
 test("confidence fusion rewards independent agreement and flags weak localization", () => {

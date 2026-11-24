@@ -25,6 +25,7 @@ import {
   type compareCompassAndPanoramaHeadings,
   type ExactModeGate,
   type LastMetersConfidence,
+  type HeadingSourcesDisagreeDiagnostics,
   type LastMetersTestScenario,
 } from "../utils/lastMetersNavigation";
 import type { lastMetersTestStepInterface } from "../database/models/lastMetersTestLog";
@@ -111,6 +112,8 @@ export interface TrialFacts {
   gpsAccuracy?: GpsAccuracyDiagnostics;
   /** Angles/ages only — never lat/lng. Present when turned_since_capture withholds. */
   turnedSinceCapture?: TurnedSinceCaptureDiagnostics;
+  /** Compass vs visual heading conflict diagnostics — never lat/lng. */
+  headingSourcesDisagree?: HeadingSourcesDisagreeDiagnostics;
 }
 
 /** How a run ended, saved alongside the facts. */
@@ -351,6 +354,7 @@ export class LastMetersTrial {
       ...(facts.captureGpsFreshness ? { captureGpsFreshness: facts.captureGpsFreshness } : {}),
       ...(facts.gpsAccuracy ? { gpsAccuracy: facts.gpsAccuracy } : {}),
       ...(facts.turnedSinceCapture ? { turnedSinceCapture: facts.turnedSinceCapture } : {}),
+      ...(facts.headingSourcesDisagree ? { headingSourcesDisagree: facts.headingSourcesDisagree } : {}),
       walkingEvidence: facts.walkingEvidence,
       panoramaTargetHeading: facts.panoramaTargetHeading,
       confidenceMethod: "heuristic-not-calibrated",

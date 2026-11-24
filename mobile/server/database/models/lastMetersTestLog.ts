@@ -1,7 +1,10 @@
 import type { LastMetersModuleTimings } from "../../utils/lastMetersTiming";
 import mongoose, { Schema } from "mongoose";
 import { LAST_METERS_TEST_SCENARIOS } from "../../utils/lastMetersNavigation";
-import type { LastMetersTestScenario } from "../../utils/lastMetersNavigation";
+import type {
+  HeadingSourcesDisagreeDiagnostics,
+  LastMetersTestScenario,
+} from "../../utils/lastMetersNavigation";
 import type { PlaceCandidateLog } from "../../utils/nearbyPlaces";
 import type { PanoramaAttempt } from "../../services/outdoorPanoramaSelection";
 import type { ReplayInput } from "../../utils/lastMetersReplay";
@@ -101,6 +104,8 @@ export interface lastMetersTestLogInterface {
     snapshotTime: number;
     failureKinds: string[];
   };
+  /** Privacy-preserving compass vs visual heading conflict diagnostics. */
+  headingSourcesDisagree?: HeadingSourcesDisagreeDiagnostics;
   walkingEvidence?: WalkingEvidence;
   panoramaTargetHeading?: number;
   confidenceMethod?: "heuristic-not-calibrated";
@@ -228,6 +233,7 @@ const LastMetersTestLogSchema = new Schema<lastMetersTestLogInterface>({
   captureGpsFreshness: Schema.Types.Mixed,
   gpsAccuracy: Schema.Types.Mixed,
   turnedSinceCapture: Schema.Types.Mixed,
+  headingSourcesDisagree: Schema.Types.Mixed,
   walkingEvidence: Schema.Types.Mixed,
   panoramaTargetHeading: Number,
   confidenceMethod: String,
