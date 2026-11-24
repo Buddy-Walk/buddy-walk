@@ -2,8 +2,11 @@ import { createLastMetersModuleTimer } from "../utils/lastMetersTiming";
 import type { textRequestBody } from "../types";
 import {
   captureGpsFreshnessDiagnostics,
+  currentGpsAvailabilityDiagnostics,
+  missingCaptureMetadataFields,
   RECAPTURE_MESSAGE,
   type CaptureGpsFreshnessDiagnostics,
+  type CurrentGpsAvailabilityDiagnostics,
 } from "../../src/utils/lastMetersSafety";
 import type { LastMetersGuidancePolicy, LastMetersGuidanceContext } from "../utils/lastMetersGuidancePolicy";
 import type { WalkingEvidence } from "../utils/lastMetersPolicy";
@@ -92,6 +95,12 @@ export interface TrialFacts {
   confidence?: Pick<LastMetersConfidence, "level"> & Partial<LastMetersConfidence>;
   walkingEvidence: WalkingEvidence;
   safetyReasons: string[];
+  /** Field names only when capture_metadata_missing fires; never coordinates or payloads. */
+  captureMetadataMissingFields?: string[];
+  /** Guidance policy version noted alongside metadata diagnostics. */
+  guidancePolicyVersion?: string;
+  /** Capture vs current GPS availability flags — never coordinate payloads. */
+  currentGpsAvailability?: CurrentGpsAvailabilityDiagnostics;
   /** Ages/domains only when capture_gps_stale fires — never coordinates. */
   captureGpsFreshness?: CaptureGpsFreshnessDiagnostics;
 }
@@ -197,12 +206,30 @@ export class LastMetersTrial {
     options?: { evaluatedAt?: number },
   ): Promise<LastMetersRunResult> {
     const safetyReasons = [...new Set(reasons)];
+    // Field names / availability / freshness flags only — never coordinates or raw payloads.
     const evaluatedAt = options?.evaluatedAt ?? this.startedAt;
+    const captureMetadataMissingFields = safetyReasons.includes("capture_metadata_missing")
+      ? missingCaptureMetadataFields(this.request.sensors)
+      : undefined;
+    const currentGpsAvailability = safetyReasons.includes("current_gps_unavailable")
+      ? currentGpsAvailabilityDiagnostics(
+          this.request.sensors,
+          { lat: this.request.lat, lng: this.request.lng },
+          this.options.retry?.replayInput.receivedAt ?? this.startedAt,
+        )
+      : undefined;
     const captureGpsFreshness = safetyReasons.includes("capture_gps_stale") && this.request.sensors
       ? captureGpsFreshnessDiagnostics(this.request.sensors, evaluatedAt)
       : undefined;
     this.note({
       safetyReasons,
+      ...(captureMetadataMissingFields
+        ? {
+            captureMetadataMissingFields,
+            guidancePolicyVersion: this.policy.version,
+          }
+        : {}),
+      ...(currentGpsAvailability ? { currentGpsAvailability } : {}),
       ...(captureGpsFreshness ? { captureGpsFreshness } : {}),
     });
     const output = this.withheldMessage(safetyReasons, message);
@@ -290,6 +317,13 @@ export class LastMetersTrial {
     return {
       replayInput: this.replayInput,
       safetyReasons: facts.safetyReasons,
+      ...(facts.captureMetadataMissingFields
+        ? { captureMetadataMissingFields: facts.captureMetadataMissingFields }
+        : {}),
+      ...(facts.guidancePolicyVersion
+        ? { guidancePolicyVersion: facts.guidancePolicyVersion }
+        : {}),
+      ...(facts.currentGpsAvailability ? { currentGpsAvailability: facts.currentGpsAvailability } : {}),
       ...(facts.captureGpsFreshness ? { captureGpsFreshness: facts.captureGpsFreshness } : {}),
       walkingEvidence: facts.walkingEvidence,
       panoramaTargetHeading: facts.panoramaTargetHeading,
