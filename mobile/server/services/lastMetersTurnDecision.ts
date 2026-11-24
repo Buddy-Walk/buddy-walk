@@ -25,6 +25,12 @@ export interface TurnDecisionInput {
   turnReasons: LastMetersGuidancePolicy["turnReasons"];
   /** The guidance policy's sensor checks, judged once the walking route is known. */
   sensorReasons: () => string[];
+  /**
+   * When true, heading agreement was derived only from the photo match — not an
+   * independent compass↔panorama cross-check. Fail-closed orientation corroboration
+   * treats this as a correlated duplicate.
+   */
+  headingDerivedFromPhotoMatchOnly?: boolean;
 }
 
 /** Go ahead with a precise turn, or the reasons to withhold it. */
@@ -65,9 +71,15 @@ export async function decideTurn(trial: LastMetersTrial, input: TurnDecisionInpu
     model: "deterministic-confidence", success: confidence.level === "high",
     error: confidence.level !== "high" ? confidence.reasons.join(" ") : undefined,
   });
+  // Fail closed when agreement is claimed without an independent compass reading,
+  // or when the caller marks heading as photo-match-only (correlated duplicate).
+  const headingDerivedFromPhotoMatchOnly =
+    input.headingDerivedFromPhotoMatchOnly === true ||
+    (comparison.agrees === true && comparison.compassHeading === null);
   const orientationCorroboration = orientationCorroborationDiagnostics({
     photoMatched: panoramaMatched,
     headingAgrees: comparison.agrees,
+    headingDerivedFromPhotoMatchOnly,
   });
   trial.note({ orientationCorroboration });
   trial.step({
@@ -84,6 +96,7 @@ export async function decideTurn(trial: LastMetersTrial, input: TurnDecisionInpu
   trial.note({ walkingEvidence });
   const reasons = input.turnReasons({ confidenceLevel: confidence.level,
     photoMatched: panoramaMatched, headingAgrees: comparison.agrees,
+    headingDerivedFromPhotoMatchOnly,
     compassAccuracy: compassAccuracyLevel, gpsAccuracy: gpsAccuracyMeters, distanceMeters: entrance.distanceMeters,
     entranceListed: entrance.source === "geocoding_entrance",
     visualTargetMatched: visualMatch || signTextMatched || destinationReferenceUsed,
