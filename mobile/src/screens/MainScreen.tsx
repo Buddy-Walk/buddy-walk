@@ -1443,8 +1443,19 @@ export default function MainScreen({ navigation }: Props) {
       const metadata = capturedSensorMetadataRef.current;
       /** Combine the immutable capture timestamps with the latest genuine phone readings. */
       const makeSensors = (): LastMetersSensors | undefined => {
+        // Capture-time metadata must travel even when the live watch has dropped;
+        // otherwise the API collapses current-GPS loss into capture_metadata_missing.
+        if (!metadata) return undefined;
         const latest = locationRef.current;
-        if (!metadata || !latest) return undefined;
+        if (!latest) {
+          return {
+            ...metadata,
+            latestPosition: { lat: NaN, lng: NaN, accuracy: -1, timestamp: Number.NaN },
+            latestHeading: headingRef.current ?? -1,
+            latestHeadingTimestamp: headingTimestampRef.current,
+            latestHeadingReference: headingReferenceRef.current,
+          };
+        }
         return { ...metadata, latestPosition: { lat: latest.coords.latitude, lng: latest.coords.longitude,
           accuracy: latest.coords.accuracy ?? loc?.coords.accuracy ?? -1, timestamp: latest.timestamp },
           latestHeading: headingRef.current ?? -1, latestHeadingTimestamp: headingTimestampRef.current,
