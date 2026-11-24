@@ -87,7 +87,10 @@ test("decideTurn goes ahead from the compared heading when every turn check pass
   const row = await saved();
   assert.deepEqual(
     row.steps.map((step: any) => [step.name, step.response, step.success, step.error]),
-    [["confidence_fusion", "HIGH: 90%", true, undefined]],
+    [
+      ["confidence_fusion", "HIGH: 90%", true, undefined],
+      ["orientation_corroboration", "CORROBORATED", true, undefined],
+    ],
   );
   assert.deepEqual(
     { confidenceLevel: row.confidenceLevel, confidenceScore: Math.round(row.confidenceScore * 100), walkingVerified: row.walkingEvidence.verified, currentHeading: row.currentHeading },
@@ -113,9 +116,28 @@ test("decideTurn withholds the turn when compass and panorama disagree, logging 
   const row = await saved();
   assert.deepEqual(
     row.steps.map((step: any) => [step.name, step.success, step.error]),
-    [["confidence_fusion", false, "Compass and panorama headings disagree."]],
+    [
+      ["confidence_fusion", false, "Compass and panorama headings disagree."],
+      ["orientation_corroboration", false, "orientation_not_corroborated"],
+    ],
   );
   assert.equal(row.confidenceLevel, "low");
+});
+
+test("decideTurn withholds when heading agreement is photo-match-only (correlated duplicate)", async t => {
+  const { decision, saved } = await decide(t, {
+    headingDerivedFromPhotoMatchOnly: true,
+  });
+
+  assert.deepEqual(decision, { kind: "withhold", reasons: ["orientation_not_corroborated"] });
+  const row = await saved();
+  assert.equal(row.orientationCorroboration?.corroborated, false);
+  assert.ok(
+    row.orientationCorroboration?.sources?.some(
+      (s: { status: string }) => s.status === "correlated_duplicate",
+    ),
+    "orientation diagnostics must mark the heading source as correlated_duplicate",
+  );
 });
 
 test("decideTurn turns from the guidance policy's heading when it has one", async t => {

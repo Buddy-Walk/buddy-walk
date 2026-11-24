@@ -13,7 +13,7 @@ import {
   type TurnedSinceCaptureDiagnostics,
 } from "../../src/utils/lastMetersSafety";
 import type { LastMetersGuidancePolicy, LastMetersGuidanceContext } from "../utils/lastMetersGuidancePolicy";
-import type { WalkingEvidence } from "../utils/lastMetersPolicy";
+import type { OrientationCorroborationDiagnostics, WalkingEvidence } from "../utils/lastMetersPolicy";
 import {
   LAST_METERS_PIPELINE_VERSION,
   buildReplayInput,
@@ -114,6 +114,8 @@ export interface TrialFacts {
   turnedSinceCapture?: TurnedSinceCaptureDiagnostics;
   /** Compass vs visual heading conflict diagnostics — never lat/lng. */
   headingSourcesDisagree?: HeadingSourcesDisagreeDiagnostics;
+  /** Independent-evidence report for orientation (#75). */
+  orientationCorroboration?: OrientationCorroborationDiagnostics;
 }
 
 /** How a run ended, saved alongside the facts. */
@@ -355,6 +357,7 @@ export class LastMetersTrial {
       ...(facts.gpsAccuracy ? { gpsAccuracy: facts.gpsAccuracy } : {}),
       ...(facts.turnedSinceCapture ? { turnedSinceCapture: facts.turnedSinceCapture } : {}),
       ...(facts.headingSourcesDisagree ? { headingSourcesDisagree: facts.headingSourcesDisagree } : {}),
+      ...(facts.orientationCorroboration ? { orientationCorroboration: facts.orientationCorroboration } : {}),
       walkingEvidence: facts.walkingEvidence,
       panoramaTargetHeading: facts.panoramaTargetHeading,
       confidenceMethod: "heuristic-not-calibrated",

@@ -106,6 +106,13 @@ export interface lastMetersTestLogInterface {
   };
   /** Privacy-preserving compass vs visual heading conflict diagnostics. */
   headingSourcesDisagree?: HeadingSourcesDisagreeDiagnostics;
+  /** Privacy-preserving orientation corroboration diagnostics. */
+  orientationCorroboration?: {
+    reason: "orientation_not_corroborated" | null;
+    corroborated: boolean;
+    sources: Array<{ source: string; role: string; status: string }>;
+    failureKinds?: string[];
+  };
   walkingEvidence?: WalkingEvidence;
   panoramaTargetHeading?: number;
   confidenceMethod?: "heuristic-not-calibrated";
@@ -234,6 +241,7 @@ const LastMetersTestLogSchema = new Schema<lastMetersTestLogInterface>({
   gpsAccuracy: Schema.Types.Mixed,
   turnedSinceCapture: Schema.Types.Mixed,
   headingSourcesDisagree: Schema.Types.Mixed,
+  orientationCorroboration: Schema.Types.Mixed,
   walkingEvidence: Schema.Types.Mixed,
   panoramaTargetHeading: Number,
   confidenceMethod: String,
