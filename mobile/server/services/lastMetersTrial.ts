@@ -1,6 +1,11 @@
 import { createLastMetersModuleTimer } from "../utils/lastMetersTiming";
 import type { textRequestBody } from "../types";
-import { missingCaptureMetadataFields, RECAPTURE_MESSAGE } from "../../src/utils/lastMetersSafety";
+import {
+  currentGpsAvailabilityDiagnostics,
+  missingCaptureMetadataFields,
+  RECAPTURE_MESSAGE,
+  type CurrentGpsAvailabilityDiagnostics,
+} from "../../src/utils/lastMetersSafety";
 import type { LastMetersGuidancePolicy, LastMetersGuidanceContext } from "../utils/lastMetersGuidancePolicy";
 import type { WalkingEvidence } from "../utils/lastMetersPolicy";
 import {
@@ -92,6 +97,8 @@ export interface TrialFacts {
   captureMetadataMissingFields?: string[];
   /** Guidance policy version noted alongside metadata diagnostics. */
   guidancePolicyVersion?: string;
+  /** Capture vs current GPS availability flags — never coordinate payloads. */
+  currentGpsAvailability?: CurrentGpsAvailabilityDiagnostics;
 }
 
 /** How a run ended, saved alongside the facts. */
@@ -187,9 +194,16 @@ export class LastMetersTrial {
   /** Ends the run without a precise turn, saying why in the guidance policy's words. */
   async withhold(reasons: string[], message = RECAPTURE_MESSAGE): Promise<LastMetersRunResult> {
     const safetyReasons = [...new Set(reasons)];
-    // Field names only — never coordinates, images, or raw sensor payloads.
+    // Field names / availability flags only — never coordinates, images, or raw sensor payloads.
     const captureMetadataMissingFields = safetyReasons.includes("capture_metadata_missing")
       ? missingCaptureMetadataFields(this.request.sensors)
+      : undefined;
+    const currentGpsAvailability = safetyReasons.includes("current_gps_unavailable")
+      ? currentGpsAvailabilityDiagnostics(
+          this.request.sensors,
+          { lat: this.request.lat, lng: this.request.lng },
+          this.options.retry?.replayInput.receivedAt ?? this.startedAt,
+        )
       : undefined;
     this.note({
       safetyReasons,
@@ -199,6 +213,7 @@ export class LastMetersTrial {
             guidancePolicyVersion: this.policy.version,
           }
         : {}),
+      ...(currentGpsAvailability ? { currentGpsAvailability } : {}),
     });
     const output = this.withheldMessage(safetyReasons, message);
     this.step({ name: "turn_safety_gate", prompt: "Require sufficient evidence before any precise turn.",
@@ -291,6 +306,7 @@ export class LastMetersTrial {
       ...(facts.guidancePolicyVersion
         ? { guidancePolicyVersion: facts.guidancePolicyVersion }
         : {}),
+      ...(facts.currentGpsAvailability ? { currentGpsAvailability: facts.currentGpsAvailability } : {}),
       walkingEvidence: facts.walkingEvidence,
       panoramaTargetHeading: facts.panoramaTargetHeading,
       confidenceMethod: "heuristic-not-calibrated",

@@ -50,6 +50,18 @@ export interface lastMetersTestLogInterface {
   captureMetadataMissingFields?: string[];
   /** Mobile guidance policy version when capture-metadata diagnostics were noted. */
   guidancePolicyVersion?: string;
+  /** Privacy-preserving current-GPS availability diagnostics. */
+  currentGpsAvailability?: {
+    reason: "current_gps_unavailable" | null;
+    capturePositionValid: boolean;
+    latestPositionPresent: boolean;
+    latestPositionValid: boolean;
+    latestClockDomain: string;
+    latestAgeMs: number | null;
+    maxAgeMs: number;
+    skewToleranceMs: number;
+    failureKinds: string[];
+  };
   walkingEvidence?: WalkingEvidence;
   panoramaTargetHeading?: number;
   confidenceMethod?: "heuristic-not-calibrated";
@@ -173,6 +185,7 @@ const LastMetersTestLogSchema = new Schema<lastMetersTestLogInterface>({
   safetyReasons: [String],
   captureMetadataMissingFields: [String],
   guidancePolicyVersion: String,
+  currentGpsAvailability: Schema.Types.Mixed,
   walkingEvidence: Schema.Types.Mixed,
   panoramaTargetHeading: Number,
   confidenceMethod: String,
