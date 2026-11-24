@@ -64,10 +64,17 @@ export async function decideTurn(trial: LastMetersTrial, input: TurnDecisionInpu
     destinationReferenceVerified: destinationReferenceUsed,
     panoramaAgeYears: streetViewImageryAgeYears(headings.panorama.metadata.date),
   });
-  trial.note({ confidence });
+  trial.note({ confidence, confidenceFusion: confidence.fusion });
   trial.step({
-    name: "confidence_fusion", prompt: "Score independent evidence before the turn safety gate; this is a heuristic, not a calibrated probability.",
-    response: `${confidence.level.toUpperCase()}: ${Math.round(confidence.score * 100)}%`,
+    name: "confidence_fusion",
+    prompt:
+      "Score independent evidence before the turn safety gate; heuristic additive fusion with heading-conflict cap — not a calibrated probability.",
+    response: confidence.fusion
+      ? `${confidence.level.toUpperCase()}: ${Math.round(confidence.score * 100)}% ` +
+        `(rule=${confidence.fusion.combinationRule}; high≥${confidence.fusion.highThreshold}; ` +
+        `slots=${confidence.fusion.independentSlotsApplied.join(",") || "none"}; ` +
+        `hints=${confidence.fusion.hardGateHints.join(",") || "none"})`
+      : `${confidence.level.toUpperCase()}: ${Math.round(confidence.score * 100)}%`,
     model: "deterministic-confidence", success: confidence.level === "high",
     error: confidence.level !== "high" ? confidence.reasons.join(" ") : undefined,
   });

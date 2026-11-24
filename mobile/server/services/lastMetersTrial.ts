@@ -25,6 +25,7 @@ import {
   type compareCompassAndPanoramaHeadings,
   type ExactModeGate,
   type LastMetersConfidence,
+  type ConfidenceFusionDiagnostics,
   type HeadingSourcesDisagreeDiagnostics,
   type LastMetersTestScenario,
 } from "../utils/lastMetersNavigation";
@@ -116,6 +117,8 @@ export interface TrialFacts {
   headingSourcesDisagree?: HeadingSourcesDisagreeDiagnostics;
   /** Independent-evidence report for orientation (#75). */
   orientationCorroboration?: OrientationCorroborationDiagnostics;
+  /** Confidence-fusion provenance (#78). */
+  confidenceFusion?: ConfidenceFusionDiagnostics;
 }
 
 /** How a run ended, saved alongside the facts. */
@@ -358,6 +361,7 @@ export class LastMetersTrial {
       ...(facts.turnedSinceCapture ? { turnedSinceCapture: facts.turnedSinceCapture } : {}),
       ...(facts.headingSourcesDisagree ? { headingSourcesDisagree: facts.headingSourcesDisagree } : {}),
       ...(facts.orientationCorroboration ? { orientationCorroboration: facts.orientationCorroboration } : {}),
+      ...(facts.confidenceFusion ? { confidenceFusion: facts.confidenceFusion } : {}),
       walkingEvidence: facts.walkingEvidence,
       panoramaTargetHeading: facts.panoramaTargetHeading,
       confidenceMethod: "heuristic-not-calibrated",

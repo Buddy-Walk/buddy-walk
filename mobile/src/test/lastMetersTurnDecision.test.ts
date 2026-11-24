@@ -88,7 +88,7 @@ test("decideTurn goes ahead from the compared heading when every turn check pass
   assert.deepEqual(
     row.steps.map((step: any) => [step.name, step.response, step.success, step.error]),
     [
-      ["confidence_fusion", "HIGH: 90%", true, undefined],
+      ["confidence_fusion", "HIGH: 90% (rule=additive_independent_evidence_with_heading_conflict_cap; high≥0.75; slots=gps,panorama_view,heading_cross_check,destination; hints=none)", true, undefined],
       ["orientation_corroboration", "CORROBORATED", true, undefined],
     ],
   );

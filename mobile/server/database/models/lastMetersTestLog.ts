@@ -113,6 +113,14 @@ export interface lastMetersTestLogInterface {
     sources: Array<{ source: string; role: string; status: string }>;
     failureKinds?: string[];
   };
+  /** Privacy-preserving confidence-fusion provenance. */
+  confidenceFusion?: {
+    reason: "confidence_not_high" | null;
+    level?: string;
+    score?: number;
+    components?: unknown[];
+    hardGateHints?: string[];
+  };
   walkingEvidence?: WalkingEvidence;
   panoramaTargetHeading?: number;
   confidenceMethod?: "heuristic-not-calibrated";
@@ -242,6 +250,7 @@ const LastMetersTestLogSchema = new Schema<lastMetersTestLogInterface>({
   turnedSinceCapture: Schema.Types.Mixed,
   headingSourcesDisagree: Schema.Types.Mixed,
   orientationCorroboration: Schema.Types.Mixed,
+  confidenceFusion: Schema.Types.Mixed,
   walkingEvidence: Schema.Types.Mixed,
   panoramaTargetHeading: Number,
   confidenceMethod: String,
