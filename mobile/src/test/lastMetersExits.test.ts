@@ -124,7 +124,10 @@ function comparable(value: unknown): unknown {
 }
 
 /** Run one app request against the faked providers and collect everything it answered and saved. */
-async function runExit(t: TestContext, policy: Policy, world: World, checkTimings?: (timings: LastMetersModuleTimings) => void) {
+async function runExit(
+  t: TestContext, policy: Policy, world: World, checkTimings?: (timings: LastMetersModuleTimings) => void,
+  onModule?: (module: keyof LastMetersModuleTimings) => void,
+) {
   t.mock.timers.enable({ apis: ["Date"], now: NOW });
   setTestEnv(t, { GOOGLE_MAPS_API_KEY: "test-maps", OPENAI_API_KEY: "test-openai" });
   const jpeg = await photoJpeg;
@@ -165,7 +168,9 @@ async function runExit(t: TestContext, policy: Policy, world: World, checkTiming
   });
 
   const result = await services[policy]().runLastMeters(
-    world.request, `data:image/jpeg;base64,${jpeg.toString("base64")}`, { requestPath: "/api/last-meters" },
+    world.request, `data:image/jpeg;base64,${jpeg.toString("base64")}`, {
+      requestPath: "/api/last-meters", onProgress: onModule ? event => onModule(event.module) : undefined,
+    },
   );
   if (result.kind === "response") await result.reviewPanorama;
   // The review promise is not part of the answer, and JSON leaves out undefined.
@@ -422,3 +427,24 @@ for (const policy of ["mobile", "strict"] as const) {
     });
   }
 }
+
+test("the real pipeline emits one progress event per timed module, including parallel matches", async t => {
+  setTestEnv(t, { LAST_METERS_OCCLUSION_AWARE: "false" });
+  const modules: string[] = [];
+  const expected = ["preCheck", "destinationMatch", "currentViewMatch", "turnDecision", "guidance"];
+  const world = verifiedTurnWorld();
+  world.duringGuidance = () => assert.deepEqual(modules, expected);
+  await runExit(t, "strict", world, timings => {
+    assert.deepEqual(new Set(Object.keys(timings)), new Set(expected));
+  }, module => modules.push(module));
+  assert.deepEqual(modules, expected);
+});
+
+test("early safety exit announces only Step 0", async t => {
+  const modules: string[] = [];
+  const world = verifiedTurnWorld();
+  world.request.sensors = undefined;
+  await runExit(t, "strict", world, timings => assert.deepEqual(Object.keys(timings), ["preCheck"]),
+    module => modules.push(module));
+  assert.deepEqual(modules, ["preCheck"]);
+});

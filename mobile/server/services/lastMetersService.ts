@@ -1,5 +1,6 @@
 import { textRequestBody, AppContext } from "../types";
 import dotenv from "dotenv";
+import type { LastMetersProgressEvent } from "../../src/utils/lastMetersProgress";
 import { strictLastMetersGuidancePolicy, type LastMetersGuidancePolicy } from "../utils/lastMetersGuidancePolicy";
 import type { LastMetersRequestInput, ReplayInput } from "../utils/lastMetersReplay";
 import type { RetryPanoramaMode } from "../database/models/lastMetersTestLog";
@@ -35,12 +36,17 @@ export class LastMetersService {
     request: LastMetersRequestInput,
     image: string,
     requestPath: LastMetersPath,
+    progress?: {
+      onProgress: (event: LastMetersProgressEvent) => void;
+      respond: (status: number, body: Record<string, unknown>) => void;
+    },
   ) {
-    const result = await this.runLastMeters(request, image, { requestPath });
+    const result = await this.runLastMeters(request, image, { requestPath, onProgress: progress?.onProgress });
     if (result.kind === "question") {
-      return this.questionService.textRequest(ctx, result.textRequest);
+      return this.questionService.textRequest(ctx, result.textRequest, progress?.respond);
     }
-    ctx.res.status(result.status).json(result.body);
+    if (progress) progress.respond(result.status, result.body);
+    else ctx.res.status(result.status).json(result.body);
   }
 
   /**
@@ -182,6 +188,8 @@ function logRequest(request: LastMetersRequestInput, image: string): void {
 }
 
 export interface LastMetersRunOptions {
+  /** Optional request-scoped observer, used only by the streaming HTTP response. */
+  onProgress?: (event: LastMetersProgressEvent) => void;
   /** Experimental, internal configuration; never populated from the request body. */
   occlusion?: OcclusionOptions;
   /**
