@@ -1,8 +1,19 @@
 import { createLastMetersModuleTimer } from "../utils/lastMetersTiming";
 import type { textRequestBody } from "../types";
-import { RECAPTURE_MESSAGE } from "../../src/utils/lastMetersSafety";
+import {
+  captureGpsFreshnessDiagnostics,
+  currentGpsAvailabilityDiagnostics,
+  gpsAccuracyDiagnostics,
+  missingCaptureMetadataFields,
+  turnedSinceCaptureDiagnostics,
+  RECAPTURE_MESSAGE,
+  type CaptureGpsFreshnessDiagnostics,
+  type CurrentGpsAvailabilityDiagnostics,
+  type GpsAccuracyDiagnostics,
+  type TurnedSinceCaptureDiagnostics,
+} from "../../src/utils/lastMetersSafety";
 import type { LastMetersGuidancePolicy, LastMetersGuidanceContext } from "../utils/lastMetersGuidancePolicy";
-import type { WalkingEvidence } from "../utils/lastMetersPolicy";
+import type { OrientationCorroborationDiagnostics, WalkingEvidence } from "../utils/lastMetersPolicy";
 import {
   LAST_METERS_PIPELINE_VERSION,
   buildReplayInput,
@@ -12,9 +23,10 @@ import {
 import {
   streetViewImageryAgeYears,
   type compareCompassAndPanoramaHeadings,
-  type ConfidenceFusionDiagnostics,
   type ExactModeGate,
   type LastMetersConfidence,
+  type ConfidenceFusionDiagnostics,
+  type HeadingSourcesDisagreeDiagnostics,
   type LastMetersTestScenario,
 } from "../utils/lastMetersNavigation";
 import type { lastMetersTestStepInterface } from "../database/models/lastMetersTestLog";
@@ -89,6 +101,22 @@ export interface TrialFacts {
   confidence?: Pick<LastMetersConfidence, "level"> & Partial<LastMetersConfidence>;
   walkingEvidence: WalkingEvidence;
   safetyReasons: string[];
+  /** Field names only when capture_metadata_missing fires; never coordinates or payloads. */
+  captureMetadataMissingFields?: string[];
+  /** Guidance policy version noted alongside metadata diagnostics. */
+  guidancePolicyVersion?: string;
+  /** Capture vs current GPS availability flags — never coordinate payloads. */
+  currentGpsAvailability?: CurrentGpsAvailabilityDiagnostics;
+  /** Ages/domains only when capture_gps_stale fires — never coordinates. */
+  captureGpsFreshness?: CaptureGpsFreshnessDiagnostics;
+  /** Expo-meter GPS accuracy diagnostics when gps_uncertain fires — never lat/lng. */
+  gpsAccuracy?: GpsAccuracyDiagnostics;
+  /** Angles/ages only — never lat/lng. Present when turned_since_capture withholds. */
+  turnedSinceCapture?: TurnedSinceCaptureDiagnostics;
+  /** Compass vs visual heading conflict diagnostics — never lat/lng. */
+  headingSourcesDisagree?: HeadingSourcesDisagreeDiagnostics;
+  /** Independent-evidence report for orientation (#75). */
+  orientationCorroboration?: OrientationCorroborationDiagnostics;
   /** Confidence-fusion provenance (#78). */
   confidenceFusion?: ConfidenceFusionDiagnostics;
 }
@@ -183,10 +211,59 @@ export class LastMetersTrial {
     }, testLogId, reviewPanorama?.(testLogId));
   }
 
-  /** Ends the run without a precise turn, saying why in the guidance policy's words. */
-  async withhold(reasons: string[], message = RECAPTURE_MESSAGE): Promise<LastMetersRunResult> {
+  /**
+   * Ends the run without a precise turn, saying why in the guidance policy's words.
+   * `evaluatedAt` must be the same clock the safety gate used when producing
+   * `capture_gps_stale` (safetyNow / replay time), not a later wall clock.
+   */
+  async withhold(
+    reasons: string[],
+    message = RECAPTURE_MESSAGE,
+    options?: { evaluatedAt?: number },
+  ): Promise<LastMetersRunResult> {
     const safetyReasons = [...new Set(reasons)];
-    this.note({ safetyReasons });
+    // Field names / availability / freshness flags only — never coordinates or raw payloads.
+    const evaluatedAt = options?.evaluatedAt ?? this.startedAt;
+    const captureMetadataMissingFields = safetyReasons.includes("capture_metadata_missing")
+      ? missingCaptureMetadataFields(this.request.sensors)
+      : undefined;
+    const currentGpsAvailability = safetyReasons.includes("current_gps_unavailable")
+      ? currentGpsAvailabilityDiagnostics(
+          this.request.sensors,
+          { lat: this.request.lat, lng: this.request.lng },
+          this.options.retry?.replayInput.receivedAt ?? this.startedAt,
+        )
+      : undefined;
+    const captureGpsFreshness = safetyReasons.includes("capture_gps_stale") && this.request.sensors
+      ? captureGpsFreshnessDiagnostics(this.request.sensors, evaluatedAt)
+      : undefined;
+    const gpsAccuracy = safetyReasons.includes("gps_uncertain")
+      ? gpsAccuracyDiagnostics(
+          this.request.gpsAccuracyMeters,
+          this.request.sensors?.latestPosition?.accuracy,
+          this.facts.entrance?.distanceMeters,
+        )
+      : undefined;
+    const turnedSinceCapture = safetyReasons.includes("turned_since_capture")
+      ? turnedSinceCaptureDiagnostics(
+          this.request.deviceHeading,
+          this.request.sensors,
+          options?.evaluatedAt ?? this.startedAt,
+        )
+      : undefined;
+    this.note({
+      safetyReasons,
+      ...(captureMetadataMissingFields
+        ? {
+            captureMetadataMissingFields,
+            guidancePolicyVersion: this.policy.version,
+          }
+        : {}),
+      ...(currentGpsAvailability ? { currentGpsAvailability } : {}),
+      ...(captureGpsFreshness ? { captureGpsFreshness } : {}),
+      ...(gpsAccuracy?.reason ? { gpsAccuracy } : {}),
+      ...(turnedSinceCapture?.reason ? { turnedSinceCapture } : {}),
+    });
     const output = this.withheldMessage(safetyReasons, message);
     this.step({ name: "turn_safety_gate", prompt: "Require sufficient evidence before any precise turn.",
       response: safetyReasons.join("; "), model: "deterministic-safety-policy", success: false });
@@ -272,6 +349,18 @@ export class LastMetersTrial {
     return {
       replayInput: this.replayInput,
       safetyReasons: facts.safetyReasons,
+      ...(facts.captureMetadataMissingFields
+        ? { captureMetadataMissingFields: facts.captureMetadataMissingFields }
+        : {}),
+      ...(facts.guidancePolicyVersion
+        ? { guidancePolicyVersion: facts.guidancePolicyVersion }
+        : {}),
+      ...(facts.currentGpsAvailability ? { currentGpsAvailability: facts.currentGpsAvailability } : {}),
+      ...(facts.captureGpsFreshness ? { captureGpsFreshness: facts.captureGpsFreshness } : {}),
+      ...(facts.gpsAccuracy ? { gpsAccuracy: facts.gpsAccuracy } : {}),
+      ...(facts.turnedSinceCapture ? { turnedSinceCapture: facts.turnedSinceCapture } : {}),
+      ...(facts.headingSourcesDisagree ? { headingSourcesDisagree: facts.headingSourcesDisagree } : {}),
+      ...(facts.orientationCorroboration ? { orientationCorroboration: facts.orientationCorroboration } : {}),
       ...(facts.confidenceFusion ? { confidenceFusion: facts.confidenceFusion } : {}),
       walkingEvidence: facts.walkingEvidence,
       panoramaTargetHeading: facts.panoramaTargetHeading,

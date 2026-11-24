@@ -1,3 +1,5 @@
+import { GPS_ACCURACY_MAX_METERS } from "../../src/utils/lastMetersSafety";
+
 export const LAST_METERS_HEADINGS = [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180, 202.5, 225, 247.5, 270, 292.5, 315, 337.5] as const;
 export const LAST_METERS_PANORAMA_FOV_DEGREES = 22.5;
 export const LAST_METERS_EXACT_RADIUS_METERS = 250;
@@ -340,10 +342,109 @@ export function isLastMetersHeadingAligned(
   return lastMetersHeadingDifference(currentHeading, targetHeading) <= toleranceDegrees;
 }
 
+/**
+ * Compass vs visual (panorama-matched) agreement budget.
+ * Do not widen without a Safety Gate review — wrong-direction leakage risk.
+ */
+export const HEADING_SOURCES_AGREEMENT_MAX_DEGREES = 45;
+
+export type HeadingSourceReferenceFrame =
+  | "compass_true_north_snapped"
+  | "compass_magnetic_snapped"
+  | "compass_unknown_snapped"
+  | "panorama_tile_heading";
+
+export type HeadingSourcesDisagreeFailureKind =
+  | "compass_heading_unavailable"
+  | "panorama_heading_unavailable"
+  | "circular_discrepancy_above_max";
+
+export interface HeadingSourcesDisagreeDiagnostics {
+  reason: "heading_sources_disagree" | null;
+  /** Raw device compass before tile snap; null when missing/invalid. */
+  rawCompassHeadingDegrees: number | null;
+  /** Snapped compass used for comparison (authoritative for turns). */
+  compassHeadingDegrees: number | null;
+  panoramaMatchedHeadingDegrees: number | null;
+  circularDiscrepancyDegrees: number | null;
+  maxAgreementDegrees: number;
+  compassReferenceFrame: HeadingSourceReferenceFrame;
+  panoramaReferenceFrame: HeadingSourceReferenceFrame;
+  /** Optional client timestamps when known; ages only — no lat/lng. */
+  compassTimestamp: number | null;
+  panoramaMatchTimestamp: number | null;
+  /** Optional Expo compass accuracy 0–3 when recorded. */
+  compassAccuracyLevel: number | null;
+  failureKinds: HeadingSourcesDisagreeFailureKind[];
+}
+
+/**
+ * Instrument compass vs panorama conflict detection (#74).
+ * Unavailable sources are classified separately from a trusted disagreement.
+ * Threshold remains 45°; wrap-around uses shortest-arc difference after snap.
+ */
+export function headingSourcesDisagreeDiagnostics(
+  deviceHeading: number | undefined,
+  panoramaMatchedHeading: number | null,
+  options?: {
+    agreementToleranceDegrees?: number;
+    compassTimestamp?: number;
+    panoramaMatchTimestamp?: number;
+    compassAccuracyLevel?: number | null;
+    /** Reference of the compass sample actually compared (capture headingReference). */
+    compassReference?: "true" | "magnetic" | "unknown";
+  },
+): HeadingSourcesDisagreeDiagnostics {
+  const maxAgreementDegrees = options?.agreementToleranceDegrees ?? HEADING_SOURCES_AGREEMENT_MAX_DEGREES;
+  const failureKinds: HeadingSourcesDisagreeFailureKind[] = [];
+  const rawOk = typeof deviceHeading === "number" && Number.isFinite(deviceHeading);
+  const rawCompassHeadingDegrees = rawOk ? deviceHeading : null;
+  const compassHeadingDegrees = rawOk ? snapLastMetersHeading(deviceHeading!) : null;
+  if (compassHeadingDegrees === null) failureKinds.push("compass_heading_unavailable");
+
+  const panoramaOk = typeof panoramaMatchedHeading === "number" && Number.isFinite(panoramaMatchedHeading);
+  const panoramaMatchedHeadingDegrees = panoramaOk ? panoramaMatchedHeading : null;
+  if (panoramaMatchedHeadingDegrees === null) failureKinds.push("panorama_heading_unavailable");
+
+  let circularDiscrepancyDegrees: number | null = null;
+  if (compassHeadingDegrees !== null && panoramaMatchedHeadingDegrees !== null) {
+    circularDiscrepancyDegrees = lastMetersHeadingDifference(
+      compassHeadingDegrees,
+      panoramaMatchedHeadingDegrees,
+    );
+    if (circularDiscrepancyDegrees > maxAgreementDegrees) {
+      failureKinds.push("circular_discrepancy_above_max");
+    }
+  }
+
+  const accuracy = options?.compassAccuracyLevel;
+  const compassReferenceFrame: HeadingSourceReferenceFrame =
+    options?.compassReference === "magnetic" ? "compass_magnetic_snapped"
+      : options?.compassReference === "unknown" ? "compass_unknown_snapped"
+        : "compass_true_north_snapped";
+  return {
+    reason: failureKinds.includes("circular_discrepancy_above_max") ? "heading_sources_disagree" : null,
+    rawCompassHeadingDegrees,
+    compassHeadingDegrees,
+    panoramaMatchedHeadingDegrees,
+    circularDiscrepancyDegrees,
+    maxAgreementDegrees,
+    compassReferenceFrame,
+    panoramaReferenceFrame: "panorama_tile_heading",
+    compassTimestamp: Number.isFinite(options?.compassTimestamp) ? options!.compassTimestamp! : null,
+    panoramaMatchTimestamp: Number.isFinite(options?.panoramaMatchTimestamp)
+      ? options!.panoramaMatchTimestamp!
+      : null,
+    compassAccuracyLevel:
+      typeof accuracy === "number" && Number.isFinite(accuracy) ? accuracy : null,
+    failureKinds: [...new Set(failureKinds)],
+  };
+}
+
 export function compareCompassAndPanoramaHeadings(
   deviceHeading: number | undefined,
   panoramaMatchedHeading: number | null,
-  agreementToleranceDegrees = 45
+  agreementToleranceDegrees = HEADING_SOURCES_AGREEMENT_MAX_DEGREES
 ): {
   compassHeading: number | null;
   panoramaMatchedHeading: number | null;
@@ -351,20 +452,16 @@ export function compareCompassAndPanoramaHeadings(
   differenceDegrees?: number;
   agrees?: boolean;
 } {
-  const compassHeading =
-    typeof deviceHeading === "number" && Number.isFinite(deviceHeading)
-      ? snapLastMetersHeading(deviceHeading)
-      : null;
-  const differenceDegrees =
-    compassHeading !== null && panoramaMatchedHeading !== null
-      ? lastMetersHeadingDifference(compassHeading, panoramaMatchedHeading)
-      : undefined;
+  const diag = headingSourcesDisagreeDiagnostics(deviceHeading, panoramaMatchedHeading, {
+    agreementToleranceDegrees,
+  });
+  const differenceDegrees = diag.circularDiscrepancyDegrees ?? undefined;
 
   return {
-    compassHeading,
-    panoramaMatchedHeading,
+    compassHeading: diag.compassHeadingDegrees,
+    panoramaMatchedHeading: diag.panoramaMatchedHeadingDegrees,
     // Panorama is logged for evaluation but can never control guidance.
-    authoritativeHeading: compassHeading,
+    authoritativeHeading: diag.compassHeadingDegrees,
     differenceDegrees,
     agrees:
       differenceDegrees === undefined
@@ -458,7 +555,8 @@ export function resolveExactModeGate(
   }
   const accuracyKnown = typeof gpsAccuracyMeters === "number" && Number.isFinite(gpsAccuracyMeters) && gpsAccuracyMeters >= 0;
   const allowanceMeters = 0;
-  const exact = accuracyKnown && gpsAccuracyMeters <= 20 && distanceMeters + gpsAccuracyMeters <= LAST_METERS_EXACT_RADIUS_METERS;
+  const exact = accuracyKnown && gpsAccuracyMeters <= GPS_ACCURACY_MAX_METERS &&
+    distanceMeters + gpsAccuracyMeters <= LAST_METERS_EXACT_RADIUS_METERS;
   return {
     exact,
     allowanceMeters,
