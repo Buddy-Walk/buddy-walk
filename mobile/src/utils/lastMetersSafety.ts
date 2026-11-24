@@ -26,8 +26,22 @@ export type CaptureMetadataField =
   | "latestHeadingTimestamp"
   | "latestHeadingReference";
 
+/** Documented capture-GPS freshness policy (milliseconds). Do not relax without a Safety Gate review. */
+export const CAPTURE_GPS_MAX_AGE_MS = 60_000;
+export const CAPTURE_GPS_PHOTO_ALIGNMENT_MS = 10_000;
 export const CURRENT_GPS_MAX_AGE_MS = 15_000;
 export const SENSOR_CLOCK_SKEW_TOLERANCE_MS = 2_000;
+
+export type EpochClockDomain = "unix_ms" | "suspected_unix_seconds" | "invalid";
+
+/** Classify epoch units without converting — mismatched domains must not authorize a turn. */
+export function inferEpochClockDomain(value: number): EpochClockDomain {
+  if (!Number.isFinite(value) || value <= 0) return "invalid";
+  // Unix seconds for 2001–2286 sit near 1e9–1e10; JS Date.now() ms sits near 1e12–1e13.
+  if (value >= 1_000_000_000 && value < 100_000_000_000) return "suspected_unix_seconds";
+  if (value >= 100_000_000_000) return "unix_ms";
+  return "invalid";
+}
 
 export type CurrentGpsErrorReason =
   | "capture_position_invalid"
@@ -44,18 +58,86 @@ export interface CurrentGpsAvailabilityDiagnostics {
   capturePositionValid: boolean;
   latestPositionPresent: boolean;
   latestPositionValid: boolean;
-  latestClockDomain: "unix_ms" | "suspected_unix_seconds" | "invalid";
+  latestClockDomain: EpochClockDomain;
   latestAgeMs: number | null;
   maxAgeMs: number;
   skewToleranceMs: number;
   failureKinds: CurrentGpsErrorReason[];
 }
 
-function inferEpochClockDomain(value: number): CurrentGpsAvailabilityDiagnostics["latestClockDomain"] {
-  if (!Number.isFinite(value) || value <= 0) return "invalid";
-  if (value >= 1_000_000_000 && value < 100_000_000_000) return "suspected_unix_seconds";
-  if (value >= 100_000_000_000) return "unix_ms";
-  return "invalid";
+export interface CaptureGpsFreshnessDiagnostics {
+  reason: "capture_gps_stale" | null;
+  photoClockDomain: EpochClockDomain;
+  gpsClockDomain: EpochClockDomain;
+  /** Age of capture GPS vs evaluation clock; null when GPS timestamp is not usable as ms. */
+  gpsAgeMs: number | null;
+  /** Absolute gap between photo and GPS sample clocks; null when either domain is unusable. */
+  photoGpsDeltaMs: number | null;
+  maxAgeMs: number;
+  photoAlignmentMs: number;
+  skewToleranceMs: number;
+  failureKinds: Array<
+    | "gps_timestamp_invalid"
+    | "gps_clock_domain_mismatch"
+    | "gps_older_than_max_age"
+    | "gps_in_future_beyond_skew"
+    | "photo_gps_misaligned"
+  >;
+}
+
+function ageMs(reference: number, sample: number): number {
+  return reference - sample;
+}
+
+/**
+ * Privacy-preserving capture-GPS freshness report.
+ * Returns ages and domains only — never coordinates or accuracy meters.
+ */
+export function captureGpsFreshnessDiagnostics(
+  sensors: LastMetersSensors,
+  now = Date.now(),
+): CaptureGpsFreshnessDiagnostics {
+  const photoClockDomain = inferEpochClockDomain(sensors.photoCapturedAt);
+  const gpsClockDomain = inferEpochClockDomain(sensors.positionTimestamp);
+  const failureKinds: CaptureGpsFreshnessDiagnostics["failureKinds"] = [];
+
+  if (gpsClockDomain === "invalid") failureKinds.push("gps_timestamp_invalid");
+  if (
+    gpsClockDomain === "suspected_unix_seconds" ||
+    (photoClockDomain !== "invalid" && gpsClockDomain !== "invalid" && photoClockDomain !== gpsClockDomain)
+  ) {
+    failureKinds.push("gps_clock_domain_mismatch");
+  }
+
+  const gpsUsable = gpsClockDomain === "unix_ms";
+  const photoUsable = photoClockDomain === "unix_ms";
+  const gpsAgeMs = gpsUsable ? ageMs(now, sensors.positionTimestamp) : null;
+  const photoGpsDeltaMs = gpsUsable && photoUsable
+    ? Math.abs(sensors.photoCapturedAt - sensors.positionTimestamp)
+    : null;
+
+  if (gpsUsable) {
+    if (sensors.positionTimestamp > now + SENSOR_CLOCK_SKEW_TOLERANCE_MS) {
+      failureKinds.push("gps_in_future_beyond_skew");
+    } else if (gpsAgeMs! > CAPTURE_GPS_MAX_AGE_MS) {
+      failureKinds.push("gps_older_than_max_age");
+    }
+  }
+  if (photoGpsDeltaMs !== null && photoGpsDeltaMs > CAPTURE_GPS_PHOTO_ALIGNMENT_MS) {
+    failureKinds.push("photo_gps_misaligned");
+  }
+
+  return {
+    reason: failureKinds.length ? "capture_gps_stale" : null,
+    photoClockDomain,
+    gpsClockDomain,
+    gpsAgeMs,
+    photoGpsDeltaMs,
+    maxAgeMs: CAPTURE_GPS_MAX_AGE_MS,
+    photoAlignmentMs: CAPTURE_GPS_PHOTO_ALIGNMENT_MS,
+    skewToleranceMs: SENSOR_CLOCK_SKEW_TOLERANCE_MS,
+    failureKinds,
+  };
 }
 
 export function validPoint(point: { lat: number; lng: number }): boolean {
@@ -166,11 +248,10 @@ export function sensorSafetyReasons(
   const reasons: string[] = [];
   const fresh = (time: number, age: number, reference = now) =>
     Number.isFinite(time) && time <= reference + SENSOR_CLOCK_SKEW_TOLERANCE_MS && reference - time <= age;
-  if (!fresh(ready.photoCapturedAt, 60_000)) reasons.push("photo_stale");
-  if (!fresh(ready.positionTimestamp, 60_000) || Math.abs(ready.photoCapturedAt - ready.positionTimestamp) > 10_000) {
-    reasons.push("capture_gps_stale");
-  }
-  if (!fresh(ready.headingTimestamp, 60_000) || Math.abs(ready.photoCapturedAt - ready.headingTimestamp) > 5000) {
+  if (!fresh(ready.photoCapturedAt, CAPTURE_GPS_MAX_AGE_MS)) reasons.push("photo_stale");
+  if (captureGpsFreshnessDiagnostics(ready, now).reason) reasons.push("capture_gps_stale");
+  if (!fresh(ready.headingTimestamp, CAPTURE_GPS_MAX_AGE_MS) ||
+      Math.abs(ready.photoCapturedAt - ready.headingTimestamp) > 5000) {
     reasons.push("capture_heading_stale");
   }
   if (ready.headingReference !== "true" || ready.latestHeadingReference !== "true") reasons.push("true_north_unavailable");

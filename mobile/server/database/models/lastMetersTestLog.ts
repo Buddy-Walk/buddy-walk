@@ -62,6 +62,18 @@ export interface lastMetersTestLogInterface {
     skewToleranceMs: number;
     failureKinds: string[];
   };
+  /** Privacy-preserving capture-GPS freshness ages and clock domains. */
+  captureGpsFreshness?: {
+    reason: "capture_gps_stale" | null;
+    photoClockDomain: string;
+    gpsClockDomain: string;
+    gpsAgeMs: number | null;
+    photoGpsDeltaMs: number | null;
+    maxAgeMs: number;
+    photoAlignmentMs: number;
+    skewToleranceMs: number;
+    failureKinds: string[];
+  };
   walkingEvidence?: WalkingEvidence;
   panoramaTargetHeading?: number;
   confidenceMethod?: "heuristic-not-calibrated";
@@ -186,6 +198,7 @@ const LastMetersTestLogSchema = new Schema<lastMetersTestLogInterface>({
   captureMetadataMissingFields: [String],
   guidancePolicyVersion: String,
   currentGpsAvailability: Schema.Types.Mixed,
+  captureGpsFreshness: Schema.Types.Mixed,
   walkingEvidence: Schema.Types.Mixed,
   panoramaTargetHeading: Number,
   confidenceMethod: String,

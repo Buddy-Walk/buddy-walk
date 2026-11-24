@@ -1,9 +1,11 @@
 import { createLastMetersModuleTimer } from "../utils/lastMetersTiming";
 import type { textRequestBody } from "../types";
 import {
+  captureGpsFreshnessDiagnostics,
   currentGpsAvailabilityDiagnostics,
   missingCaptureMetadataFields,
   RECAPTURE_MESSAGE,
+  type CaptureGpsFreshnessDiagnostics,
   type CurrentGpsAvailabilityDiagnostics,
 } from "../../src/utils/lastMetersSafety";
 import type { LastMetersGuidancePolicy, LastMetersGuidanceContext } from "../utils/lastMetersGuidancePolicy";
@@ -99,6 +101,8 @@ export interface TrialFacts {
   guidancePolicyVersion?: string;
   /** Capture vs current GPS availability flags — never coordinate payloads. */
   currentGpsAvailability?: CurrentGpsAvailabilityDiagnostics;
+  /** Ages/domains only when capture_gps_stale fires — never coordinates. */
+  captureGpsFreshness?: CaptureGpsFreshnessDiagnostics;
 }
 
 /** How a run ended, saved alongside the facts. */
@@ -191,10 +195,19 @@ export class LastMetersTrial {
     }, testLogId, reviewPanorama?.(testLogId));
   }
 
-  /** Ends the run without a precise turn, saying why in the guidance policy's words. */
-  async withhold(reasons: string[], message = RECAPTURE_MESSAGE): Promise<LastMetersRunResult> {
+  /**
+   * Ends the run without a precise turn, saying why in the guidance policy's words.
+   * `evaluatedAt` must be the same clock the safety gate used when producing
+   * `capture_gps_stale` (safetyNow / replay time), not a later wall clock.
+   */
+  async withhold(
+    reasons: string[],
+    message = RECAPTURE_MESSAGE,
+    options?: { evaluatedAt?: number },
+  ): Promise<LastMetersRunResult> {
     const safetyReasons = [...new Set(reasons)];
-    // Field names / availability flags only — never coordinates, images, or raw sensor payloads.
+    // Field names / availability / freshness flags only — never coordinates or raw payloads.
+    const evaluatedAt = options?.evaluatedAt ?? this.startedAt;
     const captureMetadataMissingFields = safetyReasons.includes("capture_metadata_missing")
       ? missingCaptureMetadataFields(this.request.sensors)
       : undefined;
@@ -205,6 +218,9 @@ export class LastMetersTrial {
           this.options.retry?.replayInput.receivedAt ?? this.startedAt,
         )
       : undefined;
+    const captureGpsFreshness = safetyReasons.includes("capture_gps_stale") && this.request.sensors
+      ? captureGpsFreshnessDiagnostics(this.request.sensors, evaluatedAt)
+      : undefined;
     this.note({
       safetyReasons,
       ...(captureMetadataMissingFields
@@ -214,6 +230,7 @@ export class LastMetersTrial {
           }
         : {}),
       ...(currentGpsAvailability ? { currentGpsAvailability } : {}),
+      ...(captureGpsFreshness ? { captureGpsFreshness } : {}),
     });
     const output = this.withheldMessage(safetyReasons, message);
     this.step({ name: "turn_safety_gate", prompt: "Require sufficient evidence before any precise turn.",
@@ -307,6 +324,7 @@ export class LastMetersTrial {
         ? { guidancePolicyVersion: facts.guidancePolicyVersion }
         : {}),
       ...(facts.currentGpsAvailability ? { currentGpsAvailability: facts.currentGpsAvailability } : {}),
+      ...(facts.captureGpsFreshness ? { captureGpsFreshness: facts.captureGpsFreshness } : {}),
       walkingEvidence: facts.walkingEvidence,
       panoramaTargetHeading: facts.panoramaTargetHeading,
       confidenceMethod: "heuristic-not-calibrated",

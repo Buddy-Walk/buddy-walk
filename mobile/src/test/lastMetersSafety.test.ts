@@ -5,6 +5,10 @@ import {
   missingCaptureMetadataFields,
   currentGpsAvailabilityDiagnostics,
   CURRENT_GPS_MAX_AGE_MS,
+  captureGpsFreshnessDiagnostics,
+  inferEpochClockDomain,
+  CAPTURE_GPS_MAX_AGE_MS,
+  CAPTURE_GPS_PHOTO_ALIGNMENT_MS,
   LastMetersSensors,
   bearingBetween,
 } from "../utils/lastMetersSafety";
@@ -87,19 +91,61 @@ test("current GPS diagnostics separate capture accuracy from live availability",
     .failureKinds.includes("capture_position_invalid"));
   assert.deepEqual(sensorSafetyReasons(sensors(), origin, 1, 5, now), []);
 });
-test("Oct 16 style missing current GPS with capture accuracy still blocks precise turns", () => {
+test("capture GPS freshness diagnostics stay privacy-preserving and keep thresholds", () => {
+  assert.equal(inferEpochClockDomain(now), "unix_ms");
+  assert.equal(inferEpochClockDomain(Math.floor(now / 1000)), "suspected_unix_seconds");
+  assert.equal(captureGpsFreshnessDiagnostics(sensors(), now).reason, null);
+  const stale = captureGpsFreshnessDiagnostics({ ...sensors(), positionTimestamp: now - 11_000 }, now);
+  assert.equal(stale.reason, "capture_gps_stale");
+  assert.ok(stale.failureKinds.includes("photo_gps_misaligned"));
+  assert.equal(stale.photoAlignmentMs, CAPTURE_GPS_PHOTO_ALIGNMENT_MS);
+  assert.equal(stale.maxAgeMs, CAPTURE_GPS_MAX_AGE_MS);
+  assert.equal("lat" in stale, false);
+  const seconds = captureGpsFreshnessDiagnostics({
+    ...sensors(), positionTimestamp: Math.floor(now / 1000),
+  }, now);
+  assert.equal(seconds.reason, "capture_gps_stale");
+  assert.ok(seconds.failureKinds.includes("gps_clock_domain_mismatch"));
+  assert.ok(sensorSafetyReasons({
+    ...sensors(), positionTimestamp: Math.floor(now / 1000),
+  }, origin, 1, 5, now).includes("capture_gps_stale"));
+  // Wall-clock skew within tolerance does not fire; beyond skew does.
+  assert.equal(
+    sensorSafetyReasons({ ...sensors(), positionTimestamp: now + 1500 }, origin, 1, 5, now).includes("capture_gps_stale"),
+    false,
+  );
+  assert.ok(sensorSafetyReasons({ ...sensors(), positionTimestamp: now + 3000 }, origin, 1, 5, now)
+    .includes("capture_gps_stale"));
+  // App-resume style: fresh photo clock with old GPS sample aligned poorly.
+  assert.ok(sensorSafetyReasons({
+    ...sensors(), photoCapturedAt: now, positionTimestamp: now - 30_000,
+  }, origin, 1, 5, now).includes("capture_gps_stale"));
+  // Max-age alone: GPS older than 60s but still within photo alignment.
+  const agedAligned = { ...sensors(), photoCapturedAt: now - 61_000, positionTimestamp: now - 61_000 };
+  assert.ok(sensorSafetyReasons(agedAligned, origin, 1, 5, now).includes("capture_gps_stale"));
+  const agedDiag = captureGpsFreshnessDiagnostics(agedAligned, now);
+  assert.equal(agedDiag.reason, "capture_gps_stale");
+  assert.ok(agedDiag.failureKinds.includes("gps_older_than_max_age"));
+  assert.equal(agedDiag.failureKinds.includes("photo_gps_misaligned"), false);
+  assert.ok((agedDiag.gpsAgeMs ?? 0) > CAPTURE_GPS_MAX_AGE_MS);
+  assert.ok((agedDiag.photoGpsDeltaMs ?? 999) <= CAPTURE_GPS_PHOTO_ALIGNMENT_MS);
+});
+test("Oct 16 style co-occurring stale capture GPS and unavailable current GPS still withhold", () => {
   const reasons = sensorSafetyReasons({
     ...sensors(),
     positionTimestamp: now - 30_000,
     latestPosition: { ...origin, accuracy: 13, timestamp: now - 30_000 },
   }, origin, 1, 13, now);
-  assert.ok(reasons.includes("current_gps_unavailable"));
   assert.ok(reasons.includes("capture_gps_stale"));
-  assert.ok(preciseTurnReasons({
+  assert.ok(reasons.includes("current_gps_unavailable"));
+  const withheld = preciseTurnReasons({
     confidenceLevel: "high", photoMatched: true, headingAgrees: true, compassAccuracy: 3,
     gpsAccuracy: 13, distanceMeters: 50, entranceListed: true, visualTargetMatched: true,
     walking: { verified: true, reason: "ok" }, sensorReasons: reasons,
-  }).includes("current_gps_unavailable"));
+  });
+  assert.ok(withheld.includes("current_gps_unavailable"));
+  assert.ok(withheld.includes("capture_gps_stale"));
+  assert.ok(withheld.length >= 2);
 });
 const leg = () => ({ start_location: origin, end_location: target, distance: { value: 50 },
   steps: [{ travel_mode: "WALKING", start_location: origin, end_location: target }] });
