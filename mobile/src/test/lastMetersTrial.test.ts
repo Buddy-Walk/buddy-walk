@@ -7,6 +7,7 @@ import { lastMetersTestLogService } from "../../server/services/lastMetersTestLo
 import { mobileLastMetersGuidancePolicy, strictLastMetersGuidancePolicy } from "../../server/utils/lastMetersGuidancePolicy";
 import type { VerifiedNearbyDestination } from "../../server/services/verifiedDestination";
 import type { LastMetersRequestInput, ReplayInput } from "../../server/utils/lastMetersReplay";
+import { captureGpsFreshnessDiagnostics } from "../utils/lastMetersSafety";
 
 const NOW = Date.parse("2026-10-27T12:00:00Z");
 const REQUEST: LastMetersRequestInput = {
@@ -218,6 +219,77 @@ test("a replay links to its original, keeps its snapshot and saves no photo of i
   });
 });
 
+test("capture GPS freshness diagnostics use the gate evaluation clock, not startedAt", async t => {
+  const rows = recordTrials(t);
+  const startedAt = NOW;
+  const lateEvaluatedAt = startedAt + 2_000;
+  const captureAt = startedAt - 59_000;
+  const sensors = {
+    photoCapturedAt: captureAt,
+    positionTimestamp: captureAt,
+    headingTimestamp: captureAt,
+    headingReference: "true" as const,
+    latestPosition: { lat: 40.7, lng: -74, accuracy: 5, timestamp: lateEvaluatedAt },
+    latestHeading: 90,
+    latestHeadingTimestamp: lateEvaluatedAt,
+    latestHeadingReference: "true" as const,
+  };
+  const trial = new LastMetersTrial({
+    request: { ...REQUEST, sensors },
+    image: "data:image/jpeg;base64,AAAA",
+    options: {},
+    policy: strictLastMetersGuidancePolicy,
+  });
+
+  // At startedAt the sample is still within max age; 2s later the late check withholds.
+  assert.equal(captureGpsFreshnessDiagnostics(sensors, startedAt).reason, null);
+  assert.equal(captureGpsFreshnessDiagnostics(sensors, lateEvaluatedAt).reason, "capture_gps_stale");
+
+  await trial.withhold(["capture_gps_stale"], undefined, { evaluatedAt: lateEvaluatedAt });
+
+  assert.deepEqual(rows[0].safetyReasons, ["capture_gps_stale"]);
+  const freshness = rows[0].captureGpsFreshness as { reason?: string } | undefined;
+  assert.equal(freshness?.reason, "capture_gps_stale");
+});
+
+test("mobile policy capture-GPS diagnostics stay on the receipt clock, not a later route wait", async t => {
+  const rows = recordTrials(t);
+  const receiptAt = NOW;
+  const afterRouteAt = receiptAt + 2_000;
+  const captureAt = receiptAt - 61_000;
+  const sensors = {
+    photoCapturedAt: captureAt,
+    positionTimestamp: captureAt,
+    headingTimestamp: captureAt,
+    headingReference: "true" as const,
+    latestPosition: { lat: 40.7, lng: -74, accuracy: 5, timestamp: receiptAt },
+    latestHeading: 90,
+    latestHeadingTimestamp: receiptAt,
+    latestHeadingReference: "true" as const,
+  };
+  // Mobile turnSensorReasons freezes capture freshness at snapshotTime (receipt).
+  const gateReasons = mobileLastMetersGuidancePolicy.turnSensorReasons(
+    sensors, { lat: 40.7, lng: -74 }, 90, 5, afterRouteAt, receiptAt,
+  );
+  assert.ok(gateReasons.includes("capture_gps_stale"));
+  const atReceipt = captureGpsFreshnessDiagnostics(sensors, receiptAt);
+  const afterRoute = captureGpsFreshnessDiagnostics(sensors, afterRouteAt);
+  assert.equal(atReceipt.reason, "capture_gps_stale");
+  assert.equal(atReceipt.gpsAgeMs, 61_000);
+  assert.equal(afterRoute.gpsAgeMs, 63_000);
+
+  const trial = new LastMetersTrial({
+    request: { ...REQUEST, sensors },
+    image: "data:image/jpeg;base64,AAAA",
+    options: {},
+    policy: mobileLastMetersGuidancePolicy,
+  });
+  await trial.withhold(["capture_gps_stale"], undefined, { evaluatedAt: receiptAt });
+  const freshness = rows[0].captureGpsFreshness as { reason?: string; gpsAgeMs?: number | null };
+  assert.equal(freshness.reason, "capture_gps_stale");
+  assert.equal(freshness.gpsAgeMs, 61_000, "saved diagnostics must match the mobile gate clock");
+});
+
 test("withholding a turn saves the reasons and words the answer with the guidance policy", async t => {
   const rows = recordTrials(t);
   const trial = new LastMetersTrial({
@@ -243,6 +315,22 @@ test("withholding a turn saves the reasons and words the answer with the guidanc
   );
   assert.deepEqual(rows[0].steps, [{ name: "turn_safety_gate", prompt: "Require sufficient evidence before any precise turn.",
     response: "gps_uncertain", model: "deterministic-safety-policy", success: false }]);
+  const gpsAccuracy = rows[0].gpsAccuracy as { unit?: string; reason?: string; distanceMeters?: number | null };
+  assert.equal(gpsAccuracy.unit, "meters");
+  assert.equal(gpsAccuracy.reason, "gps_uncertain");
+  assert.equal(gpsAccuracy.distanceMeters, 48);
+});
+
+test("withholding for missing capture metadata saves field-name diagnostics", async t => {
+  const rows = recordTrials(t);
+  const trial = new LastMetersTrial({
+    request: REQUEST, image: "data:image/jpeg;base64,AAAA", options: {}, policy: mobileLastMetersGuidancePolicy,
+  });
+  const result = await trial.withhold(["capture_metadata_missing"]);
+  assert.equal(result.kind, "response");
+  assert.deepEqual(rows[0].safetyReasons, ["capture_metadata_missing"]);
+  assert.deepEqual(rows[0].captureMetadataMissingFields, ["sensors"]);
+  assert.equal(rows[0].guidancePolicyVersion, mobileLastMetersGuidancePolicy.version);
 });
 
 test("a failed run answers 502 naming the stage it was in", async t => {
@@ -260,4 +348,39 @@ test("a failed run answers 502 naming the stage it was in", async t => {
     body: { error: "Last Meters failed during current-view matching: upstream returned HTTP 429." },
   });
   assert.deepEqual({ success: rows[0].success, error: rows[0].error }, { success: false, error: "Rate limited" });
+});
+
+test("withholding turned_since_capture persists heading delta diagnostics (#71)", async t => {
+  const rows = recordTrials(t);
+  const request: LastMetersRequestInput = {
+    ...REQUEST,
+    deviceHeading: 0,
+    sensors: {
+      photoCapturedAt: NOW,
+      positionTimestamp: NOW,
+      headingTimestamp: NOW,
+      headingReference: "true",
+      latestPosition: { lat: 40.7, lng: -74, accuracy: 5, timestamp: NOW },
+      latestHeading: 90,
+      latestHeadingTimestamp: NOW,
+      latestHeadingReference: "true",
+      latestHeadingAccuracyLevel: 3,
+    },
+  };
+  const trial = new LastMetersTrial({
+    request, image: "data:image/jpeg;base64,AAAA", options: {}, policy: strictLastMetersGuidancePolicy,
+  });
+  const result = await trial.withhold(["turned_since_capture"], undefined, { evaluatedAt: NOW });
+  assert.equal(result.kind, "response");
+  const diag = rows[0].turnedSinceCapture as {
+    reason?: string; circularDeltaDegrees?: number; maxDeltaDegrees?: number;
+    captureHeadingDegrees?: number; latestHeadingDegrees?: number; latestHeadingAccuracyLevel?: number | null;
+  };
+  assert.equal(diag.reason, "turned_since_capture");
+  assert.equal(diag.circularDeltaDegrees, 90);
+  assert.equal(diag.maxDeltaDegrees, 15);
+  assert.equal(diag.captureHeadingDegrees, 0);
+  assert.equal(diag.latestHeadingDegrees, 90);
+  assert.equal(diag.latestHeadingAccuracyLevel, 3);
+  assert.deepEqual(rows[0].safetyReasons, ["turned_since_capture"]);
 });
