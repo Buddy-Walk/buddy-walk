@@ -86,6 +86,21 @@ export interface lastMetersTestLogInterface {
     bearingBudgetSin: number;
     failureKinds: string[];
   };
+  /** Privacy-preserving turned_since_capture heading delta diagnostics. */
+  turnedSinceCapture?: {
+    reason: "turned_since_capture" | null;
+    captureHeadingDegrees: number | null;
+    latestHeadingDegrees: number | null;
+    circularDeltaDegrees: number | null;
+    maxDeltaDegrees: number;
+    captureHeadingTimestamp: number | null;
+    latestHeadingTimestamp: number | null;
+    captureHeadingAgeMs: number | null;
+    latestHeadingAgeMs: number | null;
+    latestHeadingAccuracyLevel: number | null;
+    snapshotTime: number;
+    failureKinds: string[];
+  };
   walkingEvidence?: WalkingEvidence;
   panoramaTargetHeading?: number;
   confidenceMethod?: "heuristic-not-calibrated";
@@ -212,6 +227,7 @@ const LastMetersTestLogSchema = new Schema<lastMetersTestLogInterface>({
   currentGpsAvailability: Schema.Types.Mixed,
   captureGpsFreshness: Schema.Types.Mixed,
   gpsAccuracy: Schema.Types.Mixed,
+  turnedSinceCapture: Schema.Types.Mixed,
   walkingEvidence: Schema.Types.Mixed,
   panoramaTargetHeading: Number,
   confidenceMethod: String,

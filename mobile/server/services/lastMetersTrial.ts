@@ -5,10 +5,12 @@ import {
   currentGpsAvailabilityDiagnostics,
   gpsAccuracyDiagnostics,
   missingCaptureMetadataFields,
+  turnedSinceCaptureDiagnostics,
   RECAPTURE_MESSAGE,
   type CaptureGpsFreshnessDiagnostics,
   type CurrentGpsAvailabilityDiagnostics,
   type GpsAccuracyDiagnostics,
+  type TurnedSinceCaptureDiagnostics,
 } from "../../src/utils/lastMetersSafety";
 import type { LastMetersGuidancePolicy, LastMetersGuidanceContext } from "../utils/lastMetersGuidancePolicy";
 import type { WalkingEvidence } from "../utils/lastMetersPolicy";
@@ -107,6 +109,8 @@ export interface TrialFacts {
   captureGpsFreshness?: CaptureGpsFreshnessDiagnostics;
   /** Expo-meter GPS accuracy diagnostics when gps_uncertain fires — never lat/lng. */
   gpsAccuracy?: GpsAccuracyDiagnostics;
+  /** Angles/ages only — never lat/lng. Present when turned_since_capture withholds. */
+  turnedSinceCapture?: TurnedSinceCaptureDiagnostics;
 }
 
 /** How a run ended, saved alongside the facts. */
@@ -232,6 +236,13 @@ export class LastMetersTrial {
           this.facts.entrance?.distanceMeters,
         )
       : undefined;
+    const turnedSinceCapture = safetyReasons.includes("turned_since_capture")
+      ? turnedSinceCaptureDiagnostics(
+          this.request.deviceHeading,
+          this.request.sensors,
+          options?.evaluatedAt ?? this.startedAt,
+        )
+      : undefined;
     this.note({
       safetyReasons,
       ...(captureMetadataMissingFields
@@ -243,6 +254,7 @@ export class LastMetersTrial {
       ...(currentGpsAvailability ? { currentGpsAvailability } : {}),
       ...(captureGpsFreshness ? { captureGpsFreshness } : {}),
       ...(gpsAccuracy?.reason ? { gpsAccuracy } : {}),
+      ...(turnedSinceCapture?.reason ? { turnedSinceCapture } : {}),
     });
     const output = this.withheldMessage(safetyReasons, message);
     this.step({ name: "turn_safety_gate", prompt: "Require sufficient evidence before any precise turn.",
@@ -338,6 +350,7 @@ export class LastMetersTrial {
       ...(facts.currentGpsAvailability ? { currentGpsAvailability: facts.currentGpsAvailability } : {}),
       ...(facts.captureGpsFreshness ? { captureGpsFreshness: facts.captureGpsFreshness } : {}),
       ...(facts.gpsAccuracy ? { gpsAccuracy: facts.gpsAccuracy } : {}),
+      ...(facts.turnedSinceCapture ? { turnedSinceCapture: facts.turnedSinceCapture } : {}),
       walkingEvidence: facts.walkingEvidence,
       panoramaTargetHeading: facts.panoramaTargetHeading,
       confidenceMethod: "heuristic-not-calibrated",

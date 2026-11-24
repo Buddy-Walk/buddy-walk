@@ -12,6 +12,8 @@ import {
   gpsAccuracyDiagnostics,
   GPS_ACCURACY_MAX_METERS,
   GPS_ACCURACY_BEARING_SIN,
+  turnedSinceCaptureDiagnostics,
+  TURNED_SINCE_CAPTURE_MAX_DEGREES,
   LastMetersSensors,
   bearingBetween,
 } from "../utils/lastMetersSafety";
@@ -73,6 +75,19 @@ test("gps_uncertain co-occurs with movement and bearing gates without dropping e
   assert.ok(bearing.includes("gps_uncertain"));
   assert.ok(bearing.includes("bearing_uncertainty_too_large"));
 });
+
+test("turned_since_capture diagnostics keep 15° threshold and wraparound", () => {
+  assert.equal(TURNED_SINCE_CAPTURE_MAX_DEGREES, 15);
+  assert.equal(turnedSinceCaptureDiagnostics(1, sensors(), now).reason, null);
+  const rotated = turnedSinceCaptureDiagnostics(1, { ...sensors(), latestHeading: 90 }, now);
+  assert.equal(rotated.reason, "turned_since_capture");
+  assert.ok((rotated.circularDeltaDegrees ?? 0) > 15);
+  assert.equal("lat" in rotated, false);
+  // Wraparound: 359 vs 1 is 2°, not turned.
+  assert.equal(turnedSinceCaptureDiagnostics(359, sensors(), now).reason, null);
+  assert.ok(sensorSafetyReasons({ ...sensors(), latestHeading: 90 }, origin, 1, 5, now).includes("turned_since_capture"));
+});
+
 test("sensor gate rejects missing, old, future, magnetic, moved and rotated readings", () => {
   assert.deepEqual(sensorSafetyReasons(undefined, origin, 1, 5, now), ["capture_metadata_missing"]);
   for (const [patch, reason] of [

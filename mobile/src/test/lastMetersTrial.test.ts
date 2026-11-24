@@ -349,3 +349,38 @@ test("a failed run answers 502 naming the stage it was in", async t => {
   });
   assert.deepEqual({ success: rows[0].success, error: rows[0].error }, { success: false, error: "Rate limited" });
 });
+
+test("withholding turned_since_capture persists heading delta diagnostics (#71)", async t => {
+  const rows = recordTrials(t);
+  const request: LastMetersRequestInput = {
+    ...REQUEST,
+    deviceHeading: 0,
+    sensors: {
+      photoCapturedAt: NOW,
+      positionTimestamp: NOW,
+      headingTimestamp: NOW,
+      headingReference: "true",
+      latestPosition: { lat: 40.7, lng: -74, accuracy: 5, timestamp: NOW },
+      latestHeading: 90,
+      latestHeadingTimestamp: NOW,
+      latestHeadingReference: "true",
+      latestHeadingAccuracyLevel: 3,
+    },
+  };
+  const trial = new LastMetersTrial({
+    request, image: "data:image/jpeg;base64,AAAA", options: {}, policy: strictLastMetersGuidancePolicy,
+  });
+  const result = await trial.withhold(["turned_since_capture"], undefined, { evaluatedAt: NOW });
+  assert.equal(result.kind, "response");
+  const diag = rows[0].turnedSinceCapture as {
+    reason?: string; circularDeltaDegrees?: number; maxDeltaDegrees?: number;
+    captureHeadingDegrees?: number; latestHeadingDegrees?: number; latestHeadingAccuracyLevel?: number | null;
+  };
+  assert.equal(diag.reason, "turned_since_capture");
+  assert.equal(diag.circularDeltaDegrees, 90);
+  assert.equal(diag.maxDeltaDegrees, 15);
+  assert.equal(diag.captureHeadingDegrees, 0);
+  assert.equal(diag.latestHeadingDegrees, 90);
+  assert.equal(diag.latestHeadingAccuracyLevel, 3);
+  assert.deepEqual(rows[0].safetyReasons, ["turned_since_capture"]);
+});
