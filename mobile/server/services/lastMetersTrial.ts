@@ -3,10 +3,12 @@ import type { textRequestBody } from "../types";
 import {
   captureGpsFreshnessDiagnostics,
   currentGpsAvailabilityDiagnostics,
+  gpsAccuracyDiagnostics,
   missingCaptureMetadataFields,
   RECAPTURE_MESSAGE,
   type CaptureGpsFreshnessDiagnostics,
   type CurrentGpsAvailabilityDiagnostics,
+  type GpsAccuracyDiagnostics,
 } from "../../src/utils/lastMetersSafety";
 import type { LastMetersGuidancePolicy, LastMetersGuidanceContext } from "../utils/lastMetersGuidancePolicy";
 import type { WalkingEvidence } from "../utils/lastMetersPolicy";
@@ -103,6 +105,8 @@ export interface TrialFacts {
   currentGpsAvailability?: CurrentGpsAvailabilityDiagnostics;
   /** Ages/domains only when capture_gps_stale fires — never coordinates. */
   captureGpsFreshness?: CaptureGpsFreshnessDiagnostics;
+  /** Expo-meter GPS accuracy diagnostics when gps_uncertain fires — never lat/lng. */
+  gpsAccuracy?: GpsAccuracyDiagnostics;
 }
 
 /** How a run ended, saved alongside the facts. */
@@ -221,6 +225,13 @@ export class LastMetersTrial {
     const captureGpsFreshness = safetyReasons.includes("capture_gps_stale") && this.request.sensors
       ? captureGpsFreshnessDiagnostics(this.request.sensors, evaluatedAt)
       : undefined;
+    const gpsAccuracy = safetyReasons.includes("gps_uncertain")
+      ? gpsAccuracyDiagnostics(
+          this.request.gpsAccuracyMeters,
+          this.request.sensors?.latestPosition?.accuracy,
+          this.facts.entrance?.distanceMeters,
+        )
+      : undefined;
     this.note({
       safetyReasons,
       ...(captureMetadataMissingFields
@@ -231,6 +242,7 @@ export class LastMetersTrial {
         : {}),
       ...(currentGpsAvailability ? { currentGpsAvailability } : {}),
       ...(captureGpsFreshness ? { captureGpsFreshness } : {}),
+      ...(gpsAccuracy?.reason ? { gpsAccuracy } : {}),
     });
     const output = this.withheldMessage(safetyReasons, message);
     this.step({ name: "turn_safety_gate", prompt: "Require sufficient evidence before any precise turn.",
@@ -325,6 +337,7 @@ export class LastMetersTrial {
         : {}),
       ...(facts.currentGpsAvailability ? { currentGpsAvailability: facts.currentGpsAvailability } : {}),
       ...(facts.captureGpsFreshness ? { captureGpsFreshness: facts.captureGpsFreshness } : {}),
+      ...(facts.gpsAccuracy ? { gpsAccuracy: facts.gpsAccuracy } : {}),
       walkingEvidence: facts.walkingEvidence,
       panoramaTargetHeading: facts.panoramaTargetHeading,
       confidenceMethod: "heuristic-not-calibrated",

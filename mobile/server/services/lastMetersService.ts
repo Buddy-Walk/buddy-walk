@@ -127,6 +127,7 @@ export class LastMetersService {
           turnEvaluatedAt = safetyNow();
           return guidancePolicy.turnSensorReasons(
             sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, turnEvaluatedAt, evaluationTime,
+            entrance.distanceMeters,
           );
         },
       }));
@@ -145,6 +146,7 @@ export class LastMetersService {
       const lateEvaluatedAt = safetyNow();
       const lateReasons = guidancePolicy.turnSensorReasons(
         sensors, { lat, lng }, deviceHeading, gpsAccuracyMeters, lateEvaluatedAt, evaluationTime,
+        entrance.distanceMeters,
       );
       if (lateReasons.length) {
         return await trial.withhold(lateReasons, RECAPTURE_MESSAGE, {

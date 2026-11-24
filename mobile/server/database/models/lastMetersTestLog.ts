@@ -74,6 +74,18 @@ export interface lastMetersTestLogInterface {
     skewToleranceMs: number;
     failureKinds: string[];
   };
+  /** Privacy-preserving Expo-meter GPS accuracy diagnostics. */
+  gpsAccuracy?: {
+    reason: "gps_uncertain" | null;
+    unit: "meters";
+    maxAccuracyMeters: number;
+    captureAccuracyMeters: number | null;
+    latestAccuracyMeters: number | null;
+    distanceMeters: number | null;
+    accuracyDistanceRatio: number | null;
+    bearingBudgetSin: number;
+    failureKinds: string[];
+  };
   walkingEvidence?: WalkingEvidence;
   panoramaTargetHeading?: number;
   confidenceMethod?: "heuristic-not-calibrated";
@@ -199,6 +211,7 @@ const LastMetersTestLogSchema = new Schema<lastMetersTestLogInterface>({
   guidancePolicyVersion: String,
   currentGpsAvailability: Schema.Types.Mixed,
   captureGpsFreshness: Schema.Types.Mixed,
+  gpsAccuracy: Schema.Types.Mixed,
   walkingEvidence: Schema.Types.Mixed,
   panoramaTargetHeading: Number,
   confidenceMethod: String,
