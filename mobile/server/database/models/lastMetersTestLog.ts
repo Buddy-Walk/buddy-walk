@@ -6,7 +6,6 @@ import type { PlaceCandidateLog } from "../../utils/nearbyPlaces";
 import type { PanoramaAttempt } from "../../services/outdoorPanoramaSelection";
 import type { ReplayInput } from "../../utils/lastMetersReplay";
 import type { WalkingEvidence } from "../../utils/lastMetersPolicy";
-import type { GpsAccuracyDiagnostics } from "../../../src/utils/lastMetersSafety";
 import { LAST_METERS_PATHS, type LastMetersPath } from "../../config/lastMetersPaths";
 
 export const REVIEW_OUTCOMES = ["got_there", "needed_retake", "would_not_get_there"] as const;
@@ -47,8 +46,46 @@ export interface lastMetersTestLogInterface {
   /** Versioned snapshot of exactly what the pipeline received. */
   replayInput?: ReplayInput;
   safetyReasons?: string[];
-  /** Privacy-preserving GPS accuracy gate diagnostics (meters / ratios only). */
-  gpsAccuracy?: GpsAccuracyDiagnostics;
+  /** Privacy-preserving names of missing capture metadata fields. */
+  captureMetadataMissingFields?: string[];
+  /** Mobile guidance policy version when capture-metadata diagnostics were noted. */
+  guidancePolicyVersion?: string;
+  /** Privacy-preserving current-GPS availability diagnostics. */
+  currentGpsAvailability?: {
+    reason: "current_gps_unavailable" | null;
+    capturePositionValid: boolean;
+    latestPositionPresent: boolean;
+    latestPositionValid: boolean;
+    latestClockDomain: string;
+    latestAgeMs: number | null;
+    maxAgeMs: number;
+    skewToleranceMs: number;
+    failureKinds: string[];
+  };
+  /** Privacy-preserving capture-GPS freshness ages and clock domains. */
+  captureGpsFreshness?: {
+    reason: "capture_gps_stale" | null;
+    photoClockDomain: string;
+    gpsClockDomain: string;
+    gpsAgeMs: number | null;
+    photoGpsDeltaMs: number | null;
+    maxAgeMs: number;
+    photoAlignmentMs: number;
+    skewToleranceMs: number;
+    failureKinds: string[];
+  };
+  /** Privacy-preserving Expo-meter GPS accuracy diagnostics. */
+  gpsAccuracy?: {
+    reason: "gps_uncertain" | null;
+    unit: "meters";
+    maxAccuracyMeters: number;
+    captureAccuracyMeters: number | null;
+    latestAccuracyMeters: number | null;
+    distanceMeters: number | null;
+    accuracyDistanceRatio: number | null;
+    bearingBudgetSin: number;
+    failureKinds: string[];
+  };
   walkingEvidence?: WalkingEvidence;
   panoramaTargetHeading?: number;
   confidenceMethod?: "heuristic-not-calibrated";
@@ -170,6 +207,10 @@ const LastMetersTestLogSchema = new Schema<lastMetersTestLogInterface>({
   retryDefaultsApplied: [{ type: String }],
   replayInput: Schema.Types.Mixed,
   safetyReasons: [String],
+  captureMetadataMissingFields: [String],
+  guidancePolicyVersion: String,
+  currentGpsAvailability: Schema.Types.Mixed,
+  captureGpsFreshness: Schema.Types.Mixed,
   gpsAccuracy: Schema.Types.Mixed,
   walkingEvidence: Schema.Types.Mixed,
   panoramaTargetHeading: Number,

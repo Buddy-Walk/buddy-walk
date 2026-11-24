@@ -1,8 +1,13 @@
 import { createLastMetersModuleTimer } from "../utils/lastMetersTiming";
 import type { textRequestBody } from "../types";
 import {
+  captureGpsFreshnessDiagnostics,
+  currentGpsAvailabilityDiagnostics,
   gpsAccuracyDiagnostics,
+  missingCaptureMetadataFields,
   RECAPTURE_MESSAGE,
+  type CaptureGpsFreshnessDiagnostics,
+  type CurrentGpsAvailabilityDiagnostics,
   type GpsAccuracyDiagnostics,
 } from "../../src/utils/lastMetersSafety";
 import type { LastMetersGuidancePolicy, LastMetersGuidanceContext } from "../utils/lastMetersGuidancePolicy";
@@ -92,7 +97,15 @@ export interface TrialFacts {
   confidence?: Pick<LastMetersConfidence, "level"> & Partial<LastMetersConfidence>;
   walkingEvidence: WalkingEvidence;
   safetyReasons: string[];
-  /** Ages/ratios only — never lat/lng. Present when gps_uncertain withholds. */
+  /** Field names only when capture_metadata_missing fires; never coordinates or payloads. */
+  captureMetadataMissingFields?: string[];
+  /** Guidance policy version noted alongside metadata diagnostics. */
+  guidancePolicyVersion?: string;
+  /** Capture vs current GPS availability flags — never coordinate payloads. */
+  currentGpsAvailability?: CurrentGpsAvailabilityDiagnostics;
+  /** Ages/domains only when capture_gps_stale fires — never coordinates. */
+  captureGpsFreshness?: CaptureGpsFreshnessDiagnostics;
+  /** Expo-meter GPS accuracy diagnostics when gps_uncertain fires — never lat/lng. */
   gpsAccuracy?: GpsAccuracyDiagnostics;
 }
 
@@ -186,9 +199,32 @@ export class LastMetersTrial {
     }, testLogId, reviewPanorama?.(testLogId));
   }
 
-  /** Ends the run without a precise turn, saying why in the guidance policy's words. */
-  async withhold(reasons: string[], message = RECAPTURE_MESSAGE): Promise<LastMetersRunResult> {
+  /**
+   * Ends the run without a precise turn, saying why in the guidance policy's words.
+   * `evaluatedAt` must be the same clock the safety gate used when producing
+   * `capture_gps_stale` (safetyNow / replay time), not a later wall clock.
+   */
+  async withhold(
+    reasons: string[],
+    message = RECAPTURE_MESSAGE,
+    options?: { evaluatedAt?: number },
+  ): Promise<LastMetersRunResult> {
     const safetyReasons = [...new Set(reasons)];
+    // Field names / availability / freshness flags only — never coordinates or raw payloads.
+    const evaluatedAt = options?.evaluatedAt ?? this.startedAt;
+    const captureMetadataMissingFields = safetyReasons.includes("capture_metadata_missing")
+      ? missingCaptureMetadataFields(this.request.sensors)
+      : undefined;
+    const currentGpsAvailability = safetyReasons.includes("current_gps_unavailable")
+      ? currentGpsAvailabilityDiagnostics(
+          this.request.sensors,
+          { lat: this.request.lat, lng: this.request.lng },
+          this.options.retry?.replayInput.receivedAt ?? this.startedAt,
+        )
+      : undefined;
+    const captureGpsFreshness = safetyReasons.includes("capture_gps_stale") && this.request.sensors
+      ? captureGpsFreshnessDiagnostics(this.request.sensors, evaluatedAt)
+      : undefined;
     const gpsAccuracy = safetyReasons.includes("gps_uncertain")
       ? gpsAccuracyDiagnostics(
           this.request.gpsAccuracyMeters,
@@ -198,6 +234,14 @@ export class LastMetersTrial {
       : undefined;
     this.note({
       safetyReasons,
+      ...(captureMetadataMissingFields
+        ? {
+            captureMetadataMissingFields,
+            guidancePolicyVersion: this.policy.version,
+          }
+        : {}),
+      ...(currentGpsAvailability ? { currentGpsAvailability } : {}),
+      ...(captureGpsFreshness ? { captureGpsFreshness } : {}),
       ...(gpsAccuracy?.reason ? { gpsAccuracy } : {}),
     });
     const output = this.withheldMessage(safetyReasons, message);
@@ -285,6 +329,14 @@ export class LastMetersTrial {
     return {
       replayInput: this.replayInput,
       safetyReasons: facts.safetyReasons,
+      ...(facts.captureMetadataMissingFields
+        ? { captureMetadataMissingFields: facts.captureMetadataMissingFields }
+        : {}),
+      ...(facts.guidancePolicyVersion
+        ? { guidancePolicyVersion: facts.guidancePolicyVersion }
+        : {}),
+      ...(facts.currentGpsAvailability ? { currentGpsAvailability: facts.currentGpsAvailability } : {}),
+      ...(facts.captureGpsFreshness ? { captureGpsFreshness: facts.captureGpsFreshness } : {}),
       ...(facts.gpsAccuracy ? { gpsAccuracy: facts.gpsAccuracy } : {}),
       walkingEvidence: facts.walkingEvidence,
       panoramaTargetHeading: facts.panoramaTargetHeading,

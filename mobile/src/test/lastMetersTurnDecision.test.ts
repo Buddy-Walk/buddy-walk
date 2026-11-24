@@ -156,3 +156,33 @@ test("a verified experimental entrance still obeys GPS, orientation and movement
     for (const reason of ["gps_uncertain", "moved_since_capture", "turned_since_capture"]) assert.ok(decision.reasons.includes(reason));
   }
 });
+
+test("sensorReasons runs after the walking-route lookup so freshness uses the later clock", async t => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOW });
+  setTestEnv(t, { GOOGLE_MAPS_API_KEY: "test-maps" });
+  t.mock.method(axios, "get", async (url: string) => {
+    if (!url.includes("/directions/")) return assert.fail(`Unexpected Google request: ${url}`);
+    // Simulate a slow Directions response before sensorReasons runs.
+    t.mock.timers.tick(2_000);
+    return { data: ROUTE };
+  });
+  t.mock.method(lastMetersTestLogService, "record", async () => "trial-1");
+  const trial = new LastMetersTrial({
+    request: REQUEST, image: "data:image/jpeg;base64,AAAA",
+    options: {}, policy: strictLastMetersGuidancePolicy,
+  });
+  let sensorReasonsAt = 0;
+  const decision = await decideTurn(trial, {
+    request: REQUEST,
+    entrance: { source: "geocoding_entrance", location: NEAR, distanceMeters: 50 },
+    headings: HEADINGS,
+    guidanceHeading: undefined,
+    turnReasons: strictLastMetersGuidancePolicy.turnReasons,
+    sensorReasons: () => {
+      sensorReasonsAt = Date.now();
+      return [];
+    },
+  });
+  assert.equal(decision.kind, "go_ahead");
+  assert.equal(sensorReasonsAt, NOW + 2_000, "freshness clock must include the route-lookup wait");
+});
