@@ -31,6 +31,7 @@ import lastMetersTestLogModel from "./database/models/lastMetersTestLog";
 import { lastMetersRetryRunService } from "./services/lastMetersRetryRuns";
 import { startRenderKeepAlive } from "./utils/keepAlive";
 import { mountSentryDebugRoute } from "./utils/sentryDebugRoute";
+import { resolveBuildRevision } from "./utils/buildRevision";
 
 dotenv.config();
 
@@ -171,6 +172,9 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
       upstreamTextOk: upstreamText.ok,
       upstreamTextStatus: upstreamText.status || undefined,
       lastMetersCapable: canRunLocalLastMeters(),
+      // Additive runtime identity for deploy provenance (#188). Null when the
+      // host does not inject a commit env (clients must tolerate absence).
+      gitSha: resolveBuildRevision(),
     });
   });
 

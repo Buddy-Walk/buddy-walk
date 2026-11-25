@@ -20,6 +20,7 @@ on:
       - ".github/scripts/required-checks.mjs"
       - ".github/scripts/required-checks.test.mjs"
       - ".github/scripts/wait-for-required-checks.mjs"
+      - ".github/scripts/verify-health-revision.mjs"
   workflow_dispatch:
 
 permissions:
@@ -89,24 +90,14 @@ jobs:
           curl -fsS -X GET "$DEPLOY_HOOK_URL"
 
       - name: Post-deploy health verification
-        run: |
-          set -euo pipefail
-          URL="https://buddy-walk-api.onrender.com/api/health"
-          # Allow Render build to start before accepting a health response so an
-          # immediately-healthy prior revision is less likely to false-green.
-          # /api/health does not yet expose git SHA; revision binding needs a
-          # separate authorized change (health payload or Render API).
-          echo "Settling 90s before health polls for candidate ${{ github.sha }}"
-          sleep 90
-          for attempt in $(seq 1 20); do
-            echo "Health attempt $attempt..."
-            if curl -fsS --max-time 90 "$URL"; then
-              echo
-              echo "Post-deploy health OK (API up). Candidate SHA ${{ github.sha }} was tip-checked before hook; live revision identity is not in /api/health yet."
-              exit 0
-            fi
-            echo "Health failed — waiting 30s"
-            sleep 30
-          done
-          echo "Post-deploy health failed after retries (fail closed)" >&2
-          exit 1
+        env:
+          HEALTH_URL: https://buddy-walk-api.onrender.com/api/health
+          EXPECTED_SHA: ${{ github.sha }}
+          # Soft by default until Render API SHA pin + first gitSha-bearing
+          # revision are authorized/proven. Set repository variable
+          # ENFORCE_HEALTH_GIT_SHA=1 to fail closed on missing/mismatch.
+          ENFORCE_HEALTH_GIT_SHA: ${{ vars.ENFORCE_HEALTH_GIT_SHA }}
+          SETTLE_SECONDS: "90"
+          ATTEMPTS: "20"
+          SLEEP_SECONDS: "30"
+        run: node .github/scripts/verify-health-revision.mjs
