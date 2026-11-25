@@ -60,21 +60,18 @@ jobs:
       group: deploy-buddy-walk-api-hook-main
       cancel-in-progress: false
     steps:
-      - name: Re-assert tip of main before hook (push only)
-        if: github.event_name == 'push'
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Re-assert required checks still green on candidate SHA
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          tip="$(curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/main" | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{const j=JSON.parse(s); process.stdout.write(j.sha||'')})")"
-          echo "tip=$tip candidate=$GITHUB_SHA"
-          if [ "$tip" != "$GITHUB_SHA" ]; then
-            echo "Tip skew immediately before hook (fail closed)" >&2
-            exit 3
-          fi
+          REQUIRED_CHECKS: backend team-console
+          ONCE: "1"
+          REQUIRE_TIP_OF_REF: ${{ github.event_name == 'push' && 'main' || '' }}
+        run: node .github/scripts/wait-for-required-checks.mjs
 
       - name: Trigger Render deploy
         env:

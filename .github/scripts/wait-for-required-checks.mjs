@@ -33,6 +33,7 @@ const required = (process.env.REQUIRED_CHECKS || "backend team-console")
 const timeoutSec = Number(process.env.TIMEOUT_SECONDS || 1500);
 const pollSec = Number(process.env.POLL_SECONDS || 15);
 const tipRef = process.env.REQUIRE_TIP_OF_REF || "";
+const once = process.env.ONCE === "1" || process.env.ONCE === "true";
 
 if (!token || !repo || !sha) {
   console.error("GITHUB_TOKEN, GITHUB_REPOSITORY, and GITHUB_SHA are required");
@@ -102,7 +103,7 @@ await assertTip();
 
 for (;;) {
   const elapsed = (Date.now() - started) / 1000;
-  if (elapsed > timeoutSec) {
+  if (!once && elapsed > timeoutSec) {
     console.error("Timed out waiting for required checks (fail closed)");
     process.exit(2);
   }
@@ -112,13 +113,17 @@ for (;;) {
     runs = await fetchCheckRuns();
   } catch (err) {
     console.error(String(err));
+    if (once) {
+      console.error("ONCE mode: API error (fail closed)");
+      process.exit(2);
+    }
     await new Promise((r) => setTimeout(r, pollSec * 1000));
     continue;
   }
 
   const { runs: byName, ambiguous } = latestByName(runs);
   const result = evaluateRequiredChecks(required, byName, ambiguous);
-  console.log(JSON.stringify({ elapsedSec: Math.round(elapsed), ambiguous, ...result }));
+  console.log(JSON.stringify({ elapsedSec: Math.round(elapsed), once, ambiguous, ...result }));
 
   if (result.reason === "failed") {
     console.error("Required check failed or ambiguous (fail closed)");
@@ -128,6 +133,10 @@ for (;;) {
     await assertTip();
     console.log("All required checks succeeded on candidate SHA");
     process.exit(0);
+  }
+  if (once) {
+    console.error("ONCE mode: required checks not currently successful (fail closed)");
+    process.exit(2);
   }
 
   await new Promise((r) => setTimeout(r, pollSec * 1000));
