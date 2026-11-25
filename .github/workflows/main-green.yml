@@ -1,0 +1,37 @@
+# Exact-SHA required-check diagnostics (issue #190).
+# Does not deploy. Ignores GitHub Pages. Fail closed.
+name: Main green
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Commit SHA to verify (full or unique prefix)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  checks: read
+  actions: read
+
+jobs:
+  main-green:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Unit-test required-check helpers
+        run: node --test .github/scripts/required-checks.test.mjs
+
+      - name: Run main-green against input SHA
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REQUIRED_CHECKS: backend team-console
+          TIMEOUT_SECONDS: "600"
+          POLL_SECONDS: "15"
+          MAIN_GREEN_SHA: ${{ inputs.sha }}
+        run: node .github/scripts/main-green.mjs --sha "$MAIN_GREEN_SHA"
