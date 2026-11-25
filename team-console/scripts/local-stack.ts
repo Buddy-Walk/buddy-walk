@@ -106,8 +106,8 @@ function run(name: string, file: string, args: string[], stdinText?: string): Pr
       cwd: consoleDir,
     });
     let output = "";
-    child.stdout.on("data", (chunk) => (output += chunk));
-    child.stderr.on("data", (chunk) => (output += chunk));
+    child.stdout?.on("data", (chunk) => (output += chunk));
+    child.stderr?.on("data", (chunk) => (output += chunk));
     child.on("error", (error) => void fail(`${name} could not start: ${error.message}`));
     child.on("exit", (code) => {
       if (code === 0) resolve();
