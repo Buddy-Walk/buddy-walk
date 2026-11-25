@@ -1,6 +1,13 @@
 # Render's GitHub app is not installed on the Buddy-Walk org, so this service
 # is connected as a public Git URL and native Auto-Deploy never fires.
 # A push to main hits the service deploy hook instead.
+#
+# Existing triggers are preserved. The hook runs only after required checks
+# succeed on this workflow's candidate SHA, the SHA is still tip of main
+# (push path), and post-deploy /api/health succeeds. Fail closed otherwise.
+#
+# Concurrency: waiters may cancel each other; once the hook job starts it is
+# not cancelled so health verification can finish.
 name: Deploy buddy-walk-api
 
 on:
@@ -10,12 +17,62 @@ on:
       - "mobile/**"
       - "render.yaml"
       - ".github/workflows/deploy-api.yml"
+      - ".github/scripts/required-checks.mjs"
+      - ".github/scripts/required-checks.test.mjs"
+      - ".github/scripts/wait-for-required-checks.mjs"
   workflow_dispatch:
 
+permissions:
+  contents: read
+  checks: read
+  actions: read
+
 jobs:
-  deploy:
+  verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
+    concurrency:
+      group: deploy-buddy-walk-api-verify-main
+      cancel-in-progress: true
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Unit-test required-check helpers
+        run: node --test .github/scripts/required-checks.test.mjs
+
+      - name: Wait for Backend CI and Check on candidate SHA
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          REQUIRED_CHECKS: backend team-console
+          TIMEOUT_SECONDS: "1500"
+          POLL_SECONDS: "15"
+          REQUIRE_TIP_OF_REF: ${{ github.event_name == 'push' && 'main' || '' }}
+        run: node .github/scripts/wait-for-required-checks.mjs
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    concurrency:
+      group: deploy-buddy-walk-api-hook-main
+      cancel-in-progress: false
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Re-assert required checks still green on candidate SHA
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          REQUIRED_CHECKS: backend team-console
+          ONCE: "1"
+          REQUIRE_TIP_OF_REF: ${{ github.event_name == 'push' && 'main' || '' }}
+        run: node .github/scripts/wait-for-required-checks.mjs
+
       - name: Trigger Render deploy
         env:
           DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
@@ -27,4 +84,29 @@ jobs:
           fi
           # Do not append ?ref= — this service is a public Git URL, and a SHA
           # query returns 500. The hook deploys the latest commit on main.
+          # Residual TOCTOU after the tip re-assert requires Render-side SHA
+          # targeting (separate authorization).
           curl -fsS -X GET "$DEPLOY_HOOK_URL"
+
+      - name: Post-deploy health verification
+        run: |
+          set -euo pipefail
+          URL="https://buddy-walk-api.onrender.com/api/health"
+          # Allow Render build to start before accepting a health response so an
+          # immediately-healthy prior revision is less likely to false-green.
+          # /api/health does not yet expose git SHA; revision binding needs a
+          # separate authorized change (health payload or Render API).
+          echo "Settling 90s before health polls for candidate ${{ github.sha }}"
+          sleep 90
+          for attempt in $(seq 1 20); do
+            echo "Health attempt $attempt..."
+            if curl -fsS --max-time 90 "$URL"; then
+              echo
+              echo "Post-deploy health OK (API up). Candidate SHA ${{ github.sha }} was tip-checked before hook; live revision identity is not in /api/health yet."
+              exit 0
+            fi
+            echo "Health failed — waiting 30s"
+            sleep 30
+          done
+          echo "Post-deploy health failed after retries (fail closed)" >&2
+          exit 1
