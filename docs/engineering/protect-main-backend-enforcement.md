@@ -26,6 +26,7 @@ Requiring `Backend CI` or `Check` as contexts would never satisfy and would **de
 | --- | --- |
 | Path-filtered workflow never reports | Backend CI has **no** path filter on `pull_request` / `push` → always reports `backend`. |
 | Conditional job inside Check | Job `team-console` always runs; heavy steps are skipped when `team-console/**` unchanged, but the job still **succeeds** and reports. |
+| Commit-message workflow skip | A HEAD commit message containing `[skip ci]` / `[ci skip]` (and related GitHub skip tokens) can skip Backend CI even without a path filter. Once `backend` is required, that leaves the check **pending** and blocks merge. Recovery: push a follow-up commit **without** a skip token so Backend CI runs again. |
 | Stale required checks | `strict_required_status_checks_policy` is currently `false`. Leaving it false avoids forcing branch up-to-date churn; enabling strict is a separate product decision. |
 | Pages failure | Pre-existing Deploy GitHub Pages failures must stay **out** of required checks so they cannot block merges. |
 | Workers Builds / CodeRabbit | Advisory; not proposed as required for #136. |
