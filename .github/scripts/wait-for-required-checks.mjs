@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Poll GitHub check runs for a commit until required names succeed, fail, or timeout.
- * Fail closed on failure, cancellation, timeout, missing checks, or tip skew.
+ * Fail closed on failure, cancellation, timeout, missing checks, ambiguity, or tip skew.
  *
  * Env:
  *   GITHUB_TOKEN (required)
@@ -116,8 +116,9 @@ for (;;) {
     continue;
   }
 
-  const result = evaluateRequiredChecks(required, latestByName(runs));
-  console.log(JSON.stringify({ elapsedSec: Math.round(elapsed), ...result }));
+  const { runs: byName, ambiguous } = latestByName(runs);
+  const result = evaluateRequiredChecks(required, byName, ambiguous);
+  console.log(JSON.stringify({ elapsedSec: Math.round(elapsed), ambiguous, ...result }));
 
   if (result.reason === "failed") {
     console.error("Required check failed or ambiguous (fail closed)");

@@ -13,25 +13,88 @@ const TERMINAL_FAIL = new Set([
 ]);
 
 /**
- * @param {Array<{ name: string, started_at?: string }>} checkRuns
- * @returns {Map<string, any>}
+ * @param {any} a
+ * @param {any} b
+ * @returns {number} negative if a is newer, positive if b is newer, 0 if unordered tie
+ */
+export function compareCheckRuns(a, b) {
+  const aStart = Date.parse(a.started_at || 0);
+  const bStart = Date.parse(b.started_at || 0);
+  if (bStart !== aStart) return bStart - aStart;
+  const aDone = Date.parse(a.completed_at || 0);
+  const bDone = Date.parse(b.completed_at || 0);
+  if (bDone !== aDone) return bDone - aDone;
+  const aId = Number(a.id) || 0;
+  const bId = Number(b.id) || 0;
+  if (bId !== aId) return bId - aId;
+  return 0;
+}
+
+/**
+ * @param {Array<{ name: string, started_at?: string, completed_at?: string, id?: number|string, status?: string, conclusion?: string|null }>} checkRuns
+ * @returns {{ runs: Map<string, any>, ambiguous: string[] }}
  */
 export function latestByName(checkRuns) {
-  const map = new Map();
+  /** @type {Map<string, any[]>} */
+  const grouped = new Map();
   for (const run of checkRuns) {
-    const prev = map.get(run.name);
-    if (!prev || Date.parse(run.started_at || 0) >= Date.parse(prev.started_at || 0)) {
-      map.set(run.name, run);
-    }
+    const list = grouped.get(run.name) || [];
+    list.push(run);
+    grouped.set(run.name, list);
   }
-  return map;
+
+  /** @type {Map<string, any>} */
+  const runs = new Map();
+  /** @type {string[]} */
+  const ambiguous = [];
+
+  for (const [name, list] of grouped) {
+    let best = list[0];
+    let tied = [best];
+    for (let i = 1; i < list.length; i++) {
+      const cand = list[i];
+      const cmp = compareCheckRuns(best, cand);
+      if (cmp > 0) {
+        best = cand;
+        tied = [cand];
+      } else if (cmp === 0) {
+        tied.push(cand);
+      }
+    }
+
+    const completedTied = tied.filter((r) => r.status === "completed");
+    if (completedTied.length > 1) {
+      const conclusions = new Set(completedTied.map((r) => r.conclusion ?? "null"));
+      if (conclusions.size > 1) {
+        ambiguous.push(name);
+        continue;
+      }
+    }
+    runs.set(name, best);
+  }
+
+  return { runs, ambiguous };
 }
 
 /**
  * @param {string[]} required
  * @param {Map<string, { status?: string, conclusion?: string | null }>} runsByName
+ * @param {string[]} [ambiguousNames]
  */
-export function evaluateRequiredChecks(required, runsByName) {
+export function evaluateRequiredChecks(required, runsByName, ambiguousNames = []) {
+  const ambiguousRequired = ambiguousNames.filter((n) => required.includes(n));
+  if (ambiguousRequired.length) {
+    return {
+      ok: false,
+      reason: "failed",
+      snapshot: ambiguousRequired.map((name) => ({
+        name,
+        status: "completed",
+        conclusion: "ambiguous",
+      })),
+    };
+  }
+
   const snapshot = required.map((name) => {
     const run = runsByName.get(name);
     return {

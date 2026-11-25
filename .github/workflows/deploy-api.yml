@@ -5,6 +5,9 @@
 # Existing triggers are preserved. The hook runs only after required checks
 # succeed on this workflow's candidate SHA, the SHA is still tip of main
 # (push path), and post-deploy /api/health succeeds. Fail closed otherwise.
+#
+# Concurrency: waiters may cancel each other; once the hook job starts it is
+# not cancelled so health verification can finish.
 name: Deploy buddy-walk-api
 
 on:
@@ -15,12 +18,9 @@ on:
       - "render.yaml"
       - ".github/workflows/deploy-api.yml"
       - ".github/scripts/required-checks.mjs"
+      - ".github/scripts/required-checks.test.mjs"
       - ".github/scripts/wait-for-required-checks.mjs"
   workflow_dispatch:
-
-concurrency:
-  group: deploy-buddy-walk-api-main
-  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -28,9 +28,12 @@ permissions:
   actions: read
 
 jobs:
-  deploy:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 35
+    concurrency:
+      group: deploy-buddy-walk-api-verify-main
+      cancel-in-progress: true
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -46,10 +49,32 @@ jobs:
           REQUIRED_CHECKS: backend team-console
           TIMEOUT_SECONDS: "1500"
           POLL_SECONDS: "15"
-          # Push deploys must still be tip of main. workflow_dispatch may target
-          # an older ref for emergency use; skip tip guard only for dispatch.
           REQUIRE_TIP_OF_REF: ${{ github.event_name == 'push' && 'main' || '' }}
         run: node .github/scripts/wait-for-required-checks.mjs
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    concurrency:
+      group: deploy-buddy-walk-api-hook-main
+      cancel-in-progress: false
+    steps:
+      - name: Re-assert tip of main before hook (push only)
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tip="$(curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/main" | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{const j=JSON.parse(s); process.stdout.write(j.sha||'')})")"
+          echo "tip=$tip candidate=$GITHUB_SHA"
+          if [ "$tip" != "$GITHUB_SHA" ]; then
+            echo "Tip skew immediately before hook (fail closed)" >&2
+            exit 3
+          fi
 
       - name: Trigger Render deploy
         env:
@@ -62,19 +87,25 @@ jobs:
           fi
           # Do not append ?ref= — this service is a public Git URL, and a SHA
           # query returns 500. The hook deploys the latest commit on main.
-          # Tip-skew was checked above so latest main should match github.sha.
+          # Residual TOCTOU after the tip re-assert requires Render-side SHA
+          # targeting (separate authorization).
           curl -fsS -X GET "$DEPLOY_HOOK_URL"
 
       - name: Post-deploy health verification
         run: |
           set -euo pipefail
           URL="https://buddy-walk-api.onrender.com/api/health"
-          # Render build/deploy after hook can take several minutes.
+          # Allow Render build to start before accepting a health response so an
+          # immediately-healthy prior revision is less likely to false-green.
+          # /api/health does not yet expose git SHA; revision binding needs a
+          # separate authorized change (health payload or Render API).
+          echo "Settling 90s before health polls for candidate ${{ github.sha }}"
+          sleep 90
           for attempt in $(seq 1 20); do
             echo "Health attempt $attempt..."
             if curl -fsS --max-time 90 "$URL"; then
               echo
-              echo "Post-deploy health OK for candidate ${{ github.sha }}"
+              echo "Post-deploy health OK (API up). Candidate SHA ${{ github.sha }} was tip-checked before hook; live revision identity is not in /api/health yet."
               exit 0
             fi
             echo "Health failed — waiting 30s"
