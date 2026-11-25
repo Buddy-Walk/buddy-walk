@@ -31,7 +31,7 @@ It starts mongod with its data in `.stack/`, loads `scripts/seed-trials.ts` and 
 The seeds hold one of each case the console handles, including Trials saved in older shapes; add one there when a change needs a new case.
 `.stack/` keeps each process's log, and `.stack/env` holds `API_BASE_URL`, `ADMIN_TOKEN` and `MONGO_URI` for tools run beside the stack.
 The stack blanks the Last Meters API keys so a retry can never spend money, which leaves retries off there.
-It needs `mongod` and `mongoimport` on the PATH and mobile's dependencies (`npm ci` in `mobile/`).
+It needs either `mongod` and `mongoimport` on the PATH, or Docker with `docker-compose.verify.yml` (`VERIFY_DOCKER_MONGO=1`), plus mobile's dependencies (`npm ci` in `mobile/`).
 
 ## Test and check
 

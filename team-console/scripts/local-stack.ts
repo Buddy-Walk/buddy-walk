@@ -1,13 +1,13 @@
 /// <reference types="node" />
 // Runs the Team console against a throwaway mobile/server with seeded Trials:
-// mongod (data in .stack/) -> scripts/seed-*.ts -> mobile/server -> vp dev.
+// mongod (data in .stack/) OR Docker Mongo (VERIFY_DOCKER_MONGO=1) -> seed -> mobile/server -> vp dev.
 //
 //   bun scripts/local-stack.ts                 runs until Ctrl-C
 //   bun scripts/local-stack.ts -- <command>    runs the command against it, then stops
 //
 // The command gets API_BASE_URL, ADMIN_TOKEN and CONSOLE_URL; .stack/env holds the
 // first two for tools started separately. Logs stay in .stack/ after it stops.
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
@@ -21,6 +21,18 @@ const mobileDir = fileURLToPath(new URL("../../mobile/", import.meta.url));
 const stackDir = `${consoleDir}.stack`;
 const dataDir = `${stackDir}/db`;
 const pidFile = `${stackDir}/pid`;
+const composeFile = `${consoleDir}/docker-compose.verify.yml`;
+const dockerMongoHostPort = 27018;
+const useDockerMongo =
+  process.env.VERIFY_DOCKER_MONGO === "1" || process.env.VERIFY_DOCKER_MONGO === "true";
+let dockerComposeStarted = false;
+
+function hasCmd(cmd: string): boolean {
+  const r = spawnSync(process.platform === "win32" ? "where" : "which", [cmd], {
+    encoding: "utf8",
+  });
+  return r.status === 0;
+}
 
 // bun passes a leading `--` through or drops it, depending on how it was called.
 const command = process.argv.slice(2);
@@ -39,6 +51,13 @@ async function stop(code: number): Promise<never> {
     const timeout = setTimeout(() => child.pid && process.kill(-child.pid, "SIGKILL"), 10_000);
     await exited;
     clearTimeout(timeout);
+  }
+  if (dockerComposeStarted) {
+    spawnSync(
+      "docker",
+      ["compose", "-f", composeFile, "down", "--volumes"],
+      { cwd: consoleDir, encoding: "utf8" },
+    );
   }
   rmSync(dataDir, { recursive: true, force: true });
   rmSync(pidFile, { force: true });
@@ -81,9 +100,17 @@ function start(
 }
 
 /** Runs a short command to completion, failing the stack if it fails. */
-function run(name: string, file: string, args: string[]): Promise<void> {
+function run(
+  name: string,
+  file: string,
+  args: string[],
+  stdinText?: string,
+): Promise<void> {
   return new Promise((resolve) => {
-    const child = spawn(file, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(file, args, {
+      stdio: [stdinText !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
+      cwd: consoleDir,
+    });
     let output = "";
     child.stdout.on("data", (chunk) => (output += chunk));
     child.stderr.on("data", (chunk) => (output += chunk));
@@ -92,6 +119,10 @@ function run(name: string, file: string, args: string[]): Promise<void> {
       if (code === 0) resolve();
       else void fail(`${name} failed with code ${code}:\n${output}`);
     });
+    if (stdinText !== undefined && child.stdin) {
+      child.stdin.write(stdinText);
+      child.stdin.end();
+    }
   });
 }
 
@@ -165,23 +196,44 @@ if (!existsSync(`${mobileDir}node_modules/.bin/tsx`)) {
   await fail("mobile/server's dependencies are missing: run `npm ci` in mobile/.");
 }
 
-const mongoPort = await anyFreePort();
 const apiPort = await anyFreePort();
 const port = await consolePort(Number(process.env.PORT) || 3000);
-const mongoUri = `mongodb://127.0.0.1:${mongoPort}/team_console_stack`;
 const apiBase = `http://127.0.0.1:${apiPort}`;
 const consoleUrl = `http://localhost:${port}`;
 // A token for this stack only; it never leaves the machine.
 const token = randomBytes(16).toString("hex");
 
-start(
-  "mongod",
-  "mongod",
-  ["--dbpath", dataDir, "--port", String(mongoPort), "--bind_ip", "127.0.0.1"],
-  stackDir,
-  {},
-);
-await waitFor("mongod", () => accepts(mongoPort, "127.0.0.1"));
+let mongoUri: string;
+if (useDockerMongo) {
+  if (!hasCmd("docker")) {
+    await fail("VERIFY_DOCKER_MONGO=1 but docker is not on PATH.");
+  }
+  if (!existsSync(composeFile)) {
+    await fail(`Missing ${composeFile}`);
+  }
+  const up = spawnSync(
+    "docker",
+    ["compose", "-f", composeFile, "up", "-d", "--wait"],
+    { cwd: consoleDir, encoding: "utf8" },
+  );
+  if (up.status !== 0) {
+    await fail(`docker compose up failed:\n${up.stdout}\n${up.stderr}`);
+  }
+  dockerComposeStarted = true;
+  await waitFor("docker-mongo", () => accepts(dockerMongoHostPort, "127.0.0.1"));
+  mongoUri = `mongodb://127.0.0.1:${dockerMongoHostPort}/team_console_stack`;
+} else {
+  const mongoPort = await anyFreePort();
+  mongoUri = `mongodb://127.0.0.1:${mongoPort}/team_console_stack`;
+  start(
+    "mongod",
+    "mongod",
+    ["--dbpath", dataDir, "--port", String(mongoPort), "--bind_ip", "127.0.0.1"],
+    stackDir,
+    {},
+  );
+  await waitFor("mongod", () => accepts(mongoPort, "127.0.0.1"));
+}
 
 for (const [collection, docs] of Object.entries({
   last_mile_test_log: seededTrials(),
@@ -189,13 +241,36 @@ for (const [collection, docs] of Object.entries({
 })) {
   const seedFile = `${stackDir}/${collection}.json`;
   writeFileSync(seedFile, JSON.stringify(docs));
-  await run("mongoimport", "mongoimport", [
-    "--quiet",
-    `--uri=${mongoUri}`,
-    `--collection=${collection}`,
-    "--jsonArray",
-    `--file=${seedFile}`,
-  ]);
+  if (useDockerMongo) {
+    const seedJson = readFileSync(seedFile, "utf8");
+    await run(
+      "mongoimport",
+      "docker",
+      [
+        "compose",
+        "-f",
+        composeFile,
+        "exec",
+        "-T",
+        "mongo",
+        "mongoimport",
+        "--quiet",
+        "--uri=mongodb://127.0.0.1:27017/team_console_stack",
+        `--collection=${collection}`,
+        "--jsonArray",
+        "--file=/dev/stdin",
+      ],
+      seedJson,
+    );
+  } else {
+    await run("mongoimport", "mongoimport", [
+      "--quiet",
+      `--uri=${mongoUri}`,
+      `--collection=${collection}`,
+      "--jsonArray",
+      `--file=${seedFile}`,
+    ]);
+  }
 }
 
 start("mobile-server", `${mobileDir}node_modules/.bin/tsx`, ["server/index.ts"], mobileDir, {
