@@ -1,7 +1,7 @@
 /** @type {import('expo/metro-config').MetroConfig} */
-const { getDefaultConfig } = require('expo/metro-config');
+const { getSentryExpoConfig } = require('@sentry/react-native/metro');
 
-const config = getDefaultConfig(__dirname);
+const config = getSentryExpoConfig(__dirname);
 
 const WEB_ONLY_MODULES = new Set([
   'web-speech-cognitive-services',

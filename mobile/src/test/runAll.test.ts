@@ -1,6 +1,8 @@
 import './doorfrontUri.ts';
 import '../config/apiHosts.test.ts';
 import './serverMode.test.ts';
+import './sentryDebugRoute.test.ts';
+import './sentryPrivacy.test.ts';
 import './lastMetersNavigation.test.ts';
 import './lastMetersTiming.test.ts';
 import './outdoorPanorama.test.ts';

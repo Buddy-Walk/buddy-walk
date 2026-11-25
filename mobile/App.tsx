@@ -1,7 +1,9 @@
 import './src/polyfills';
+import './src/sentry';
 import React from 'react';
 import { PaperProvider, MD3DarkTheme } from 'react-native-paper';
 import { StatusBar } from 'expo-status-bar';
+import * as Sentry from '@sentry/react-native';
 import Navigation from './src/navigation';
 import AppErrorBoundary from './src/components/AppErrorBoundary';
 
@@ -21,7 +23,7 @@ const theme = {
   },
 };
 
-export default function App() {
+function App() {
   return (
     <AppErrorBoundary>
       <PaperProvider theme={theme}>
@@ -31,3 +33,5 @@ export default function App() {
     </AppErrorBoundary>
   );
 }
+
+export default Sentry.wrap(App);
