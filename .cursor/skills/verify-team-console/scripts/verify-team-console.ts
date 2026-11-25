@@ -67,14 +67,29 @@ async function main() {
   const hasBun = which("bun");
   const hasMongod = which("mongod");
   const hasMongoimport = which("mongoimport");
+  const hasDocker = which("docker");
   const hasMobileTsx = existsSync(mobileTsx) || existsSync(`${mobileTsx}.cmd`);
+  const dockerMongo =
+    !libOnly &&
+    !hasMongod &&
+    hasDocker &&
+    existsSync(path.join(consoleDir, "docker-compose.verify.yml"));
+  const mongoReady = hasMongod || dockerMongo;
+  const importReady = hasMongoimport || dockerMongo;
   lines.push("## Prerequisites", "");
   lines.push(`- bun: ${hasBun ? "yes" : "NO"}`);
   lines.push(`- mongod: ${hasMongod ? "yes" : "NO"}`);
   lines.push(`- mongoimport: ${hasMongoimport ? "yes" : "NO"}`);
+  lines.push(
+    `- docker Mongo fallback: ${dockerMongo ? "yes (VERIFY_DOCKER_MONGO=1)" : hasDocker ? "available but unused" : "NO"}`,
+  );
   lines.push(`- mobile/node_modules/.bin/tsx: ${hasMobileTsx ? "yes" : "NO (run npm ci in mobile/)"}`);
   lines.push(`- team-console dir: ${existsSync(consoleDir) ? "yes" : "NO"}`);
   lines.push("");
+  lines.push(
+    "- Note: lib-only PASS is not full browser verification. Full PASS requires Playwright journeys.",
+    "",
+  );
 
   let lib: { ok: boolean; detail: string };
   try {
@@ -107,25 +122,33 @@ async function main() {
   };
 
   // Playwright's webServer owns local-stack startup/cleanup — do not wrap another stack here.
-  if (!libOnly && hasBun && hasMongod && hasMongoimport && hasMobileTsx) {
-    const result = run(
-      "bunx",
-      ["playwright", "test", "--reporter=line"],
-      consoleDir,
-    );
+  if (!libOnly && hasBun && mongoReady && importReady && hasMobileTsx) {
+    const env = {
+      ...process.env,
+      ...(dockerMongo ? { VERIFY_DOCKER_MONGO: "1" } : {}),
+    };
+    const result = spawnSync("bunx", ["playwright", "test", "--reporter=line"], {
+      cwd: consoleDir,
+      encoding: "utf8",
+      shell: true,
+      env,
+    });
+    const out = `${result.stdout ?? ""}${result.stderr ?? ""}`;
     e2e = {
       ran: true,
-      ok: result.ok,
+      ok: result.status === 0,
       detail: [
-        result.ok ? "playwright exit 0 (webServer-owned stack)" : "playwright failed",
-        result.out.slice(-2000),
+        result.status === 0
+          ? `playwright exit 0 (webServer-owned stack${dockerMongo ? "; docker Mongo" : ""})`
+          : "playwright failed",
+        out.slice(-2000),
       ].join("\n"),
     };
   } else if (!libOnly) {
     const missing = [
       !hasBun ? "bun" : null,
-      !hasMongod ? "mongod" : null,
-      !hasMongoimport ? "mongoimport" : null,
+      !mongoReady ? "mongod or Docker (for docker-compose.verify.yml)" : null,
+      !importReady ? "mongoimport or Docker" : null,
       !hasMobileTsx ? "mobile deps (npm ci in mobile/)" : null,
     ].filter(Boolean);
     e2e = {

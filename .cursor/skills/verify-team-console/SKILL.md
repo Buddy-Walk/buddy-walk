@@ -18,11 +18,14 @@ throwaway database under `team-console/.stack/` that is deleted on shutdown.
 ## Prerequisites
 
 - `bun` 1.4+ (Team Console packageManager)
-- `mongod` on PATH (local-stack)
-- `mongoimport` on PATH (seed step; often separate from the `mongod` server package)
+- Mongo **one of**:
+  - `mongod` + `mongoimport` on PATH (classic local-stack), or
+  - Docker with `team-console/docker-compose.verify.yml` (set automatically by the skill wrapper via `VERIFY_DOCKER_MONGO=1` when host mongod is missing)
 - Mobile dependencies: from `mobile/`, run `npm ci` so `mobile/node_modules/.bin/tsx` exists
 - Playwright browsers: `bunx playwright install chromium`
 - From `team-console/`: `bun install`
+
+**lib-only PASS is not full verification.** Full PASS requires Playwright browser journeys.
 
 ## Commands
 
@@ -67,6 +70,7 @@ Skill treats those specs as the source of journey coverage.
 
 - [ ] Prerequisites documented and checked
 - [ ] Isolated sample DB (no production URI)
-- [ ] Trial open / older Trial / outcome / usage journeys executed (or explicitly blocked)
-- [ ] Cleanup verified (`.stack/db` removed after stack exit)
+- [ ] Trial open / older Trial / outcome / usage journeys executed (or explicitly blocked — never silently skipped)
+- [ ] Cleanup verified (`.stack/db` removed after stack exit; docker compose down when used)
 - [ ] Results file written with actual command output summary
+- [ ] Status distinguishes PASS / PARTIAL (lib only) / BLOCKED / FAIL

@@ -1,0 +1,14 @@
+# Throwaway Mongo for verify-team-console / local-stack when host mongod is absent.
+# Does not use production credentials. Data lives in a tmpfs (ephemeral).
+services:
+  mongo:
+    image: mongo:7.0
+    ports:
+      - "27018:27017"
+    tmpfs:
+      - /data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
