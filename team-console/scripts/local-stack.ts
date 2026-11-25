@@ -53,11 +53,10 @@ async function stop(code: number): Promise<never> {
     clearTimeout(timeout);
   }
   if (dockerComposeStarted) {
-    spawnSync(
-      "docker",
-      ["compose", "-f", composeFile, "down", "--volumes"],
-      { cwd: consoleDir, encoding: "utf8" },
-    );
+    spawnSync("docker", ["compose", "-f", composeFile, "down", "--volumes"], {
+      cwd: consoleDir,
+      encoding: "utf8",
+    });
   }
   rmSync(dataDir, { recursive: true, force: true });
   rmSync(pidFile, { force: true });
@@ -100,12 +99,7 @@ function start(
 }
 
 /** Runs a short command to completion, failing the stack if it fails. */
-function run(
-  name: string,
-  file: string,
-  args: string[],
-  stdinText?: string,
-): Promise<void> {
+function run(name: string, file: string, args: string[], stdinText?: string): Promise<void> {
   return new Promise((resolve) => {
     const child = spawn(file, args, {
       stdio: [stdinText !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
@@ -211,11 +205,10 @@ if (useDockerMongo) {
   if (!existsSync(composeFile)) {
     await fail(`Missing ${composeFile}`);
   }
-  const up = spawnSync(
-    "docker",
-    ["compose", "-f", composeFile, "up", "-d", "--wait"],
-    { cwd: consoleDir, encoding: "utf8" },
-  );
+  const up = spawnSync("docker", ["compose", "-f", composeFile, "up", "-d", "--wait"], {
+    cwd: consoleDir,
+    encoding: "utf8",
+  });
   if (up.status !== 0) {
     await fail(`docker compose up failed:\n${up.stdout}\n${up.stderr}`);
   }
