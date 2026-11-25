@@ -33,4 +33,5 @@ jobs:
           REQUIRED_CHECKS: backend team-console
           TIMEOUT_SECONDS: "600"
           POLL_SECONDS: "15"
-        run: node .github/scripts/main-green.mjs --sha "${{ inputs.sha }}"
+          MAIN_GREEN_SHA: ${{ inputs.sha }}
+        run: node .github/scripts/main-green.mjs --sha "$MAIN_GREEN_SHA"

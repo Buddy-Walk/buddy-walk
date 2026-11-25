@@ -26,9 +26,17 @@ import {
 
 function parseArgs(argv) {
   let sha = process.env.GITHUB_SHA || "";
+  let sawShaFlag = false;
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "--sha" && argv[i + 1]) {
-      sha = argv[++i];
+    if (argv[i] === "--sha") {
+      sawShaFlag = true;
+      const next = argv[i + 1];
+      if (!next || next.startsWith("-")) {
+        console.error("--sha requires a SHA operand");
+        process.exit(2);
+      }
+      sha = next;
+      i += 1;
     } else if (argv[i] === "--help" || argv[i] === "-h") {
       console.log(`Usage: node .github/scripts/main-green.mjs --sha <sha>
 Requires GITHUB_TOKEN and GITHUB_REPOSITORY (or run inside Actions/gh auth context via env).
@@ -36,7 +44,7 @@ Ignores GitHub Pages. Fail closed on missing/failed/ambiguous/timeout.`);
       process.exit(0);
     }
   }
-  return { sha };
+  return { sha, sawShaFlag };
 }
 
 const { sha: shaInput } = parseArgs(process.argv.slice(2));
@@ -46,9 +54,8 @@ const apiBase = (process.env.GITHUB_API_URL || "https://api.github.com").replace
   /\/$/,
   "",
 );
-const required = (process.env.REQUIRED_CHECKS || "backend team-console")
-  .split(/\s+/)
-  .filter(Boolean);
+const requiredRaw = process.env.REQUIRED_CHECKS ?? "backend team-console";
+const required = requiredRaw.split(/\s+/).filter(Boolean);
 const timeoutSec = Number(process.env.TIMEOUT_SECONDS || 120);
 const pollSec = Number(process.env.POLL_SECONDS || 10);
 
@@ -64,8 +71,28 @@ if (!shaInput) {
   console.error("--sha <sha> is required");
   process.exit(2);
 }
+if (!required.length) {
+  console.error("REQUIRED_CHECKS resolved empty (fail closed)");
+  process.exit(2);
+}
+if (!Number.isFinite(timeoutSec) || timeoutSec <= 0) {
+  console.error("TIMEOUT_SECONDS must be a finite number > 0");
+  process.exit(2);
+}
+if (!Number.isFinite(pollSec) || pollSec <= 0) {
+  console.error("POLL_SECONDS must be a finite number > 0");
+  process.exit(2);
+}
 
-async function gh(path) {
+function remainingMs(started) {
+  return Math.max(0, timeoutSec * 1000 - (Date.now() - started));
+}
+
+async function gh(path, started) {
+  const left = remainingMs(started);
+  if (left <= 0) {
+    throw new Error("deadline exceeded before request");
+  }
   const res = await fetch(`${apiBase}${path}`, {
     headers: {
       Accept: "application/vnd.github+json",
@@ -73,6 +100,7 @@ async function gh(path) {
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "buddy-walk-main-green",
     },
+    signal: AbortSignal.timeout(Math.min(left, 60_000)),
   });
   if (!res.ok) {
     const body = await res.text();
@@ -81,17 +109,21 @@ async function gh(path) {
   return res.json();
 }
 
-async function resolveSha(input) {
-  const data = await gh(`/repos/${repo}/commits/${encodeURIComponent(input)}`);
+async function resolveSha(input, started) {
+  const data = await gh(
+    `/repos/${repo}/commits/${encodeURIComponent(input)}`,
+    started,
+  );
   return data.sha;
 }
 
-async function fetchCheckRuns(sha) {
+async function fetchCheckRuns(sha, started) {
   const all = [];
   let page = 1;
   for (;;) {
     const batch = await gh(
       `/repos/${repo}/commits/${sha}/check-runs?per_page=100&page=${page}`,
+      started,
     );
     const runs = batch.check_runs || [];
     all.push(...runs);
@@ -102,8 +134,8 @@ async function fetchCheckRuns(sha) {
   return all;
 }
 
-const sha = await resolveSha(shaInput);
 const started = Date.now();
+const sha = await resolveSha(shaInput, started);
 console.log(
   JSON.stringify({
     msg: "main-green start",
@@ -131,10 +163,15 @@ for (;;) {
 
   let runs;
   try {
-    runs = await fetchCheckRuns(sha);
+    runs = await fetchCheckRuns(sha, started);
   } catch (err) {
     console.error(String(err));
-    await new Promise((r) => setTimeout(r, pollSec * 1000));
+    const left = remainingMs(started);
+    if (left <= 0) {
+      console.error("main-green timeout during API wait");
+      process.exit(2);
+    }
+    await new Promise((r) => setTimeout(r, Math.min(pollSec * 1000, left)));
     continue;
   }
 
@@ -164,5 +201,10 @@ for (;;) {
     process.exit(0);
   }
 
-  await new Promise((r) => setTimeout(r, pollSec * 1000));
+  const left = remainingMs(started);
+  if (left <= 0) {
+    console.error("main-green timeout");
+    process.exit(2);
+  }
+  await new Promise((r) => setTimeout(r, Math.min(pollSec * 1000, left)));
 }
