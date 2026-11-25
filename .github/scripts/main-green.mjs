@@ -89,7 +89,7 @@ function remainingMs(started) {
 }
 
 async function gh(path, started) {
-  const left = remainingMs(started);
+  const left = Math.floor(remainingMs(started));
   if (left <= 0) {
     throw new Error("deadline exceeded before request");
   }
@@ -171,7 +171,9 @@ for (;;) {
       console.error("main-green timeout during API wait");
       process.exit(2);
     }
-    await new Promise((r) => setTimeout(r, Math.min(pollSec * 1000, left)));
+    await new Promise((r) =>
+      setTimeout(r, Math.floor(Math.min(pollSec * 1000, left))),
+    );
     continue;
   }
 
@@ -206,5 +208,7 @@ for (;;) {
     console.error("main-green timeout");
     process.exit(2);
   }
-  await new Promise((r) => setTimeout(r, Math.min(pollSec * 1000, left)));
+  await new Promise((r) =>
+    setTimeout(r, Math.floor(Math.min(pollSec * 1000, left))),
+  );
 }
