@@ -22,10 +22,14 @@ This change does **not** disable the push trigger or Render auto paths. The firs
 
 Manual dispatch still curls the **unversioned** hook, which deploys **current tip of `main`**, not an older selected ref. The wait step verifies checks for `github.sha` of the dispatch ref; if that SHA is not tip of `main`, tip skew is skipped on dispatch, but the hook will still deploy whatever is tip when Render clones. Use dispatch only when tip of `main` is the intended revision and its `backend` + `team-console` checks are green. Older-revision rollback requires a Render mechanism that can select a SHA (not available on this public-Git hook; `?ref=` returns 500) — separate authorization.
 
+## Runtime revision identity (#188)
+
+`/api/health` may include additive `gitSha` from `RENDER_GIT_COMMIT` / `SOURCE_VERSION`. Post-deploy verification polls health and records `gitSha`. Matching the candidate SHA is enforced only when repository variable `ENFORCE_HEALTH_GIT_SHA=1` (default soft so the first `gitSha`-bearing deploy can land). Authenticated Render API commit deploy remains a separate authorization (see issue #188).
+
 ## Known residuals (need separate approval)
 
 1. Hook cannot pin `github.sha` (`?ref=` → 500). Tip re-assert narrows but does not close TOCTOU if `main` moves in the curl window, especially for path-filter-skipped pushes.
-2. `/api/health` does not return git SHA, so health proves API liveness after a settle delay, not that `github.sha` is the live revision.
+2. Strict health `gitSha` enforcement and Render API `commitId` deploy require secrets/variables authorization.
 
 ## Rollback
 
