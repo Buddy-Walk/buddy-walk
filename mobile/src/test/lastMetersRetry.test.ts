@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
+import { parse } from "csv-parse/sync";
 import { v4, v7 } from "uuid";
 import { LastMetersTestLogController } from "../../server/controllers/lastMetersTestLog";
 import type { lastMetersTestLogInterface } from "../../server/database/models/lastMetersTestLog";
@@ -815,41 +816,86 @@ test("every read reports a retry with the photo of the original it ran on", asyn
   assert.equal(stored?.userPhoto, undefined);
 });
 
+async function exportTrialRows(query: Record<string, string> = {}): Promise<Record<string, string>[]> {
+  const { req, res } = fakeExchange("", undefined, { "x-admin-token": "secret" });
+  req.query = query;
+  let csv = "";
+  const csvRes = Object.assign(res, { send(payload: string) { csv = payload; return this; } });
+  await controller.exportCsv(req, csvRes as unknown as Response);
+  assert.equal(res.statusCode, 200);
+  return parse(csv, { columns: true });
+}
+
 test("the CSV export includes a retry's photo", async () => {
   seed("orig");
   seed("retry-a", { userPhoto: undefined, retryOf: "orig", retryPanoramaMode: "fresh" });
-  const { req, res } = fakeExchange("", undefined, { "x-admin-token": "secret" });
-  (req as unknown as { query: Record<string, string> }).query = { includeRetries: "true" };
-  let csv = "";
-  const csvRes = Object.assign(res, {
-    send(payload: string) {
-      csv = payload;
-      return this;
-    },
-  });
-  await controller.exportCsv(req, csvRes as unknown as Response);
-  // One photo placeholder for the original and one for its retry.
+  const rows = await exportTrialRows({ includeRetries: "true" });
   const placeholder = `[base64 image ${PHOTO.length} chars]`;
-  assert.equal(csv.split(placeholder).length - 1, 2);
+  assert.deepEqual(rows.map(row => row.userPhoto), [placeholder, placeholder]);
 });
 
 test("the CSV export says which path each test arrived on", async () => {
   seed("old-path", { requestPath: "/api/last-mile" });
-  const { req, res } = fakeExchange("", undefined, { "x-admin-token": "secret" });
-  (req as unknown as { query: Record<string, string> }).query = {};
-  let csv = "";
-  const csvRes = Object.assign(res, {
-    send(payload: string) {
-      csv = payload;
-      return this;
-    },
-  });
-  await controller.exportCsv(req, csvRes as unknown as Response);
-  const [header, row] = csv.split("\n");
-  const column = header.split(",").indexOf("requestPath");
-  assert.notEqual(column, -1, "the export has a requestPath column");
-  assert.equal(row.split(",")[column], "/api/last-mile");
+  const [row] = await exportTrialRows();
+  assert.equal(row.requestPath, "/api/last-mile");
 });
+
+// Existing columns and their order are part of the CSV contract.
+const originalTrialCsvColumns = [
+  "pipelineVersion deployedCommit runKind requestPath retryOf retryPanoramaMode retryDefaultsApplied",
+  "replayInput safetyReasons walkingEvidence panoramaTargetHeading confidenceMethod serverTs",
+  "destination destinationQuery lat lng panoramaDate panoramaStatus panoramaValidation panoramaSource",
+  "panoId panoramaCopyright panoramaAgeYears destinationPhotoDate destinationPhotoStatus",
+  "destinationPlaceName destinationPlaceAddress destinationTypes destinationDistanceMeters",
+  "destinationOpenNow destinationBusinessStatus placesSearches placeCandidates entranceSource",
+  "entranceLat entranceLng besideBuilding gpsAccuracyMeters gpsAllowanceMeters exactGateWidened",
+  "compassAccuracyLevel destinationBearing deviceHeading headingDifferenceDegrees headingAligned",
+  "compassHeading panoramaMatchedHeading headingComparisonDifference headingComparisonAgrees",
+  "confidenceScore confidenceLevel confidenceReasons destinationReferenceUsed signText signTextMatched",
+  "navigationMode testScenario currentHeading targetHeading turnInstruction finalOutput dataSources",
+  "reviewOutcome turnCorrectness entranceCorrectness reviewerStatus reviewerNotes reviewedAt success",
+  "error latencyMs panoramaHeadings steps userPhoto panoramaPhoto destinationPhoto",
+].join(" ").split(" ");
+
+for (const includeImages of [false, true]) {
+  test(`CSV exports recorded module timings with includeImages=${includeImages}`, async () => {
+    const complete = { preCheck: 0, currentViewMatch: 80.25, destinationMatch: 75.5, turnDecision: 2, guidance: 1 };
+    const historical: Record<string, number> = { step0: 2.5, moduleB: 0, moduleC: 11, moduleD: 12, moduleE: 13 };
+    const mixed = { preCheck: 0, step0: 99, moduleB: 7.75, guidance: 0, moduleE: 88 };
+    const skipped = { preCheck: 3, guidance: 0 };
+    const notes = 'A "quoted", multiline\nreview';
+    const steps = [{ name: "target_store_match", prompt: "find, compare", model: "fixture", success: true, durationMs: 110 }];
+    seed("full", { destination: "Full", moduleTimingsMs: complete, latencyMs: 100, reviewerNotes: notes, steps });
+    seed("missing", { destination: "Missing", steps });
+    seed("skipped", { destination: "Skipped", moduleTimingsMs: skipped, steps });
+    seed("empty", { destination: "Empty", moduleTimingsMs: {} });
+    seed("old", { destination: "Historical", moduleTimingsMs: historical });
+    seed("mixed", { destination: "Mixed", moduleTimingsMs: mixed });
+
+    const rows = await exportTrialRows(includeImages ? { includeImages: "true" } : {});
+    const timingColumns = ["preCheckMs", "currentViewMatchMs", "destinationMatchMs", "turnDecisionMs", "guidanceMs"];
+    assert.deepEqual(Object.keys(rows[0]), [...originalTrialCsvColumns, ...timingColumns, "moduleTimingsMs"]);
+    const byDestination = new Map(rows.map(row => [row.destination, row]));
+    assert.equal(byDestination.size, 6);
+    const check = (destination: string, cells: string[], original?: object) => {
+      const row = byDestination.get(destination)!;
+      assert.deepEqual(timingColumns.map(column => row[column]), cells);
+      if (original === undefined) assert.equal(row.moduleTimingsMs, "");
+      else assert.deepEqual(JSON.parse(row.moduleTimingsMs), original);
+    };
+    check("Full", ["0", "80.25", "75.5", "2", "1"], complete);
+    check("Missing", ["", "", "", "", ""]);
+    check("Skipped", ["3", "", "", "", "0"], skipped);
+    check("Empty", ["", "", "", "", ""], {});
+    check("Historical", ["2.5", "0", "11", "12", "13"], historical);
+    check("Mixed", ["0", "7.75", "", "", "0"], mixed);
+    const full = byDestination.get("Full")!;
+    assert.equal(full.latencyMs, "100");
+    assert.equal(full.reviewerNotes, notes);
+    assert.deepEqual(JSON.parse(full.steps), steps);
+    assert.equal(full.userPhoto, includeImages ? PHOTO : `[base64 image ${PHOTO.length} chars]`);
+  });
+}
 
 test("a proxied log's fields and its replay input come from the same parsed request", () => {
   const parsed = parseLastMetersRequest({ destination: "  CVS  ", lat: 40.7128, lng: -74.006, heading: 92.5, gpsAccuracyMeters: 6 });

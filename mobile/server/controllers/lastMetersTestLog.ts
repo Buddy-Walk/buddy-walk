@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { lastMetersTestLogService } from "../services/lastMetersTestLog";
 import { toCsv } from "../utils/csv";
+import type { LastMetersModuleTimings } from "../utils/lastMetersTiming";
 import { buildDateFilter, isAdminAuthorized, parseLimit } from "../utils/adminAuth";
 import { isMongoConnected } from "../database/usageStore";
 import {
@@ -97,7 +98,27 @@ const LAST_METERS_TEST_CSV_COLUMNS = [
   "userPhoto",
   "panoramaPhoto",
   "destinationPhoto",
+  "preCheckMs",
+  "currentViewMatchMs",
+  "destinationMatchMs",
+  "turnDecisionMs",
+  "guidanceMs",
+  "moduleTimingsMs",
 ];
+
+// Older Trials stored the Team Console module labels as timing keys.
+type StoredModuleTimings = LastMetersModuleTimings &
+  Partial<Record<"step0" | "moduleB" | "moduleC" | "moduleD" | "moduleE", number>>;
+
+function moduleTimingColumns(timings?: StoredModuleTimings) {
+  return {
+    preCheckMs: timings?.preCheck ?? timings?.step0,
+    currentViewMatchMs: timings?.currentViewMatch ?? timings?.moduleB,
+    destinationMatchMs: timings?.destinationMatch ?? timings?.moduleC,
+    turnDecisionMs: timings?.turnDecision ?? timings?.moduleD,
+    guidanceMs: timings?.guidance ?? timings?.moduleE,
+  };
+}
 
 function describeCandidatesForCsv(candidates?: PlaceCandidateLog[]): string {
   return (candidates ?? [])
@@ -315,6 +336,7 @@ export class LastMetersTestLogController {
     const csv = toCsv(
       data.map((row) => ({
         ...row,
+        ...moduleTimingColumns(row.moduleTimingsMs),
         serverTs: row.serverTs ? new Date(row.serverTs).toISOString() : "",
         reviewedAt: row.reviewedAt ? new Date(row.reviewedAt).toISOString() : "",
         panoramaHeadings: row.panoramaHeadings.join("|"),
